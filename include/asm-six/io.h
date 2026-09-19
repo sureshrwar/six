@@ -246,21 +246,44 @@ static inline char  inb_p(int port)
 				 */
 				break;
 		case 0x64 :	/* keyboard status */
-				if(kcount == 0)
+				/*
+				 * TERMFD is the host's /dev/tty, put into raw
+				 * mode and marked O_NDELAY by
+				 * six_host_tty_open_raw().  Non-blocking means
+				 * read() returns -1/EAGAIN whenever nobody is
+				 * typing, which is nearly always.
+				 *
+				 * The test here used to be "kcount == 0", so
+				 * -1 was indistinguishable from a full buffer:
+				 * the status port reported a keystroke waiting,
+				 * and port 0x60 below then decremented kcount
+				 * past zero and handed out byte after byte of
+				 * the previous read -- and then whatever
+				 * followed kchar[] in memory.  handle_scancode()
+				 * in drivers/char/keyboard.c treats the letter
+				 * 'q' as "quit SIX now", so sooner or later the
+				 * emulator shot itself, with no message, while
+				 * the guest was sitting innocently in read().
+				 *
+				 * Anything <= 0 means "no keystroke".  Clamp it
+				 * so the 0x60 case cannot go negative either.
+				 */
+				if(kcount <= 0)
 				{
 					koff = 0;
-					kcount = read(TERMFD, kchar, 512);
-					if(kcount == 0)
+					kcount = read(TERMFD, kchar, sizeof(kchar));
+					if(kcount <= 0)
+					{
+						kcount = 0;
 						return 0;
-					else 
-						return 0x01;	
-					
+					}
+					return 0x01;
 				}
 				else
 					return 0x01;
 				break;
 		case 0x60 :
-				if(kcount)
+				if(kcount > 0)
 				{
 					kcount--;
 					return kchar[koff++];
