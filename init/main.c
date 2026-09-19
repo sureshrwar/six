@@ -843,9 +843,27 @@ static int init(void * unused)
 #endif
 
 #if (SIX)
-        (void) sys_open("/dev/tty1",O_RDWR, 0);
-        (void) sys_dup(0);
-        (void) sys_dup(0);
+        /*
+         * fd 0, 1 and 2 for the first user process.
+         *
+         * Stock Linux ignores the result here; SIX must not.  If /dev/tty1
+         * is missing, or carries a character major that nobody registered,
+         * the open fails and /bin/sh is started with no descriptors at all.
+         * Every write(1, ...) it makes then returns -EBADF and the shell
+         * looks dead while in fact running perfectly.  Say so instead.
+         */
+        {
+                int cfd = sys_open("/dev/tty1", O_RDWR, 0);
+
+                if (cfd < 0)
+                        printk("init: cannot open /dev/tty1 (%d) -- "
+                               "the first process will have no stdin, "
+                               "stdout or stderr\n", cfd);
+                else {
+                        (void) sys_dup(cfd);
+                        (void) sys_dup(cfd);
+                }
+        }
 #else
         (void) open("/dev/tty1",O_RDWR, 0);
         (void) dup(0);

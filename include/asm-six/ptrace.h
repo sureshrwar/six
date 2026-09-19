@@ -221,6 +221,15 @@ struct pt_regs {
 typedef int six_ptrace_layout_assert[
         (sizeof(struct pt_regs) ==
          SIX_HOST_UCONTEXT_SIZE + SIX_PT_REGS_EXTRA) ? 1 : -1];
+
+/*
+ * Repoint the self-referential fpregs pointer after a pt_regs has been
+ * copied.  Defined in arch/six/kernel/process.c.  Guest user code never
+ * needs this, and cannot link against it, so keep it kernel-only.
+ */
+#ifdef __KERNEL__
+extern void six_fix_context(struct pt_regs *p);
+#endif
 #endif
 
 

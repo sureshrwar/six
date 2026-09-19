@@ -64,9 +64,18 @@ file  /etc/init             0755  applications/init/init
 file  /etc/x86.txt          0644  port/image/x86.txt
 
 # --- device nodes ----------------------------------------------------------
-# Both are character major 0 minor 0, exactly as on the 2005 image.  SIX's
-# console driver does not decode the device number -- init/main.c just
-# sys_open()s /dev/tty1 and every write lands on the host terminal -- so the
-# numbers are cosmetic, but they are reproduced faithfully.
-node  /dev/tty1             0666  c  0  0
-node  /dev/console          0666  c  0  0
+# These have to carry the right device numbers.  Getting them wrong is not
+# cosmetic: sys_open() looks up chrdevs[MAJOR(dev)] and fails with ENODEV if
+# nothing is registered there.  init/main.c opens /dev/tty1 as fd 0 and dups
+# it to 1 and 2, and does not check the result -- so a bad node means the
+# first guest process starts with *no* open file descriptors, every write(1)
+# it makes returns -EBADF, and a shell that is working perfectly well looks
+# like a shell that produces no output.  That is exactly what happened when
+# these were briefly created as major 0 minor 0.
+#
+# 4 is TTY_MAJOR, registered by tty_init() in drivers/char/tty_io.c.  The
+# numbers below match the 2005 image byte for byte (verified against git tag
+# v2005-cvs with debugfs before that image was deleted): /dev/tty1 is 4:1,
+# the first virtual console, and /dev/console is 4:0.
+node  /dev/tty1             0666  c  4  1
+node  /dev/console          0666  c  4  0

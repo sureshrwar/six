@@ -150,4 +150,21 @@ GUEST_CRT      = $(SIX_GUEST_TOP)/applications/start/cstart.o
 guest_link = $(GUEST_LD) $(GUEST_LDFLAGS) -o $(1) $(GUEST_CRT) $(2) $(GUEST_LIBC)
 
 %.o: %.c
-	$(GUEST_CC) $(GUEST_CFLAGS) -c -o $@ $<
+	$(GUEST_CC) $(GUEST_CFLAGS) -MMD -MF $(dir $@).$(notdir $@).d -c -o $@ $<
+
+# ---------------------------------------------------------------------------
+# Header dependencies
+#
+# -MMD above drops a .foo.o.d beside every object listing the headers it
+# actually read.  Pull them in so that editing library/include/stdio.h
+# rebuilds the 80 files that include it, rather than leaving a tree of
+# objects that were compiled against a struct layout that no longer exists.
+# The kernel build has done this since the -MMD change; the guest build had
+# no dependency tracking at all, which is a quiet way to spend an afternoon
+# debugging a binary that does not contain your fix.
+#
+# The wildcard is per-directory because each guest Makefile includes this
+# file from its own directory.
+# ---------------------------------------------------------------------------
+-include $(wildcard .*.o.d)
+-include $(wildcard ../sys/.*.o.d)

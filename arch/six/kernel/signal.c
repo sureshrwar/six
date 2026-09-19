@@ -57,6 +57,17 @@ asmlinkage void sys_sigreturn(unsigned long sc, struct pt_regs *regs)
 	scp = (struct sigcontext *)sc;
 
 	memcpy(regs, &scp->oldcon, sizeof(struct pt_regs));
+
+#if (__i386__)
+	/*
+	 * The context we have just copied back carries the fpregs pointer
+	 * that was valid where the copy was *taken from* -- the guest's
+	 * signal frame.  glibc's ucontext_t is self-referential, so it now
+	 * dangles.  Repoint it at this pt_regs' own embedded FPU area
+	 * before anybody hands it to setcontext().
+	 */
+	six_fix_context(regs);
+#endif
 }
 
 /*
@@ -66,12 +77,32 @@ static void setup_frame(struct sigaction *sa, struct pt_regs *regs, int signr,
         unsigned long oldmask)
 {
 	struct sigcontext *scp, sc;
+	unsigned long sp;
+
+	/*
+	 * Where is the guest's stack pointer?
+	 *
+	 * On x86 the answer is annoyingly non-obvious.  pt_regs is an
+	 * overlay on the host's ucontext_t, which has *two* stack pointer
+	 * slots: gregs[REG_ESP] (our "kesp") and gregs[REG_UESP] (our
+	 * "esp").  The kernel fills both identically when it delivers a
+	 * signal, but glibc's setcontext() -- which is how SIX returns to
+	 * a guest, see RESTORE_USER_CONTEXT -- reloads %esp from
+	 * gregs[REG_ESP] and ignores REG_UESP completely.  The 2005 code
+	 * only ever touched "esp", so every frame it built was silently
+	 * discarded.  Read and write both; believe kesp.
+	 */
+#if (__i386__)
+	sp = regs->kesp;
+#else
+	sp = regs->esp;
+#endif
 
 	/*
 	 * we are basically abt to take the current context and
 	 * store it on the stack.
 	 */
-	scp = (struct sigcontext *)regs->esp - 1;
+	scp = (struct sigcontext *)sp - 1;
 	scp = (struct sigcontext *) stack_align((unsigned long)scp);
 
 	memcpy(&sc.oldcon, regs, sizeof(struct pt_regs));
@@ -82,6 +113,10 @@ static void setup_frame(struct sigaction *sa, struct pt_regs *regs, int signr,
 	
 	/*
 	 * there - we have done it.
+	 *
+	 * Note this writes straight into guest memory.  That is legitimate
+	 * under SIX: guest virtual addresses are host virtual addresses,
+	 * and set_proc_mappings() has every page of `current' mapped.
 	 */
 	memcpy(scp, &sc, sizeof(struct sigcontext));
 
@@ -108,10 +143,53 @@ static void setup_frame(struct sigaction *sa, struct pt_regs *regs, int signr,
 	 *
 	 */
 
+#if (__i386__)
+	/*
+	 * x86 has no global registers to smuggle things through, so the
+	 * trampoline is entered as an ordinary cdecl function instead:
+	 *
+	 *	int sigreturn(struct sigcontext *sc, int (*handler)());
+	 *
+	 * We hand-build its call frame below the sigcontext.  There is no
+	 * real return address -- sigreturn() never returns, it finishes
+	 * with a sigreturn(2) trap that restores oldcon -- so slot 0 is a
+	 * deliberate zero.  If a guest ever does return from it, it faults
+	 * at address 0, which is at least a legible way to die.
+	 *
+	 *	|-----------------------|
+	 *	|   handler  (arg 1)	|  new sp + 8
+	 *	|   scp      (arg 0)	|  new sp + 4
+	 *	|   0        (ret addr)	|  new sp      <- 16-byte aligned + 4
+	 *	|-----------------------|
+	 *
+	 * The alignment is what the i386 ABI guarantees a function at its
+	 * entry point: %esp+4 is a multiple of 16, i.e. the stack was
+	 * 16-aligned immediately before the (notional) call pushed the
+	 * return address.  gcc is entitled to use movaps on locals.
+	 */
+	{
+		unsigned long *fp;
+		unsigned long  fsp;
+
+		fsp  = (unsigned long)scp;
+		fsp -= 32;		/* keep clear of the sigcontext */
+		fsp &= ~15UL;		/* 16-align ...                 */
+		fsp -= 4;		/* ... then push the ret slot   */
+
+		fp = (unsigned long *)fsp;
+		fp[0] = 0;
+		fp[1] = (unsigned long)scp;
+		fp[2] = (unsigned long)sa->sa_handler;
+
+		regs->kesp = fsp;	/* the one setcontext() reads */
+		regs->esp  = fsp;	/* keep the shadow consistent */
+	}
+#else
 	regs->esp = (unsigned long)scp - 96;
 
 	regs->g6 = scp;
 	regs->g7 = sa->sa_handler;
+#endif
 	/*
 	 * point pc to libc's very own sigreturn function. so yes,
 	 * now the pc points to an execution address lying in userland.
@@ -121,7 +199,8 @@ static void setup_frame(struct sigaction *sa, struct pt_regs *regs, int signr,
 	 * as argument to a sigreturn() system call - which accepts
 	 * the sigcontext argument, and restores the context lying in
 	 * the oldcon member of struct sigcontext. go to sched.h for
-	 * more details.
+	 * more details.  (On x86 both of those travel on the stack as
+	 * ordinary arguments instead; see above.)
 	 */
 	regs->pc = current->_sigreturn;
 #if (!__i386__)
