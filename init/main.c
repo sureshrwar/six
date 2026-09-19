@@ -535,29 +535,63 @@ void check_root()
 void grow_ram()
 {
 	extern int RAMFD, _end;
-	int ret;
-	unsigned long end;
+	void *ret;
+	unsigned long base;
+	int attempt;
 
 	RAMFD = fileno(tmpfile());
 	ftruncate(RAMFD, SOLARIS_RAM_SIZE);
 
-	end = &_end + 2*SIX_GAP_SIZE;
+	/*
+	 * Where to put the emulated "physical memory".
+	 *
+	 * The 2005 code mapped it MAP_FIXED at &_end + 2*SIX_GAP_SIZE, i.e.
+	 * about 80KB past the end of bss.  That was fine on Solaris, but on
+	 * Linux the brk heap starts just above _end -- and with ASLR its
+	 * base is randomised by up to 32MB.  MAP_FIXED does not fail on a
+	 * collision, it silently replaces whatever is already mapped, so
+	 * this quietly unmapped glibc's heap and the next malloc() aborted
+	 * with an assertion failure inside sysmalloc().
+	 *
+	 * So: start looking beyond the ASLR brk window, and use
+	 * MAP_FIXED_NOREPLACE (Linux 4.17+) so that a collision is reported
+	 * as an error rather than papered over.  If the chosen base is
+	 * occupied we walk upwards and try again.
+	 *
+	 * The base is deliberately kept as LOW as possible.  mem_map[] is
+	 * indexed by absolute MAP_NR(addr) = addr >> PAGE_SHIFT and is
+	 * carved out of this very region, so every extra megabyte of base
+	 * address costs real emulated RAM.
+	 */
+	base = PAGE_ALIGN((unsigned long)&_end + SIX_RAM_BRK_GAP);
 
-	end = PAGE_ALIGN(end);
+	for (attempt = 0; attempt < SIX_RAM_MAX_ATTEMPTS; attempt++) {
+		printk("Mapping %dMB of memory at 0x%08lx ...",
+		       RAM, base);
 
-        printk("Mapping memory at 0x%x ...", end);
-        ret = mmap(end, SOLARIS_RAM_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC,
-                   MAP_SHARED | MAP_FIXED, RAMFD, 0);
-        if(ret == MAP_FAILED)
-        {
-                printk("\nKernel abort : memory mapping failed\n");
-                perror("Diagnostics: ");
-                exit(1);
-        }
-        else {
-                printk("Success\n");
-		_ram_start = end;
+		ret = mmap((void *)base, SOLARIS_RAM_SIZE,
+			   PROT_READ | PROT_WRITE | PROT_EXEC,
+			   MAP_SHARED | MAP_FIXED_NOREPLACE, RAMFD, 0);
+
+		if (ret != MAP_FAILED && (unsigned long)ret == base) {
+			printk(" ok\n");
+			_ram_start = base;
+			return;
+		}
+
+		/*
+		 * MAP_FIXED_NOREPLACE gives EEXIST when the range is taken.
+		 * Anything else is a real failure worth reporting.
+		 */
+		if (ret != MAP_FAILED)
+			munmap(ret, SOLARIS_RAM_SIZE);
+		printk(" in use, retrying higher\n");
+		base += SIX_RAM_RETRY_STEP;
 	}
+
+	printk("\nKernel abort : could not place %dMB of emulated RAM\n", RAM);
+	perror("Diagnostics: ");
+	exit(1);
 }
 
 void main(int argc, char *argv[])

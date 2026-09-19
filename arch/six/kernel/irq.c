@@ -17,6 +17,7 @@
  * Naturally it's not a 1:1 relation, but there are similarities.
  */
 
+#include "host.h"
 #include <solaris.h>
 
 #include <linux/ptrace.h>
@@ -1999,9 +2000,9 @@ void init_IRQ(void)
 
         setup_x86_irq(31, &irq2);	// clock!
         setup_x86_irq(2, &irqINT);	// sigint
-        setup_x86_irq(20, &irqWINCH);	// window resize
+        setup_x86_irq(SIX_HOST_WINCHSIG, &irqWINCH);	// window resize
         setup_x86_irq(11, &irqSEGV);	// segv!
-        setup_x86_irq(33, &irqSYSCALL);	// syscall
+        setup_x86_irq(SIX_HOST_TRAPSIG, &irqSYSCALL);	// syscall
         setup_x86_irq(13, &irq13);	// math error
 }
 

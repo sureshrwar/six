@@ -28,10 +28,10 @@ endif
 O_TARGET := kernel.o
 
 ifdef SOLARIS_USER_MODE
-O_OBJS   := process.o signal.o traps.o irq.o vm86.o bios32.o \
+O_OBJS   := process.o host.o signal.o traps.o irq.o vm86.o bios32.o \
             ptrace.o ioport.o ldt.o setup.o time.o sys_six.o ksyms.o 
 else
-O_OBJS   := process.o signal.o entry.o traps.o irq.o vm86.o bios32.o \
+O_OBJS   := process.o host.o signal.o entry.o traps.o irq.o vm86.o bios32.o \
             ptrace.o ioport.o ldt.o setup.o time.o sys_i386.o ksyms.o 
 endif
 

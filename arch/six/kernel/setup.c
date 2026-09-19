@@ -9,6 +9,7 @@
  * This file handles the architecture-dependent parts of initialization
  */
 
+#include "host.h"
 #include <solaris.h>
 #if (SIX)
 #include <linux/mm.h>
@@ -202,20 +203,25 @@ void setup_arch(char **cmdline_p, unsigned long * memory_start_p, unsigned long 
 void install_signal_handlers()
 {
 	int t;
+	int refused = 0;
+
 	printk("Registering interrupt entry point...");
 	for (t = 1; t <= _SIGRTMAX; t++) {
-			register_interrupt_handler(t, sun_handler);
+		if (register_interrupt_handler(t, sun_handler) != 0)
+			refused++;
 	}
-	printk("Done\n");
+	/*
+	 * A few refusals are expected and harmless: SIGKILL and SIGSTOP can
+	 * never be caught, and glibc's threading layer reserves signals 32
+	 * and 33.  (That last one is why the syscall trap had to move off
+	 * SIGLWP -- see arch/six/kernel/host.h.)
+	 */
+	printk("Done (%d of %d refused by host)\n", refused, _SIGRTMAX);
 }
 
-void register_interrupt_handler(int t, void (* func)(int, void *, void *))
+int register_interrupt_handler(int t, void (* func)(int, void *, void *))
 {
-    struct solaris_sigaction sig;
-    sig.sa_flags =  SA_SIGINFO | SA_RESTART;
-    sig.sa_handler = func;
-    get_kernel_mask((so_sigset_t *) &sig.sa_mask);
-    sigaction(t, &sig, (struct solaris_sigaction *) 0);
+	return six_host_install_handler(t, (six_host_handler_t) func);
 }
 #endif
 

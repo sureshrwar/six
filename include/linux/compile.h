@@ -1,5 +1,5 @@
-#define UTS_VERSION "#2803 Sat Sep 19 06:07:08 AM UTC 2026"
-#define LINUX_COMPILE_TIME "06:07:08"
+#define UTS_VERSION "#2806 Sat Sep 19 06:12:46 AM UTC 2026"
+#define LINUX_COMPILE_TIME "06:12:46"
 #define LINUX_COMPILE_BY "motorman"
 #define LINUX_COMPILE_HOST "hangman.c.googlers.com"
 #define LINUX_COMPILE_DOMAIN "c.googlers.com"

@@ -15,6 +15,7 @@
  *      fixed time warps in do_[slow|fast]_gettimeoffset()
  */
 
+#include "host.h"
 #include <solaris.h>
 
 
@@ -371,7 +372,7 @@ void time_init(void)
         setup_x86_irq(0, &irq0);
 #else
 	printk("Registering timer handler...");
-        setup_x86_irq(28, &irq0);
+        setup_x86_irq(SIX_HOST_TIMERSIG, &irq0);	/* Linux SIGVTALRM (26), not Solaris 28 */
 	printk("Done\n");
 #endif
 }

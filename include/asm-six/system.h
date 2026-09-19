@@ -36,14 +36,25 @@
 extern so_sigset_t uni_lock;
 extern so_sigset_t uni_unlock;
 
+/*
+ * Defined in arch/six/kernel/host.c.  Declared by hand rather than by
+ * including host.h so that this header stays self-contained.
+ *
+ * These used to call sigprocmask() directly with a so_sigset_t, which is
+ * Solaris-shaped (16 bytes).  glibc's sigset_t is 128 bytes, so that
+ * scribbled past the end of the caller's object.
+ */
+extern void six_host_cli(void);
+extern void six_host_sti(void);
+
 static inline lock()
 {
-	sigprocmask(SIG_SETMASK, &uni_lock, 0);
+	six_host_cli();
 }
 
 static inline unlock()
 {
-	sigprocmask(SIG_SETMASK, &uni_unlock, 0);
+	six_host_sti();
 }
 
 #define sti()	unlock()
