@@ -40,7 +40,7 @@ CONFIG_SHELL := $(shell if [ -x "$$BASH" ]; then echo $$BASH; \
 TOPDIR	:= $(shell if [ "$$PWD" != "" ]; then echo $$PWD; else pwd; fi)
 
 else
-CONFIG_SHELL := /usr/bin/bash
+CONFIG_SHELL := /bin/bash
 TOPDIR	:= $(shell if [ "$$PWD" != "" ]; then echo $$PWD; else pwd; fi)
 ROOT = $(TOPDIR)
 endif
@@ -58,9 +58,9 @@ AR	=$(CROSS_COMPILE)ar
 LD	=$(CROSS_COMPILE)ld
 CC	=$(CROSS_COMPILE)gcc -D__KERNEL__  -DSIX=0 -I$(HPATH)
 else
-AR	=$(CROSS_COMPILE)/usr/ccs/bin/ar
-LD	=$(CROSS_COMPILE)/usr/ccs/bin/ld
-CC	=$(CROSS_COMPILE)gcc -D__KERNEL__ -DSIX=1 -I$(HPATH)
+AR	=$(CROSS_COMPILE)ar
+LD	=$(CROSS_COMPILE)ld -m elf_i386
+CC	=$(CROSS_COMPILE)gcc -m32 -D__KERNEL__ -DSIX=1 -I$(HPATH)
 endif
 CPP	=$(CC) -E
 NM	=$(CROSS_COMPILE)nm
@@ -68,7 +68,7 @@ STRIP	=$(CROSS_COMPILE)strip
 ifndef SOLARIS_USER_MODE
 MAKE	=make
 else
-MAKE	=gmake
+MAKE	=make
 endif
 AWK	=gawk
 
@@ -129,7 +129,32 @@ SVGA_MODE=	-DSVGA_MODE=NORMAL_VGA
 #
 
 #CFLAGS = -g  -Wall -Wstrict-prototypes -O2 -fomit-frame-pointer -fno-strength-reduce
-CFLAGS = -g  -w 
+
+#
+# GCC-15 compatibility set for this 1996-era source base.
+#
+#   -std=gnu89            K&R-style definitions, implicit int, old for-scoping
+#   -fcommon              tentative definitions merge (pre-GCC-10 default); the
+#                         kernel declares the same global in several .c files
+#   -fno-strict-aliasing  pervasive type punning through pointer casts
+#   -fno-builtin          don't let gcc substitute host libc semantics for the
+#                         kernel's own memcpy/strlen/printf
+#   -no-pie / -fno-pic    the kernel mmaps "physical RAM" MAP_FIXED at an
+#                         address derived from &_end, so it must be non-PIE
+#   -Wno-error=...        GCC 14+ promoted these to hard errors; this code
+#                         predates the relevant standards, so demote them again
+#
+SIX_STDFLAGS  = -std=gnu89 -fcommon -fno-strict-aliasing -fno-builtin -fno-pic
+SIX_WARNFLAGS = -w \
+		-Wno-error=implicit-function-declaration \
+		-Wno-error=implicit-int \
+		-Wno-error=int-conversion \
+		-Wno-error=incompatible-pointer-types \
+		-Wno-error=return-mismatch \
+		-Wno-error=declaration-missing-parameter-type \
+		-Wno-error=builtin-declaration-mismatch
+
+CFLAGS = -g -O0 $(SIX_STDFLAGS) $(SIX_WARNFLAGS)
 
 ifdef CONFIG_CPP
 CFLAGS := $(CFLAGS) -x c++
@@ -266,12 +291,12 @@ symlinks:
 config: symlinks
 	@echo Configuration complete.
 six:	linuxsubdirs init/version.o init/main.o
-	$(CC) $(CFLAGS) init/main.o init/version.o\
+	$(CC) $(CFLAGS) -no-pie init/main.o init/version.o\
 	-o $(INSTALL_PATH)/six \
 	$(DRIVERS) \
 	$(ARCHIVES) \
-	$(FILESSYSTEMS) \
-	$(LIBS) -lelf 
+	$(FILESYSTEMS) \
+	$(LIBS)
 
 endif
 

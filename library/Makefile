@@ -10,7 +10,7 @@ SUBDIRS	=	sys \
 
 
 all:
-	for i in $(SUBDIRS); do gmake -C $$i; done
+	for i in $(SUBDIRS); do make -C $$i; done
 clean:
-	for i in $(SUBDIRS); do gmake -C $$i clean; done
+	for i in $(SUBDIRS); do make -C $$i clean; done
 	
