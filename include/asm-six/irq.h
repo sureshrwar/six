@@ -90,8 +90,11 @@ hemnitz.de>
 #define bad_IRQ16_interrupt	0
 
 
-#define SAVE_ALL			memcpy(&current->ucontext, \
-					context, sizeof(struct pt_regs)) 
+#define SAVE_ALL			do { \
+						memcpy(&current->ucontext, \
+						       context, sizeof(struct pt_regs)); \
+						six_fix_context(&current->ucontext); \
+					} while (0)
 #define RESTORE_USER_CONTEXT		setcontext(&current->ucontext)
 #define RESTORE_CONTEXT			setcontext(context)
 #define ENTER_KERNEL			kernel_counter++;  \

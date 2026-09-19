@@ -10,9 +10,14 @@ run
 echo \n===== BACKTRACE =====\n
 bt 40
 echo \n===== REGISTERS =====\n
-info registers eip esp ebp
+info registers eip esp ebp eax ebx ecx edx esi edi
+echo \n===== SIGINFO =====\n
+p/x $_siginfo._sifields._sigfault.si_addr
+x/8i $eip-5
+x/16bx $eip-5
 echo \n===== TASK =====\n
 p current_set[0]->pid
+p current_set[0]->comm
 p/x current_set[0]->_sigreturn
 p/x current_set[0]->ucontext.pc
 p/x current_set[0]->ucontext.kesp

@@ -2191,15 +2191,34 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 
 	if(current->kernel_level == 1)
 	{
-		/*
-		 * we are on kernel stack. and just below us lies the old stack which
-		 * was saved. restore it.
-		 */
 #if (!__i386__)
+		/*
+		 * SPARC flushes register windows to %sp, so restore osp.
+		 */
 		__asm__("mov %1, %%sp" : "=r" (ret) : "r" (current->osp));
 #else
-                __asm__("movl (%1), %%esp" : "=r" (ret) : "r" (&current->osp));
-                __asm__("movl (%1), %%ebp" : "=r" (ret) : "r" (&current->obp));
+		/*
+		 * Do NOT switch %esp back to current->osp here on x86.
+		 *
+		 * We are about to call RESTORE_USER_CONTEXT, which is
+		 * setcontext(&current->ucontext): it never returns, and it
+		 * loads the target %esp directly from current->ucontext.kesp.
+		 *
+		 * Switching %esp to current->osp before calling setcontext()
+		 * caused the "pushl &current->ucontext; call setcontext"
+		 * sequence (and setcontext's own sigprocmask frame) to write
+		 * onto *current->osp.  When the syscall was execve(),
+		 * do_six_load_elf_binary() has just freed the old stack
+		 * (current->mm->start_stack) and do_mmap() has immediately
+		 * reused that same physical page to back the new binary's
+		 * .text segment at 0x03000000 -- so setcontext() pushed the
+		 * address of current->ucontext straight into the middle of
+		 * /etc/init's machine code!
+		 *
+		 * Staying on current->nsp (the task's dedicated kernel stack)
+		 * until setcontext() switches %esp to ucontext.kesp avoids
+		 * touching the old stack at all.
+		 */
 #endif
 		LEAVE_KERNEL;
 		/*
