@@ -1927,16 +1927,12 @@ void system_call(int num, void *why, struct pt_regs *context);
 
 static struct irqaction irqSYSCALL  = { system_call, 0, 0, "SYSCALL", NULL, NULL};
 
-static struct irqaction *irq_action[32] = {
-        NULL, NULL, NULL, NULL,
-        NULL, NULL, NULL, NULL,
-        NULL, NULL, NULL, NULL,
-        NULL, NULL, NULL, NULL,
-        NULL, NULL, NULL, NULL,
-        NULL, NULL, NULL, NULL,
-        NULL, NULL, NULL, NULL,
-        NULL, NULL, NULL, NULL
-};
+/*
+ * Indexed by host signal number, not by PC IRQ line -- see NR_IRQS in
+ * include/asm-six/irq.h.  Was a hardcoded [32], which the trap signal
+ * (SIGRTMIN+4 == 38) indexed straight past.
+ */
+static struct irqaction *irq_action[NR_IRQS];
 
 /*
  * do_IRQ handles IRQ's that have been installed without the
@@ -1947,8 +1943,15 @@ static struct irqaction *irq_action[32] = {
  */
 asmlinkage void do_IRQ(int irq, struct pt_regs *context)
 {
-	struct irqaction * action = *(irq + irq_action);
+	struct irqaction * action;
 	int do_random = 0;
+
+	if (irq < 0 || irq >= NR_IRQS) {
+		printk("six: do_IRQ: signal %d out of range\n", irq);
+		return;
+	}
+
+	action = irq_action[irq];
 #ifdef __SMP__
         /* IRQ 13 is allowed - that's a flush tlb */
         if(smp_threads_ready && active_kernel_processor!=smp_processor_id() && irq!=13)
@@ -1981,9 +1984,15 @@ void init_IRQ(void)
                 return;
         smptrap=1;
 #if (SIX)
-	for(i=0; i<32; i++)
+	/*
+	 * These two tables are vestigial -- SIX has no interrupt gates, and
+	 * nothing ever calls through them -- but the loops used to write 32
+	 * entries into interrupt[17] and, before that, ran off the end of
+	 * fast_interrupt[16] as well.  Bound them by the actual array sizes.
+	 */
+	for(i = 0; i < (int)(sizeof(interrupt)/sizeof(interrupt[0])); i++)
 		interrupt[i] = no_action;
-	for(i=0; i<16; i++)
+	for(i = 0; i < (int)(sizeof(fast_interrupt)/sizeof(fast_interrupt[0])); i++)
 		fast_interrupt[i] = no_action;
   	tm.it_value.tv_sec = 0;
 	tm.it_interval.tv_sec = 0;

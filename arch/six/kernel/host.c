@@ -199,11 +199,25 @@ void six_host_get_winsize(int *rows, int *cols)
 int six_host_tty_open_raw(void)
 {
 	struct termios t;
+	struct sigaction ign, old_ttou, old_ttin;
 	int fd;
 
 	fd = open("/dev/tty", O_RDWR);
 	if (fd < 0)
 		return -1;
+
+	/*
+	 * tcsetattr() on the controlling terminal from a *background*
+	 * process group raises SIGTTOU at the caller, which by default
+	 * stops it.  SIX gets run that way routinely -- under gdb, or from
+	 * a shell that has put it in the background -- and the result was
+	 * the kernel wedging inside kbd_init() with no clue as to why.
+	 * Ignore job-control signals for the duration.
+	 */
+	memset(&ign, 0, sizeof ign);
+	ign.sa_handler = SIG_IGN;
+	sigaction(SIGTTOU, &ign, &old_ttou);
+	sigaction(SIGTTIN, &ign, &old_ttin);
 
 	if (tcgetattr(fd, &six_saved_termios) == 0)
 		six_saved_termios_valid = 1;
@@ -215,6 +229,9 @@ int six_host_tty_open_raw(void)
 	t.c_cc[VTIME] = 0;
 	tcsetattr(fd, TCSANOW, &t);
 
+	sigaction(SIGTTOU, &old_ttou, (struct sigaction *)0);
+	sigaction(SIGTTIN, &old_ttin, (struct sigaction *)0);
+
 	/* Deliver SIGIO to us when the terminal becomes readable. */
 	fcntl(fd, F_SETOWN, getpid());
 	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK | O_ASYNC);
@@ -225,6 +242,16 @@ int six_host_tty_open_raw(void)
 /* Undo six_host_tty_open_raw().  Safe to call if it never succeeded. */
 void six_host_tty_restore(int fd)
 {
-	if (fd >= 0 && six_saved_termios_valid)
-		tcsetattr(fd, TCSANOW, &six_saved_termios);
+	struct sigaction ign, old_ttou;
+
+	if (fd < 0 || !six_saved_termios_valid)
+		return;
+
+	memset(&ign, 0, sizeof ign);
+	ign.sa_handler = SIG_IGN;
+	sigaction(SIGTTOU, &ign, &old_ttou);
+
+	tcsetattr(fd, TCSANOW, &six_saved_termios);
+
+	sigaction(SIGTTOU, &old_ttou, (struct sigaction *)0);
 }

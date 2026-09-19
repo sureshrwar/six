@@ -13,7 +13,23 @@ hemnitz.de>
 
 
 
-#define NR_IRQS 32
+/*
+ * Under SIX an "IRQ" is a host signal, and the IRQ number *is* the signal
+ * number: init_IRQ() calls setup_x86_irq(SIX_HOST_TRAPSIG, ...) and
+ * do_IRQ() is handed the signal it was delivered.
+ *
+ * That makes NR_IRQS a property of the host, not of the PC interrupt
+ * controller.  It was 32, which was fine while the trap was Solaris
+ * SIGLWP (33 -- already one over, in fact), but Linux reserves 32 and 33
+ * for NPTL so the trap had to move to SIGRTMIN+4 == 38.  Every
+ * irq_action[38] and kstat.interrupts[38] then wrote past the end of its
+ * array; the observed symptom was timer_active silently acquiring bit 2
+ * (RS_TIMER), whose handler is NULL because the serial driver is not even
+ * compiled, and the kernel jumping to address 0 on the next tick.
+ *
+ * Linux signals run to SIGRTMAX == 64, so size for 65 entries and be done.
+ */
+#define NR_IRQS 65
 
 #define TIMER_IRQ 0
 

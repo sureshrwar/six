@@ -123,8 +123,30 @@ int grow_inodes(void)
         nr_inodes += i;
         nr_free_inodes += i;
 
-        if (!first_inode)
-                inode->i_next = inode->i_prev = first_inode = inode++, i--;
+        /*
+         * This was written as a single expression:
+         *
+         *      inode->i_next = inode->i_prev = first_inode = inode++, i--;
+         *
+         * which reads `inode` and modifies it in the same unsequenced
+         * expression -- undefined behaviour.  GCC 2.7 happened to store
+         * through the pre-increment value; GCC 15 applies the increment
+         * first, so the two self-pointers were written into inode[1] and
+         * inode[0] -- the one actually installed as first_inode -- was
+         * left with i_next == i_prev == NULL.
+         *
+         * insert_inode_free() then did prev = first_inode->i_prev, i.e.
+         * NULL, and stored through it.  That is the SIGSEGV that killed
+         * the kernel during ext2_read_super() the first time it ever got
+         * far enough to mount a root filesystem.
+         */
+        if (!first_inode) {
+                first_inode = inode;
+                inode->i_next = inode;
+                inode->i_prev = inode;
+                inode++;
+                i--;
+        }
 
         for ( ; i ; i-- )
                 insert_inode_free(inode++);
