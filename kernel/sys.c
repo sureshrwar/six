@@ -195,20 +195,11 @@ asmlinkage int sys_reboot(int magic, int magic_too, int flag)
                 C_A_D = 0;
         else if (flag == 0xCDEF0123) {
 #if (SIX)
-                extern void reset_sun_tty(void);
-                struct super_block *sb;
-                fsync_dev(0);
-                for (sb = super_blocks + 0; sb < super_blocks + NR_SUPER; sb++) {
-                        if (sb->s_dev && !(sb->s_flags & MS_RDONLY) && sb->u.ext2_sb.s_es) {
-                                sb->u.ext2_sb.s_es->s_state |= 1; /* EXT2_VALID_FS */
-                                sb->s_dirt = 0;
-                                mark_buffer_dirty(sb->u.ext2_sb.s_sbh, 1);
-                        }
-                }
-                fsync_dev(0);
+                extern int six_system_halted;
+                six_system_halted = 1;
                 printk(KERN_EMERG "System halted\n");
-                reset_sun_tty();
-                exit(0);
+                sys_kill(-1, SIGKILL);
+                do_exit(0);
 #else
                 printk(KERN_EMERG "System halted\n");
                 sys_kill(-1, SIGKILL);

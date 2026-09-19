@@ -2102,6 +2102,27 @@ int bdflush(void * unused)
                 run_task_queue(&tq_disk);
                 wake_up(&bdflush_done);
 
+#if (SIX)
+                {
+                        extern int six_system_halted;
+                        extern void reset_sun_tty(void);
+                        if (six_system_halted) {
+                                struct super_block *sb;
+                                fsync_dev(0);
+                                for (sb = super_blocks + 0; sb < super_blocks + NR_SUPER; sb++) {
+                                        if (sb->s_dev && !(sb->s_flags & MS_RDONLY) && sb->u.ext2_sb.s_es) {
+                                                sb->u.ext2_sb.s_es->s_state |= 1; /* EXT2_VALID_FS */
+                                                sb->s_dirt = 0;
+                                                mark_buffer_dirty(sb->u.ext2_sb.s_sbh, 1);
+                                        }
+                                }
+                                fsync_dev(0);
+                                reset_sun_tty();
+                                exit(0);
+                        }
+                }
+#endif
+
                 /* If there are still a lot of dirty buffers around, skip the sleep
                    and flush some more */
 
@@ -2113,3 +2134,7 @@ int bdflush(void * unused)
         }
 
 }
+
+#if (SIX)
+int six_system_halted = 0;
+#endif
