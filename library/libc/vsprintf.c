@@ -303,7 +303,7 @@ int vsprintf(char *buf, FILE *fp, const char *fmt, va_list args)
                         	*str++ = (unsigned char) va_arg(args, int);
 			else
 			{
-				fputc(' ', fp);
+				fputc((unsigned char) va_arg(args, int), fp);
 				count++;
 			}
                         while (--field_width > 0)
