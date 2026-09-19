@@ -63,14 +63,45 @@
  *
  * GUEST PROGRAMS
  *
- * library/sys/syscall.c uses the same MMX trick from the other side, and
- * is equally broken on Linux.  Guest userland is not built yet (it is
- * still linked with Solaris ld mapfiles), so that half of the protocol is
- * deliberately left for later.  When it is revived, the guest cannot
- * simply reference six_call by name -- it is separately linked -- so it
- * will need either a fixed address inside the emulated RAM (the zero page
- * is already used to pass the command line) or a switch to general-purpose
- * registers, which unlike MMX are preserved in the signal frame.
+ * Guest programs cannot use the channel above.  They are separately linked
+ * ELF executables living in the emulated RAM; they have no way to resolve
+ * the symbol "six_call", and even if they did, the address they would need
+ * is a host address rather than a guest one.
+ *
+ * So the guest passes a *pointer* instead, in %esi:
+ *
+ *      struct six_guest_call args;     <- on the guest's own stack
+ *      args.nr   = __NR_write;
+ *      args.a1   = fd;  args.a2 = buf;  args.a3 = count;
+ *      asm("int $0x80" : : "S" (&args)); <- "S" is the %esi constraint
+ *
+ * and system_call() picks it up out of the signal frame with regs->esi.
+ *
+ * Why %esi, and why this works:
+ *
+ *   - Linux clobbers only %eax across "int $0x80".  Every other
+ *     general-purpose register arrives in the signal frame with the value
+ *     it had at the trap instruction.  (This is the opposite of the MMX
+ *     situation described above, where the host deliberately wipes the
+ *     state we wanted to read.)
+ *   - %esi is a general-purpose register, so it is saved in
+ *     uc_mcontext.gregs like any other -- no FPU save area, no layout
+ *     archaeology.
+ *   - A pointer is one register wide no matter how many arguments a call
+ *     takes, so the six-argument calls (mmap, select) need no special case.
+ *
+ * The alternative considered and rejected was a fixed well-known address
+ * in the guest address space, on the model of the command line that
+ * already sits in the zero page.  It would have baked a second magic
+ * address into both halves of the system, and it would have been
+ * per-process state at a per-machine address, which is wrong the moment
+ * two guests run at once.
+ *
+ * Note that the kernel's own internal callers (kernel_thread(), and the
+ * exit path in kernel_thread_start()) cannot use %esi: they reach the trap
+ * through raise(), which is a libc call, and %esi is callee-saved, so its
+ * value at the inner "int $0x80" is not something we get to choose.  Hence
+ * the two paths.  system_call() distinguishes them with user_mode(regs).
  */
 
 #if (__i386__)
@@ -86,6 +117,34 @@ struct six_call_regs {
 
 /* Defined in arch/six/kernel/irq.c. */
 extern struct six_call_regs six_call;
+
+/*
+ * The guest-side argument block, pointed to by %esi.
+ *
+ * Unlike six_call_regs above, this one is in natural argument order.  There
+ * is no reason to inherit the g4/g5 inversion here -- that was an artefact
+ * of how the 2005 code packed the mm2 register, and nothing outside the
+ * kernel ever saw it.  system_call() does the reordering when it copies
+ * this block into pt_regs, so the syscall thunks still see what they have
+ * always seen.
+ *
+ * This structure is ABI between separately-built halves of the system:
+ * the kernel (built for the host) and the guest libc (built for the
+ * emulated machine).  Both are 32-bit x86 with the same alignment rules,
+ * so a plain struct of unsigned longs is safe, but it must not be
+ * reordered on one side only.  library/include/sys/sixcall.h carries an
+ * identical copy for the guest.
+ */
+struct six_guest_call {
+	unsigned long nr;       /* system call number                */
+	unsigned long a1;
+	unsigned long a2;
+	unsigned long a3;
+	unsigned long a4;
+	unsigned long a5;
+	unsigned long a6;
+	unsigned long ret;      /* written back by system_call()     */
+};
 
 #endif /* __i386__ */
 

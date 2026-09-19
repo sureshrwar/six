@@ -133,11 +133,24 @@ struct pt_regs {
         unsigned int uc_sp_size;        /*  4  uc_stack.ss_size           */
         /*
          * uc_mcontext.gregs[0..18] occupies words 5..23.
+         *
+         * The first six used to be an anonymous uu1[6].  They are named now
+         * because %esi carries the guest system call argument block: a
+         * guest loads the address of its own argument struct into %esi and
+         * executes "int $0x80", and since Linux clobbers only %eax across
+         * a trap, %esi arrives intact in the signal frame.  See
+         * include/asm-six/sixcall.h for the protocol and system_call() in
+         * arch/six/kernel/irq.c for the consumer.
          */
-        unsigned int uu1[6];            /*  5..10  gregs[GS..ESI]         */
-        unsigned int ebp;               /* 11      gregs[EBP]             */
-        unsigned int kesp;              /* 12      gregs[ESP]             */
-        unsigned int uu2[6];            /* 13..18  gregs[EBX..ERR]        */
+        unsigned int gs;                /*  5      gregs[GS]               */
+        unsigned int fs;                /*  6      gregs[FS]               */
+        unsigned int es;                /*  7      gregs[ES]               */
+        unsigned int ds;                /*  8      gregs[DS]               */
+        unsigned int edi;               /*  9      gregs[EDI]              */
+        unsigned int esi;               /* 10      gregs[ESI]  <-- args    */
+        unsigned int ebp;               /* 11      gregs[EBP]              */
+        unsigned int kesp;              /* 12      gregs[ESP]              */
+        unsigned int uu2[6];            /* 13..18  gregs[EBX..ERR]         */
         unsigned int pc;                /* 19      gregs[EIP]             */
         unsigned int cs;                /* 20      gregs[CS]              */
         unsigned int psw;               /* 21      gregs[EFL]             */

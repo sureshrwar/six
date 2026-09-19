@@ -2226,6 +2226,9 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 void system_call(int num, void *why, struct pt_regs *context)
 {
 	int syscallnum;
+#if (__i386__)
+	struct six_guest_call *gc = NULL;
+#endif
 
 	/*
 	 * Load the syscall "registers" into the context.
@@ -2237,17 +2240,82 @@ void system_call(int num, void *why, struct pt_regs *context)
 	 * include/asm-six/sixcall.h -- but Linux zeroes the FPU state
 	 * before entering a signal handler, so nothing survives the trap.
 	 *
-	 * Copying them in here means grab_args(), put_ret() and all 165
-	 * entries of sys_call_table continue to read context->g2..g5 and
-	 * neither know nor care where the values came from.
+	 * On x86 there are now two sources, and which one applies depends
+	 * on who trapped:
+	 *
+	 *   kernel  kernel_thread() and the exit path in
+	 *           kernel_thread_start() reach us through raise(), which
+	 *           is a libc call.  %esi is callee-saved, so its value at
+	 *           the inner "int $0x80" is not ours to choose, and the
+	 *           arguments come from the six_call global instead.
+	 *
+	 *   guest   a separately linked ELF executable running in the
+	 *           emulated RAM.  It cannot see the six_call symbol, so it
+	 *           leaves the address of its own argument block in %esi.
+	 *           Guest virtual addresses are host virtual addresses in
+	 *           SIX -- set_proc_mappings() maps every page of a task at
+	 *           its own guest address -- so the block is directly
+	 *           readable here.
+	 *
+	 * Either way the values end up in context->g2..g7, so grab_args(),
+	 * put_ret() and all 165 entries of sys_call_table continue to read
+	 * what they have always read and neither know nor care where it
+	 * came from.
 	 */
 #if (__i386__)
-	context->g2 = six_call.g2;
-	context->g3 = six_call.g3;
-	context->g4 = six_call.g4;
-	context->g5 = six_call.g5;
-	context->g6 = six_call.g6;
-	context->g7 = six_call.g7;
+	if (user_mode(context)) {
+		unsigned long p = context->esi;
+
+		/*
+		 * Anything a guest hands us is untrusted.  The block has to
+		 * lie wholly inside the guest address space; TASK_SIZE is
+		 * where the guest's world ends (include/asm-six/processor.h,
+		 * = STACK_BASE).  A guest that gets this wrong gets EFAULT,
+		 * not a kernel fault on a wild pointer.
+		 */
+		if (p == 0 || p >= TASK_SIZE ||
+		    p + sizeof(struct six_guest_call) > TASK_SIZE) {
+			printk("six: guest %d passed a bad syscall block %08lx\n",
+			       current->pid, p);
+			context->g2 = -EFAULT;
+			return;
+		}
+
+		gc = (struct six_guest_call *)p;
+
+		/*
+		 * Note the reordering.  The guest block is in natural
+		 * argument order; pt_regs inherited an inversion from the
+		 * way the 2005 code packed the mm2 register, where g4 held
+		 * argument 3 and g5 argument 2.  grab_args() compensates for
+		 * it, so it has to be reproduced here rather than fixed.
+		 */
+		context->g2 = gc->nr;
+		context->g3 = gc->a1;
+		context->g4 = gc->a3;
+		context->g5 = gc->a2;
+		context->g6 = 0;
+
+		/*
+		 * Arguments 4 to 6 have nowhere to go in the old three
+		 * argument channel.  They are carried through anyway so that
+		 * the six-argument calls can eventually be done in one trap.
+		 * At the moment nothing reads them: six_mmap() still uses the
+		 * 2005 two-call protocol, stashing the first three arguments
+		 * in current->one/two/three and expecting the guest to trap a
+		 * second time with the rest.
+		 */
+		context->g7 = gc->a4;
+		context->g8 = gc->a5;
+		context->g9 = gc->a6;
+	} else {
+		context->g2 = six_call.g2;
+		context->g3 = six_call.g3;
+		context->g4 = six_call.g4;
+		context->g5 = six_call.g5;
+		context->g6 = six_call.g6;
+		context->g7 = six_call.g7;
+	}
 #endif
 
 	syscallnum = context->g2;
@@ -2262,7 +2330,10 @@ void system_call(int num, void *why, struct pt_regs *context)
 		printk("six: bad syscall %d\n", syscallnum);
 		context->g2 = -ENOSYS;
 #if (__i386__)
-		six_call.g2 = context->g2;
+		if (gc)
+			gc->ret = context->g2;
+		else
+			six_call.g2 = context->g2;
 #endif
 		return;
 	}
@@ -2276,9 +2347,12 @@ void system_call(int num, void *why, struct pt_regs *context)
 
 	/*
 	 * put_ret() left the return value in context->g2; hand it back to
-	 * the caller through the channel.
+	 * the caller through whichever channel it arrived on.
 	 */
 #if (__i386__)
-	six_call.g2 = context->g2;
+	if (gc)
+		gc->ret = context->g2;
+	else
+		six_call.g2 = context->g2;
 #endif
 }
