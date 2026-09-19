@@ -1,0 +1,30 @@
+
+#include <linux/types.h>
+#include <linux/dirent.h>
+#include <stat.h>
+
+main(int argc, char *argv[], char *envp[])
+{
+	struct dirent *b;
+	struct new_stat s;
+	char aa[256], *a;
+	int fd, ret, cur = 0;
+	a = &aa[0];
+	fstat(0, &s);
+	fd = open("/dev", 0);
+	if(fd < 0)
+	{
+		printf("Operation Failed\n");
+		exit(1);
+	}
+	ret = getdents(fd, (struct dirent *)a, 256);
+	while(cur < ret)
+	{
+		b = (struct dirent *)a;
+		if(b->d_ino == s.st_ino)
+			printf("%s   ", b->d_name);
+		a += b->d_reclen;
+		cur += b->d_reclen;
+	}
+	printf("\n");
+}

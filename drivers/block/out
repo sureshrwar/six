@@ -1,0 +1,106 @@
+77d76
+< unsigned short wdisk_buffer[512];
+79d77
+< int wbuf_offset = 0;
+273,274c271,272
+< static unsigned int mult_req    [MAX_HD] = {2,}; 
+< static unsigned int mult_count  [MAX_HD] = {2,}; 
+---
+> static unsigned int mult_req    [MAX_HD] = {2,}; /* requested MultMode count         */
+> static unsigned int mult_count  [MAX_HD] = {2,}; /* currently enabled MultMode count */
+276c274
+< static unsigned int mult_req    [MAX_HD] = {0,}; /* requested MultMode count */
+---
+> static unsigned int mult_req    [MAX_HD] = {0,}; /* requested MultMode count         */
+644d641
+< #if (!SIX)
+646d642
+< #endif
+651,654d646
+< #if (SIX)
+<                 outsw(HD_DATA,CURRENT->buffer,512);
+<                 end_request(1);
+< #else
+656d647
+< #endif
+689,690c680
+<         
+< 		DEVICE_INTR = NULL;
+---
+>         DEVICE_INTR = NULL;
+804d793
+< #if (!SIX)
+820,825d808
+< #else
+<                 unsigned int cmd = mult_count[dev] > 1 ? WIN_MULTWRITE : WIN_WRITE;
+<                 hd_out(dev,nsect,sec,head,cyl,cmd,&write_intr);
+<                 if (reset)
+<                         goto repeat;
+< #endif
+1030,1042c1013,1018
+<                         bios_info[drive].cyl   = hd_info[drive].cyl = 
+< 					*(unsigned short *) BIOS;
+<                         hd_head[drive] = bios_info[drive].head  =
+< 					 hd_info[drive].head = *(int *)(4+BIOS);
+<                         bios_info[drive].wpcom = hd_info[drive].wpcom = 
+< 					 *(unsigned short *) (8+BIOS);
+<                         bios_info[drive].ctl   = hd_info[drive].ctl = 
+< 					 *(12+BIOS);
+<                         bios_info[drive].lzone = hd_info[drive].lzone = 
+< 					 *(unsigned short *) (16+BIOS);
+<                         hd_sect[drive] = bios_info[drive].sect  = 
+< 					 hd_info[drive].sect =
+< 					 *(int *)(20+BIOS);
+---
+>                         bios_info[drive].cyl   = hd_info[drive].cyl = *(unsigned short *) BIOS;
+>                         hd_head[drive] = bios_info[drive].head  = hd_info[drive].head = *(int *)(4+BIOS);
+>                         bios_info[drive].wpcom = hd_info[drive].wpcom = *(unsigned short *) (8+BIOS);
+>                         bios_info[drive].ctl   = hd_info[drive].ctl = *(12+BIOS);
+>                         bios_info[drive].lzone = hd_info[drive].lzone = *(unsigned short *) (16+BIOS);
+>                         hd_sect[drive] = bios_info[drive].sect  = hd_info[drive].sect = *(int *)(20+BIOS);
+1046c1022,1023
+< #elif (SIX)
+---
+> #else
+> #if (SIX)
+1048a1026
+> #endif
+1094a1073,1077
+> 		/*
+> 		 * a troublesome piece of shit.dont know why we need this
+> 		 * as far as six is concerned.only brings grief more than
+> 		 * anything else.
+> 		 */
+1114c1097
+< 		panic("cant locate root disk");
+---
+> 		panic("cant locate root disk");	/* what the heck */
+1149,1154c1132
+< 	/*
+< 	 * we need this function.i couldnt really figure out where
+< 	 * this gets called in the real world of linux.so inserting
+< 	 * it out here as it feels in place.
+< 	 */
+< 	hd_geninit(0);
+---
+> 		hd_geninit(0);
+1224,1230d1201
+< void do_hard_write(from, count)
+< {
+< 	lseek(DISKFD, from*512, 0);
+< 	write(DISKFD, wdisk_buffer, 1024);
+< 	wbuf_offset = 0;
+< }
+< 
+1240c1211
+< 	if(cmd == 0xc4)
+---
+> 	if(cmd == 0xC4 || cmd == 0x20)
+1242,1248d1212
+< 	else if(cmd == 0xc5)
+< 		write_intr();
+< }
+< 
+< void put_hard_data(unsigned short val)
+< {
+< 	wdisk_buffer[wbuf_offset++] = val;

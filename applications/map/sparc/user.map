@@ -1,0 +1,2 @@
+text = LOAD ?RX V0x3000000;
+data = LOAD ?RWX A8192;

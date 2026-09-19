@@ -1,0 +1,6 @@
+#define UTS_VERSION "#2783 Fri Mar 11 15:46:28 SGT 2005"
+#define LINUX_COMPILE_TIME "15:46:28"
+#define LINUX_COMPILE_BY "root"
+#define LINUX_COMPILE_HOST "black"
+#define LINUX_COMPILE_DOMAIN "blr03-01.India.Sun.COM"
+#define LINUX_COMPILER "gcc version 2.95.2 19991024 (release)"

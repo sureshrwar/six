@@ -1,0 +1,165 @@
+/*
+ * SIX 1.0
+ *
+ * Copyright (C) 2005-2006, motor <motorbreath@sun.com>
+ *				  <motorbreathing@gmail.com>
+ *				  <motorbreathing@yahoo.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ */
+
+#ifndef ASM_UCONTEXT
+#define ASM_UCONTEXT
+
+#include <linux/types.h>
+#include <asm/signal.h>
+
+#if (!__i386__)
+
+struct fpu {
+        union {
+                 unsigned       fpu_regs[32];
+                double          fpu_dregs[16];
+        } fpu_fr;
+        struct fq       *fpu_q;
+         unsigned       fpu_fsr;
+        unsigned char   fpu_qcnt;
+        unsigned char   fpu_q_entrysize;
+        unsigned char   fpu_en;
+};
+
+typedef struct fpu      fpregset_t;
+
+typedef int     greg_t;
+
+typedef greg_t  gregset_t[ 19 ];
+
+struct  rwindow {
+        greg_t  rw_local[8];
+        greg_t  rw_in[8];
+};
+
+
+struct gwindows {
+        int             wbcnt;
+        int             *spbuf[ 31 ];
+        struct rwindow  wbuf[ 31 ];
+};
+
+typedef struct gwindows gwindows_t;
+
+typedef struct {
+        unsigned int            xrs_id;
+        caddr_t                 xrs_ptr;
+} xrs_t;
+
+
+
+typedef struct sigaltstack {
+        void    *ss_sp;
+        size_t  ss_size;
+        int     ss_flags;
+} stack_t;
+
+typedef struct {
+        gregset_t       gregs;
+        gwindows_t      *gwins;
+        fpregset_t      fpregs;
+        xrs_t           xrs;
+        long            filler[19];
+} mcontext_t;
+
+struct  ucontext {
+        ulong_t         uc_flags;
+        struct ucontext      *uc_link;
+        so_sigset_t        uc_sigmask;
+        stack_t         uc_stack;
+        mcontext_t      uc_mcontext;
+        long            uc_filler[23];
+};
+
+typedef struct ucontext ucontext_t;
+
+#else
+
+/*
+ * all this is for the solaris on intel stuff.the
+ * context structure differs a lot. (naturally!)
+ */
+
+typedef int                    int32_t;
+
+typedef int32_t        greg_t;
+typedef greg_t gregset_t[19 ];
+
+
+
+typedef struct fpu {
+       union {
+               struct fpchip_state              
+               {
+                       int     state[27];       
+                       int     status;          
+                                                
+               } fpchip_state;
+               struct fp_emul_space             
+               {
+                       char    fp_emul[246];
+                       char    fp_epad[2];
+               } fp_emul_space;
+               int     f_fpregs[62];            
+       } fp_reg_set;
+       long            f_wregs[33];             
+} fpregset_t;
+
+
+
+typedef struct dbregset {
+       unsigned        debugreg[8 ];
+} dbregset_t;
+
+ 
+typedef struct {
+       gregset_t       gregs;           
+       fpregset_t      fpregs;          
+} mcontext_t;
+
+
+
+
+
+typedef struct sigaltstack {
+       void    *ss_sp;
+       unsigned int    ss_size;
+       int     ss_flags;
+} stack_t;
+
+
+typedef        struct ucontext ucontext_t;
+
+
+struct ucontext {
+       unsigned long   uc_flags;
+       ucontext_t      *uc_link;
+       so_sigset_t        uc_sigmask;
+       stack_t         uc_stack;
+       mcontext_t      uc_mcontext;
+       long            uc_filler[5];    
+};
+
+#endif
+
+#endif
