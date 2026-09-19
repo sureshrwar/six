@@ -112,8 +112,36 @@ GUEST_CFLAGS = -m32 $(GUEST_INCLUDES) \
 # ---------------------------------------------------------------------------
 SIX_BIND_POINT = 0x3000000
 
+# The segment layout matters as much as the address.
+#
+# A modern GNU ld, left alone, emits five program headers and four LOAD
+# segments: a read-only one holding just the ELF headers, a read+execute
+# one for .text, another read-only one for .rodata, and a read-write one
+# for .data and .bss.  That is a sensible arrangement for a system with
+# per-segment page protections and a dynamic loader.  It is not what
+# fs/binfmt_elf.c was written against in 1996, and it is not what the
+# Solaris mapfile produced: "text = LOAD ?RX" and "data = LOAD ?RWX" is
+# two segments, and the first one starts with the ELF header.
+#
+#   -z noseparate-code   put .rodata back in the text segment, so there
+#                        are two LOAD segments rather than four.
+#   -Ttext-segment       set the address of the *segment*, not of the
+#                        .text section.  With plain -Ttext the linker puts
+#                        .text at the bind point and the ELF headers in a
+#                        segment one page below it, at 0x2fff000, which is
+#                        both surprising and outside the region the rest
+#                        of the system reasons about.
+#
+# The result is what the 2005 binaries looked like:
+#
+#   LOAD 0x03000000 R E   .text .rodata
+#   LOAD 0x03003000 RW    .data .bss
+#
+# GNU_STACK is still emitted and is harmless -- the loader's segment loop
+# only looks at PT_LOAD -- but -z noexecstack keeps it honest.
 GUEST_LDFLAGS = -m elf_i386 -static --build-id=none -z noexecstack \
-		-Ttext $(SIX_BIND_POINT) -e cstart
+		-z noseparate-code \
+		-Ttext-segment $(SIX_BIND_POINT) -e cstart
 
 GUEST_LIBC     = $(SIX_GUEST_TOP)/library/libc/lib/libc.a
 GUEST_CRT      = $(SIX_GUEST_TOP)/applications/start/cstart.o

@@ -853,11 +853,18 @@ static int init(void * unused)
 #endif
         if (!execute_command) {
 #if (SIX)
+                /*
+                 * The return value was being discarded, so a guest that
+                 * failed to start looked exactly like a guest that started
+                 * and printed nothing.  sys_execve() only returns at all
+                 * when it has failed.
+                 */
 #if (__i386__)
                 int ret = sys_execve("/bin/sh", argv_init, envp_init);
+                printk("init: exec of /bin/sh returned %d\n", ret);
 #else
-                //int ret = sys_execve("/h", argv_init, envp_init);
                 int ret = sys_execve("/etc/init", argv_init, envp_init);
+                printk("init: exec of /etc/init returned %d\n", ret);
 #endif
 #else
                 execve("/etc/init", argv_init, envp_init);
