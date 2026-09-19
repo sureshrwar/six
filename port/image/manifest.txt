@@ -51,6 +51,7 @@ file  /bin/last             0755  applications/last/last
 file  /bin/life             0755  applications/life/life
 file  /bin/login            0755  applications/login/login
 file  /bin/ls               0755  applications/ls/ls
+file  /bin/matrix           0755  applications/matrix/matrix
 file  /bin/ps               0755  applications/ps/ps
 file  /bin/pwd              0755  applications/pwd/pwd
 file  /bin/rm               0755  applications/rm/rm

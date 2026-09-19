@@ -67,6 +67,7 @@ applications/*/gomoku
 applications/*/cal
 applications/*/dhrystone
 applications/*/tetris
+applications/*/matrix
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h
