@@ -73,6 +73,27 @@ trampoline32.s: trampoline32.S $(CONFIGURE) $(TOPDIR)/include/linux/config.h Mak
 	$(CPP) -D__SMP__ -traditional $< -o $@
 
 clean:
-	rm -f trampoline hexify
+	rm -f trampoline hexify .trace_flag
+
+#
+# irq.c is the only file that reads SIX_TRACE_GUEST_SYSCALLS (see the top
+# level Makefile, which turns it into a -D in CFLAGS).  Make has no way of
+# noticing that a command line -D changed -- irq.o is still newer than
+# irq.c -- so "make SIX_TRACE_GUEST_SYSCALLS=0" after a traced build would
+# quietly do nothing and leave a binary that still traces.  That is a
+# genuinely confusing thing to debug.
+#
+# Record the value in a stamp file, rewritten only when it actually
+# changes, and hang irq.o off it.  FORCE makes the stamp rule run every
+# time; cmp keeps the timestamp still unless the contents differ.
+#
+.PHONY: FORCE
+FORCE:
+
+.trace_flag: FORCE
+	@echo '$(SIX_TRACE_GUEST_SYSCALLS)' | cmp -s - $@ 2>/dev/null || \
+		echo '$(SIX_TRACE_GUEST_SYSCALLS)' > $@
+
+irq.o: .trace_flag
 
 include $(TOPDIR)/Rules.make

@@ -154,9 +154,21 @@ SVGA_MODE=	-DSVGA_MODE=NORMAL_VGA
 #
 #
 # Set to 1 to have system_call() print every system call a guest makes.
-# Off by default; it is very noisy and the console is slow.
+# Off by default; it is very noisy and the console is slow (one write(2)
+# per character, and a full re-blit of the screen on every scroll).
+#
+# Only arch/six/kernel/irq.c reads it.  Changing a -D on the command line
+# is invisible to make -- the .o is newer than the .c either way -- so the
+# value is recorded in a stamp file that irq.o depends on; see
+# arch/six/kernel/Makefile.  Without that, "make SIX_TRACE_GUEST_SYSCALLS=0"
+# after a traced build appears to succeed and produces a binary that is
+# still tracing.
+#
+# It is a command-line variable when set, so make exports it to the
+# sub-makes automatically.
 #
 SIX_TRACE_GUEST_SYSCALLS ?= 0
+export SIX_TRACE_GUEST_SYSCALLS
 
 SIX_STDFLAGS  = -std=gnu89 -fcommon -fno-strict-aliasing -fno-builtin -fno-pic
 SIX_WARNFLAGS = -w \
