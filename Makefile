@@ -70,7 +70,7 @@ MAKE	=make
 else
 MAKE	=make
 endif
-AWK	=gawk
+AWK	=awk
 
 all:	do-it-all
 
