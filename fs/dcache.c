@@ -228,8 +228,17 @@ unsigned long name_cache_init(unsigned long mem_start, unsigned long mem_end)
         /*
          * Empty hash queues..
          */
+        /*
+         * Each queue head points at itself, both ways, so the list is
+         * circular and empty.
+         *
+         * This said "hash_table[i].next = hash_table[i].next =", assigning
+         * .next twice and never initialising .prev -- so every queue head
+         * had a NULL back pointer.  (It is also unsequenced, which is how
+         * -Wsequence-point found it.)
+         */
         for (i = 0 ; i < DCACHE_HASH_QUEUES ; i++)
-                hash_table[i].next = hash_table[i].next =
+                hash_table[i].next = hash_table[i].prev =
                         (struct dir_cache_entry *) &hash_table[i];
         return mem_start;
 }

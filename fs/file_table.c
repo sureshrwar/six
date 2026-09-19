@@ -92,10 +92,26 @@ static int grow_files(void)
 
         nr_files += i = PAGE_SIZE/sizeof(struct file);
 
-        if (!first_file)
-                file->f_count = 0,
-                file->f_next = file->f_prev = first_file = file++,
+        /*
+         * Was:
+         *      file->f_count = 0,
+         *      file->f_next = file->f_prev = first_file = file++,
+         *      i--;
+         *
+         * Same unsequenced read-and-increment of `file` as grow_inodes()
+         * in fs/inode.c -- see the long comment there.  GCC 15 applies
+         * the ++ first, so the self-pointers landed in file[1] and
+         * first_file was left with f_prev == NULL, which
+         * insert_file_free() then dereferenced.
+         */
+        if (!first_file) {
+                first_file = file;
+                file->f_count = 0;
+                file->f_next = file;
+                file->f_prev = file;
+                file++;
                 i--;
+        }
 
         for (; i ; i--)
                 insert_file_free(file++);

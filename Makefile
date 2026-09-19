@@ -152,7 +152,8 @@ SIX_WARNFLAGS = -w \
 		-Wno-error=incompatible-pointer-types \
 		-Wno-error=return-mismatch \
 		-Wno-error=declaration-missing-parameter-type \
-		-Wno-error=builtin-declaration-mismatch
+		-Wno-error=builtin-declaration-mismatch \
+		-Wsequence-point
 
 CFLAGS = -g -O0 $(SIX_STDFLAGS) $(SIX_WARNFLAGS)
 
