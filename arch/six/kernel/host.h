@@ -24,6 +24,10 @@
  *                                                 and is free.
  *      timer tick     SIGVTALRM 28   SIGVTALRM 26 setitimer(ITIMER_VIRTUAL)
  *      window resize  SIGWINCH 20    SIGWINCH 28
+ *      keyboard       SIGPOLL 22     SIGIO 29     STREAMS I_SETSIG on
+ *                                                 Solaris; O_ASYNC +
+ *                                                 F_SETOWN on Linux.
+ *                                                 Linux 22 is SIGTTOU.
  *
  * Note the trap and the resize signals swap places relative to Solaris:
  * Solaris SIGVTALRM is 28, which on Linux is SIGWINCH.  Getting this wrong
@@ -32,6 +36,7 @@
 #define SIX_HOST_TRAPSIG   38          /* SIGRTMIN+4 on glibc/Linux */
 #define SIX_HOST_TIMERSIG  26          /* Linux SIGVTALRM           */
 #define SIX_HOST_WINCHSIG  28          /* Linux SIGWINCH            */
+#define SIX_HOST_KBDSIG    29          /* Linux SIGIO               */
 
 /* sun_handler()'s shape: a SA_SIGINFO handler. */
 typedef void (*six_host_handler_t)(int, void *, void *);
@@ -43,5 +48,10 @@ void six_host_block_signal(int signo);
 void six_host_unblock_signal(int signo);
 int  six_host_install_handler(int signo, six_host_handler_t fn);
 void six_host_raise_trap(void);
+
+/* Host terminal.  See the long comment in host.c. */
+void six_host_get_winsize(int *rows, int *cols);
+int  six_host_tty_open_raw(void);
+void six_host_tty_restore(int fd);
 
 #endif /* _SIX_HOST_H */

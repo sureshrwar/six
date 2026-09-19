@@ -82,6 +82,10 @@
 
 #include <solaris.h>
 
+#if (SIX)
+#include "../../arch/six/kernel/host.h"
+#endif
+
 #include <linux/sched.h>
 #include <linux/timer.h>
 #include <linux/tty.h>
@@ -930,11 +934,11 @@ static void vc_init(unsigned int currcons, unsigned long rows, unsigned long col
 #if (SIX)
 void winch_setsize(int sig, long id, void *context)
 {
-        struct winsize win;
-        ioctl(1,  ( ( 'T' << 8 ) | 104 ), &win);
-        video_num_lines = win.ws_row;
-        video_num_columns = win.ws_col;
-        video_size_row = 2 * win.ws_col;
+        int rows, cols;
+        six_host_get_winsize(&rows, &cols);
+        video_num_lines = rows;
+        video_num_columns = cols;
+        video_size_row = 2 * cols;
 }
 #endif
 
@@ -945,11 +949,23 @@ static void con_setsize(unsigned long rows, unsigned long cols)
         video_num_columns = cols;
         video_size_row = 2 * cols;
 #else
-	struct winsize win;
-	ioctl(1,  ( ( 'T' << 8 ) | 104 ), &win);
-	video_num_lines = win.ws_row;
-	video_num_columns = win.ws_col;
-	video_size_row = 2 * win.ws_col;
+	/*
+	 * Ignore the BIOS-derived arguments -- under SIX there is no BIOS,
+	 * ORIG_VIDEO_LINES/COLS come out of a memcpy'd fake table -- and ask
+	 * the host terminal how big it really is.
+	 *
+	 * This used to be a raw Solaris ioctl(1, ('T'<<8)|104, &win), which
+	 * on Linux is an unassigned number: it returned ENOTTY, left `win`
+	 * uninitialised, and video_screen_size below came out 0.  A
+	 * zero-sized screen makes scr_writew()'s bounds check reject every
+	 * address, so no character ever reached tga_blitc() and the console
+	 * emitted newlines and nothing else.
+	 */
+	int r, c;
+	six_host_get_winsize(&r, &c);
+	video_num_lines = r;
+	video_num_columns = c;
+	video_size_row = 2 * c;
 #endif
         video_screen_size = video_num_lines * video_size_row;
 }

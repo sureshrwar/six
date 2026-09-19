@@ -28,6 +28,10 @@
 #include <signal.h>
 #include <string.h>
 #include <stddef.h>
+#include <termios.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
 
 #include "host.h"
 
@@ -129,4 +133,98 @@ int six_host_install_handler(int signo, six_host_handler_t fn)
 void six_host_raise_trap(void)
 {
 	raise(SIX_HOST_TRAPSIG);
+}
+
+/*
+ * ---------------------------------------------------------------------
+ * Host terminal
+ *
+ * The 2005 code spoke to the terminal with Solaris ioctl numbers built
+ * inline, e.g. (( 'T' << 8 ) | 104 ) for TIOCGWINSZ and (('S'<<8)|011)
+ * for the STREAMS I_SETSIG.  None of those numbers mean the same thing
+ * on Linux, and they all quietly returned ENOTTY:
+ *
+ *      what SIX wanted   Solaris number   what Linux calls that number
+ *      TIOCGWINSZ        0x5468           unassigned  -> ENOTTY
+ *      TCGETA            0x540d           TIOCNXCL
+ *      TCSETA            0x540e           TIOCSCTTY
+ *      I_SETSIG          0x5309           unassigned  -> ENOTTY
+ *
+ * The TIOCGWINSZ failure was not cosmetic: con_setsize() left `winsize`
+ * uninitialised, so video_screen_size came out 0, so con_type_init() set
+ * video_mem_term == video_mem_base, so scr_writew()'s "is this address on
+ * the screen?" test was false for every address and tga_blitc() -- the
+ * function that actually write(2)s the character -- was never called.
+ * The kernel booted perfectly and printed nothing but newlines.
+ * ---------------------------------------------------------------------
+ */
+
+/* Saved terminal state, so we can put the user's shell back as we found it. */
+static struct termios six_saved_termios;
+static int            six_saved_termios_valid = 0;
+
+/*
+ * Ask the host how big the terminal is.
+ *
+ * Falls back to 25x80 when there is no tty (output redirected to a file or
+ * a pipe, which is how this is usually run under strace/gdb).  Returning a
+ * zero-sized console is never useful and is what broke the console before.
+ */
+void six_host_get_winsize(int *rows, int *cols)
+{
+	struct winsize win;
+
+	if (ioctl(1, TIOCGWINSZ, &win) == 0 && win.ws_row && win.ws_col) {
+		*rows = win.ws_row;
+		*cols = win.ws_col;
+		return;
+	}
+
+	*rows = 25;
+	*cols = 80;
+}
+
+/*
+ * Open the controlling terminal and put it in the mode SIX's emulated
+ * keyboard controller expects: raw, non-blocking, and arranging for a
+ * signal whenever input arrives.
+ *
+ * On Solaris the last part was the STREAMS I_SETSIG/S_RDNORM above, which
+ * raises SIGPOLL (Solaris signal 22).  The Linux equivalent is O_ASYNC
+ * with F_SETOWN, which raises SIGIO (29) -- see SIX_HOST_KBDSIG.  Note
+ * that Linux signal 22 is SIGTTOU, so the old number had to change.
+ *
+ * Returns the fd, or -1.
+ */
+int six_host_tty_open_raw(void)
+{
+	struct termios t;
+	int fd;
+
+	fd = open("/dev/tty", O_RDWR);
+	if (fd < 0)
+		return -1;
+
+	if (tcgetattr(fd, &six_saved_termios) == 0)
+		six_saved_termios_valid = 1;
+
+	t = six_saved_termios;
+	t.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+	t.c_iflag &= ~(IXON | IXOFF | ICRNL | INLCR | ISTRIP | BRKINT);
+	t.c_cc[VMIN]  = 1;
+	t.c_cc[VTIME] = 0;
+	tcsetattr(fd, TCSANOW, &t);
+
+	/* Deliver SIGIO to us when the terminal becomes readable. */
+	fcntl(fd, F_SETOWN, getpid());
+	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK | O_ASYNC);
+
+	return fd;
+}
+
+/* Undo six_host_tty_open_raw().  Safe to call if it never succeeded. */
+void six_host_tty_restore(int fd)
+{
+	if (fd >= 0 && six_saved_termios_valid)
+		tcsetattr(fd, TCSANOW, &six_saved_termios);
 }

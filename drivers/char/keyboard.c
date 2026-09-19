@@ -18,15 +18,21 @@
  *
  */
 
+#include <solaris.h>
+
 #if (SIX)
-#define KEYBOARD_IRQ 22 
+#include "../../arch/six/kernel/host.h"
+/*
+ * The "keyboard IRQ" is really the host signal raised when the terminal
+ * has input.  On Solaris that was SIGPOLL (22) via STREAMS I_SETSIG; on
+ * Linux it is SIGIO (29) via O_ASYNC.  Linux signal 22 is SIGTTOU.
+ */
+#define KEYBOARD_IRQ SIX_HOST_KBDSIG
 #else
 #define KEYBOARD_IRQ 1
 #endif
 
 #define DISABLE_KBD_DURING_INTERRUPTS 0
-
-#include <solaris.h>
 
 #include <linux/sched.h>
 #include <linux/interrupt.h>
@@ -964,12 +970,11 @@ static void kbd_bh(void)
 }
 
 #if (SIX)
-static struct termios ot;
-int TERMFD;
+int TERMFD = -1;
 
 void reset_sun_tty()
 {
-	ioctl(TERMFD, (('T'<<8) |14) , &ot);
+	six_host_tty_restore(TERMFD);
 	close(DISKFD);
 }
 #endif
@@ -981,21 +986,15 @@ int kbd_init(void)
         struct kbd_struct kbd0;
         extern struct tty_driver console_driver;
 #if (SIX)
-     	struct termios t;
-
-    	TERMFD = open("/dev/tty", 2 );
-
-    	ioctl(TERMFD, (('S'<<8) |011) , 0x0040 );
-    	ioctl(TERMFD, (('T'<<8) |13) , &ot);
-
-    	t = ot;
-    	t.c_lflag &= ~(ECHO | ICANON | ISIG);
-    	t.c_iflag &= ~(IXON | IXOFF);
-    	t.c_cc[4 ] = 1;
-    	t.c_cc[5 ] = 0;
-
-    	ioctl(TERMFD, (('T'<<8) |14) , &t);
-    	fcntl(TERMFD, 4 , 0x04  | 2 );
+	/*
+	 * This was a hand-rolled sequence of Solaris ioctls: TCGETA/TCSETA
+	 * built as ('T'<<8)|13 and ('T'<<8)|14, a STREAMS I_SETSIG to get
+	 * SIGPOLL on readable input, and fcntl(fd, 4, 0x04|2) for
+	 * F_SETFL/O_NDELAY.  Every one of those numbers means something
+	 * different (or nothing) on Linux, so the whole thing now lives
+	 * behind the host shim, which uses TCGETS/TCSETS and O_ASYNC.
+	 */
+	TERMFD = six_host_tty_open_raw();
 #endif
         kbd0.ledflagstate = kbd0.default_ledflagstate = KBD_DEFLEDS;
         kbd0.ledmode = LED_SHOW_FLAGS;
