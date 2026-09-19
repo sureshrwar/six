@@ -32,6 +32,7 @@ dir   /usr/lib/advent       0755
 # --- /bin (all 23 programs from the SPARC root disk + vi & advent) ----------
 file  /bin/advent           0755  applications/advent/advent
 file  /bin/banner           0755  applications/banner/banner
+file  /bin/cal              0755  applications/cal/cal
 file  /bin/cat              0755  applications/cat/cat
 file  /bin/clear            0755  applications/clear/clear
 file  /bin/date             0755  applications/date/date
