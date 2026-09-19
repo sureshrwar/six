@@ -1,0 +1,125 @@
+#
+# Rules.guest -- how to build the guest userland.
+#
+# The guest userland (library/ = the emulated machine's mini-libc,
+# applications/ = init, getty, login, sh, ls, ...) targets the *emulated*
+# machine, not the host.  It does not share CFLAGS with the kernel, and it
+# must not simply pick up the host toolchain's idea of what a C program is.
+#
+# Every guest Makefile includes this file rather than spelling out its own
+# flags, which is how the 2005 tree did it and is why no two of them agreed.
+#
+# Include it as:
+#       SIXTOP := $(shell cd $(dir $(lastword $(MAKEFILE_LIST)))../.. && pwd)
+#       include $(SIXTOP)/Rules.guest
+#
+
+# ---------------------------------------------------------------------------
+# Where the source root is.
+#
+# Worked out from the location of this file, so that it does not matter how
+# deep the including Makefile is or what directory make was invoked from.
+# ---------------------------------------------------------------------------
+SIX_GUEST_TOP := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+
+GUEST_CC = gcc
+GUEST_LD = ld
+GUEST_AR = ar
+
+# ---------------------------------------------------------------------------
+# Include path
+#
+# -nostdinc, because the guest is not a host program and must not see
+# glibc's headers.  In 2005 the build had no -nostdinc and no consistent
+# include path, so it half-picked-up Solaris system headers; on Linux the
+# same arrangement half-picks-up glibc's, and the result was 47 of 206 files
+# failing to compile with errors like "unknown type name 'size_t'" and
+# "redefinition of 'struct stat'".
+#
+# Three directories, in this order:
+#
+#   1. GCC's own headers.  -nostdinc removes these too, and we want them
+#      back: stdarg.h, stddef.h and friends are properties of the compiler,
+#      not of the C library, and va_list cannot be written without them.
+#      -isystem rather than -I so they are searched last and can be
+#      overridden.
+#   2. library/include -- the guest's own libc headers.
+#   3. include -- the kernel tree, for the linux/*.h ABI headers: errno
+#      numbers, ioctl numbers, termios, fcntl, the syscall-visible structs.
+#      This is not a layering violation; it is what /usr/include/linux was
+#      on a real Linux 2.0 system, where those headers were symlinks into
+#      the kernel source.
+#
+# Note what is *not* here: -D__KERNEL__.  library/sys/Makefile used to pass
+# it, which is wrong for a user program -- among other things it changes
+# which typedefs include/linux/types.h makes visible -- and it is why those
+# files could get away with including <linux/sched.h>.  They include
+# <sched.h> now (library/include/sched.h).
+# ---------------------------------------------------------------------------
+GUEST_GCCINC := $(shell $(GUEST_CC) -m32 -print-file-name=include)
+
+GUEST_INCLUDES = -nostdinc \
+		 -isystem $(GUEST_GCCINC) \
+		 -I$(SIX_GUEST_TOP)/library/include \
+		 -I$(SIX_GUEST_TOP)/include
+
+# ---------------------------------------------------------------------------
+# Compiler flags
+#
+# -m32                  the emulated machine is 32-bit x86.  Everything in
+#                       this tree assumes sizeof(long) == sizeof(void *) == 4.
+# -fno-pic -fno-pie     the guest is loaded at a fixed address by SIX's own
+#                       ELF loader, which does not relocate.  It also lets
+#                       the "b" (%ebx) asm constraint in library/sys work;
+#                       under PIC, %ebx is the GOT pointer and GCC refuses.
+# -fno-builtin          there is no host libc to call.  Without this, GCC
+#                       turns printf("x\n") into puts("x") and small memcpys
+#                       into inline code that may reference symbols the
+#                       guest libc does not have.
+# -fno-stack-protector  the guest has no __stack_chk_fail and no TLS.
+# -std=gnu89 -fcommon   this is 1990s C; see the kernel's SIX_STDFLAGS for
+#                       the same reasoning.
+# -O0                   keep the generated code close to the source while
+#                       the port is being debugged.
+# ---------------------------------------------------------------------------
+GUEST_CFLAGS = -m32 $(GUEST_INCLUDES) \
+	       -fno-pic -fno-pie -fno-builtin -fno-stack-protector \
+	       -std=gnu89 -fcommon -fno-strict-aliasing \
+	       -g -O0 -w -DSIX=1
+
+# ---------------------------------------------------------------------------
+# Link
+#
+# SIX_BIND_POINT is where guest programs live in the emulated address space.
+# It has to agree with include/solaris.h, and with the big diagram in
+# fs/binfmt_elf.c that describes the layout.
+#
+# The x86 mapfile used to say 0x1000, alone among the two architectures --
+# applications/map/sparc/user.map has always said 0x3000000.  0x1000 cannot
+# work on Linux: vm.mmap_min_addr is 65536, so the loader's MAP_FIXED of the
+# first segment returns EPERM and the exec fails before the program starts.
+# Changing the host sysctl would have fixed it too, but that is a real
+# exploit mitigation and this is a hobby kernel; relinking is free and makes
+# the two architectures agree.
+#
+# 48 MB is clear of everything else in the host address space: SIX's own
+# text starts at 0x08048000, its heap runs to about 167 MB, the emulated
+# RAM is mapped around 185-209 MB, and the host libc sits up at 0xf7d1a000.
+#
+# The Solaris mapfiles (-M applications/map/*/user.map) are not used on
+# Linux.  GNU ld cannot read them; -Ttext expresses the only thing they
+# said that mattered.
+# ---------------------------------------------------------------------------
+SIX_BIND_POINT = 0x3000000
+
+GUEST_LDFLAGS = -m elf_i386 -static --build-id=none -z noexecstack \
+		-Ttext $(SIX_BIND_POINT) -e cstart
+
+GUEST_LIBC     = $(SIX_GUEST_TOP)/library/libc/lib/libc.a
+GUEST_CRT      = $(SIX_GUEST_TOP)/applications/start/cstart.o
+
+# The standard recipe for a guest program: $(call guest_link,name,objects)
+guest_link = $(GUEST_LD) $(GUEST_LDFLAGS) -o $(1) $(GUEST_CRT) $(2) $(GUEST_LIBC)
+
+%.o: %.c
+	$(GUEST_CC) $(GUEST_CFLAGS) -c -o $@ $<

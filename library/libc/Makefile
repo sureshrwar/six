@@ -1,31 +1,30 @@
-CC	=	gcc 
-LD	= 	/usr/ccs/bin/ld
-AR	=	ar
+#
+# The guest C library.
+#
+# libc.a deliberately contains the system call stubs from ../sys as well,
+# so that a guest program can be linked against this one archive and
+# nothing else.  That is what every applications/*/Makefile expects.
+#
+# All the flags live in ../../Rules.guest, including the %.o: %.c rule.
+#
 
-SRC	=	$(shell find . -name "*.c")
-TARGET  =	./lib/libc.a
+include ../../Rules.guest
 
-%.o: %.c
-	$(CC) -g -DSIX=1 -I../include -I../../include -c -o $@ $<
-%.o: %.s
-	$(CC) -c -o $@ $<
+SRC	=	$(wildcard *.c)
+OBJS	=	$(SRC:.c=.o)
 
-OBJS	=	$(subst .c,.o,$(SRC))	
-SOBJS	=	../sys/*.o
-ARCH = $(shell uname -p)
+SYSOBJS	=	$(wildcard ../sys/*.o)
 
+ARCH	=	$(shell uname -m)
 ifeq ($(ARCH),sparc)
-        OBJS += rem.o
-        OBJS += urem.o
-        OBJS += div.o
-        OBJS += udiv.o
-        OBJS += mul.o
-        OBJS += umul.o
-        OBJS += setjmp.o
+OBJS	+=	rem.o urem.o div.o udiv.o mul.o umul.o setjmp.o
 endif
 
+TARGET	=	./lib/libc.a
+
 $(TARGET): $(OBJS)
-	$(AR) -r  ./lib/libc.a $(OBJS) $(SOBJS)
+	@mkdir -p ./lib
+	$(GUEST_AR) -r $(TARGET) $(OBJS) $(SYSOBJS)
+
 clean:
-	rm -rf *.o
-	rm ./lib/libc.a
+	rm -f *.o $(TARGET)

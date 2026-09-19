@@ -1,23 +1,16 @@
+#
+# All the compiler and linker flags live in ../../Rules.guest, which also
+# supplies the %.o: %.c rule and the guest_link recipe.  This Makefile used
+# to carry its own copy of the flags, and no two of them in this tree
+# agreed with each other.
+#
 
-CC	=	gcc
-LD	= 	ld
-AR	=	ar
+include ../../Rules.guest
 
-ARCH = $(shell uname -p)
+OBJS	=	id.o
 
-ifeq ($(ARCH),sparc)
-LDFLAGS =       -M ../map/sparc/user.map
-else
-LDFLAGS =       -M ../map/x86/user.map
-endif
-
-%.o: %.c
-	$(CC)  -c -o $@ $< -I../../library/include -I../../include
-
-
-id:   id.o 
-	$(LD) $(LDFLAGS) -e cstart id.o ../start/cstart.o  $(OBJS) -o id ../../library/libc/lib/libc.a 
+id: $(OBJS) $(GUEST_CRT) $(GUEST_LIBC)
+	$(call guest_link,$@,$(OBJS))
 
 clean:
-	rm -rf *.o
-	rm id
+	rm -f *.o id

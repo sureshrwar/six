@@ -11,6 +11,12 @@
 static char *Copyright = "\0Copyright (c) 1990 Bert Reuling";
 static unsigned long seed;
 
+/*
+ * Defined below but called from main(), so C89 gave it an implicit
+ * "int magic()".  It returns unsigned long.
+ */
+unsigned long magic(unsigned long range);
+
 
 int main(argc, argv)
 int argc;

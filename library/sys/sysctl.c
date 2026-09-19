@@ -1,7 +1,7 @@
 
 #include <syscall.h>
 #include <linux/errno.h>
-#include <linux/sched.h>
+#include <sched.h>
 #include <linux/types.h>
 #include <linux/sysctl.h>
 

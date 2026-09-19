@@ -1,16 +1,15 @@
-
-CC	=	gcc
-LD	= 	ld
-AR	=	ar
-
-LDFLAGS = 	-M ../map/user.map
+#
+# The guest C library.
+#
+# sys must be built before libc: libc.a absorbs ../sys/*.o so that guest
+# programs can link against one archive.
+#
 
 SUBDIRS	=	sys \
 		libc
 
-
 all:
-	for i in $(SUBDIRS); do make -C $$i; done
+	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
+
 clean:
-	for i in $(SUBDIRS); do make -C $$i clean; done
-	
+	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i clean; done

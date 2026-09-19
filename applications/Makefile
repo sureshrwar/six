@@ -1,31 +1,25 @@
+#
+# The guest userland.
+#
+# start must be built first: every other program links against
+# start/cstart.o.
+#
+# banner, cat and halt are deliberately not in this list, which is how the
+# 2005 tree had it.  They are still buildable by hand.
+#
 
-CC	=	gcc
-LD	= 	ld
-AR	=	ar
-
-ARCH = $(shell uname -p)
-
-ifeq ($(ARCH),sparc)
-LDFLAGS = 	-M ../map/sparc/user.map
-else
-LDFLAGS = 	-M ../map/x86/user.map
-endif
-
-
-
-SUBDIRS	= 	start\
-		init\
-		getty\
-		login\
-		sh\
-		hello\
-		fortune\
+SUBDIRS	=	start \
+		init \
+		getty \
+		login \
+		sh \
+		hello \
+		fortune \
 		clear \
 		ps \
-		ls\
-		tty\
+		ls \
+		tty \
 		rm \
-		sh \
 		echo \
 		pwd \
 		sync \
@@ -36,13 +30,8 @@ SUBDIRS	= 	start\
 		id \
 		last
 
-
-%.o: %.c
-	$(CC)  -c -o $@ $< -I../include
-
-
 all:
-	for i in $(SUBDIRS); do make -C $$i; done
+	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
+
 clean:
-	for i in $(SUBDIRS); do make -C $$i clean; done
-	
+	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i clean; done

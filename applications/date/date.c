@@ -19,6 +19,14 @@ int qflag, uflag, sflag;
  */
 int outfd = 1;
 
+/*
+ * Defined at the bottom of this file but called from main(), which in C89
+ * means it was being used through an implicit "int make_time()" -- wrong,
+ * since it returns time_t.  On a 32-bit machine that happens to be the same
+ * width, so the bug was invisible until GCC started rejecting it.
+ */
+time_t make_time(char *t);
+
 
 /* Main module. Handles P1003.2 date and system administrator's date. The
  * date entered should be given GMT, regardless of the system's TZ!

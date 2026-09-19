@@ -1,7 +1,15 @@
-CC	=	gcc
+#
+# cstart.o -- the guest entry point.
+#
+# Every guest program is linked with "-e cstart", so this is where a guest
+# actually starts executing after SIX's ELF loader hands it control.
+#
+# Flags come from ../../Rules.guest.
+#
 
+include ../../Rules.guest
 
-cstart.o: cstart.c
-	$(CC)  -I../../library/include -c -o $@ $<	
+all: cstart.o
+
 clean:
-	rm -rf *.o
+	rm -f *.o

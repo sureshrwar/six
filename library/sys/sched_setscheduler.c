@@ -1,7 +1,7 @@
 
 #include <syscall.h>
 #include <linux/errno.h>
-#include <linux/sched.h>
+#include <sched.h>
 
 
 int sched_setscheduler(pid_t p, int policy, struct sched_param *param)

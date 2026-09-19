@@ -61,3 +61,5 @@ applications/*/tty
 
 # Staging tree used while assembling the disk image
 port/image/.stage/
+applications/*/h
+library/*/lib/*.a

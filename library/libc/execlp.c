@@ -13,7 +13,7 @@ extern char **envlist;		/* environment pointer */
 
 int execlp(const char *file, ...)
 {
-  register va_list argp;
+  va_list argp;			/* not "register": va_start takes its address */
   register int result;
 
   va_start(argp, file);
