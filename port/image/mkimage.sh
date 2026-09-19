@@ -75,11 +75,11 @@ while [ $# -gt 0 ]; do
 	shift
 done
 
-# Geometry.  Keep it identical to the 2005 image so that any behavioural
-# difference we see later cannot be blamed on the filesystem layout.
+# Geometry: 50 MB ext2 image (51200 x 1 KB blocks, 12800 inodes).
+# Can be overridden via environment variables BLOCK_COUNT and INODE_COUNT.
 BLOCK_SIZE=1024
-BLOCK_COUNT=5120
-INODE_COUNT=1280
+BLOCK_COUNT=${BLOCK_COUNT:-51200}
+INODE_COUNT=${INODE_COUNT:-$((BLOCK_COUNT / 4))}
 
 [ -r "$MANIFEST" ] || { echo "mkimage: no manifest at $MANIFEST" >&2; exit 1; }
 

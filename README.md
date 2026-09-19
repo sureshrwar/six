@@ -26,7 +26,7 @@ bash#
 * **Context Switching & Preemption**: Each kernel task maintains user and kernel `ucontext_t` states (`getcontext`/`setcontext`/`swapcontext`) with dedicated 8 KB kernel stacks. A virtual interval timer (`ITIMER_VIRTUAL` / `SIGVTALRM`) drives `jiffies` and preemptive scheduling.
 * **System Call Trap**: Because guest programs run as ordinary user-space code with no hardware privilege ring to trap into, a program enters the kernel by sending a signal (`kill(getpid(), SIX_TRAPSIG)`) to the `./six` process itself, passing a pointer to its system call arguments in the `%esi` register. The kernel's signal handler (`sun_handler` in `arch/six/kernel/irq.c`) catches the signal, switches to the task's kernel stack, runs the requested Linux 2.0.11 system call (`sys_call_table[]`), writes the return value back, and resumes the guest program.
 * **Block & Console I/O**:
-  * **Hard Disk (`/dev/hda`)**: The stock Linux 2.0.11 IDE driver (`drivers/block/hd.c`) is backed by a 5 MB rev-0 `ext2` filesystem image (`disk/x86/root`). IDE port reads/writes (`0x1f0–0x1f7`) are intercepted and translated to `lseek`/`read`/`write` on the disk image.
+  * **Hard Disk (`/dev/hda`)**: The stock Linux 2.0.11 IDE driver (`drivers/block/hd.c`) is backed by a 50 MB rev-0 `ext2` filesystem image (`disk/x86/root`). IDE port reads/writes (`0x1f0–0x1f7`) are intercepted and translated to `lseek`/`read`/`write` on the disk image.
   * **Console (`/dev/console`)**: Host terminal input is delivered asynchronously via `O_ASYNC`/`SIGIO` (`drivers/char/keyboard.c`), and console writes (`drivers/char/console.c`) stream directly to the host terminal.
 
 ## Building and Running
