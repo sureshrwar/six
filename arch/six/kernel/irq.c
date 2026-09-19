@@ -1915,9 +1915,16 @@ static void KILL_action(void)
 static struct irqaction irqKILL  = { KILL_action, 0, 0, "SIGKILL", NULL, NULL};
 
 
-static void SEGV_action(void)
+static void SEGV_action(int irq, void *dev_id, struct pt_regs *regs)
 {
-        printk("\nCaught SIGSEGV : Exiting\n");
+	printk("\nCaught SIGSEGV (pid=%d comm=%s pc=%08x kesp=%08x uesp=%08x um=%d kl=%d) : Exiting\n",
+	       current ? current->pid : -1,
+	       current ? current->comm : "?",
+	       regs ? regs->pc : 0,
+	       regs ? regs->kesp : 0,
+	       regs ? regs->esp : 0,
+	       current ? current->user_mode : -1,
+	       current ? current->kernel_level : -1);
 	reset_sun_tty();
         exit(SIGSEGV);
 }
@@ -2120,7 +2127,7 @@ void ret_from_sys_call(struct pt_regs *context)
 			/* work to do; there is an unblocked signal */
 			unsigned long oldmask;
 	
-			if (current == task[0]) /* no signals to init task */
+			if (current == task[0] || !user_mode(context)) /* no user signals to kernel threads */
 				return;
 	
 			/* save original mask */
@@ -2180,14 +2187,42 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 	else
 	{
 		/*
-		 * we are on kernel stack, so no need to switch stacks.
-		 * and so we can use the context that was pushed onto 
-		 * our stack.
+		 * We were already in the kernel (current->kernel_level > 1),
+		 * on current->nsp, when an interrupt (e.g. SIGVTALRM after
+		 * sti() in schedule()) arrived.  Handle the IRQ and return
+		 * straight to the interrupted kernel frame.
+		 *
+		 * Do NOT call ret_from_sys_call(context) here: "context" is
+		 * the interrupted *kernel* frame on current->nsp, not the
+		 * guest's ucontext.  Running ret_from_sys_call(context) on a
+		 * nested interrupt caused do_signal() to push a userland
+		 * signal frame onto the kernel stack (0x0d0e7fe8) and jump
+		 * into the guest's signal handler with kernel_level still 1!
+		 * The outer sun_handler (kernel_level == 1) will run
+		 * ret_from_sys_call(&current->ucontext) when the syscall
+		 * actually finishes and returns to userland.
 		 */
 		do_IRQ(current->signum, context);
-		ret_from_sys_call(context);
 	}
 
+
+	/*
+	 * Block host interrupt signals across LEAVE_KERNEL -> setcontext().
+	 *
+	 * system_call() and schedule() call sti() before returning here, so
+	 * SIGVTALRM is unblocked at this point while %esp is still on the
+	 * kernel stack (current->nsp, e.g. 0x0d0e7fe8).  The instant
+	 * LEAVE_KERNEL decrements current->kernel_level from 1 to 0, a
+	 * timer signal arriving before setcontext() finishes would enter a
+	 * new sun_handler(), see kernel_level become 1, mistake the kernel
+	 * stack for userland, and overwrite current->ucontext via SAVE_ALL
+	 * with kesp=0x0d0e7fe8.
+	 *
+	 * setcontext() restores uc_sigmask from the target ucontext_t, so
+	 * signals are automatically re-enabled the moment userland (or the
+	 * interrupted kernel frame) resumes.
+	 */
+	cli();
 
 	if(current->kernel_level == 1)
 	{
@@ -2196,29 +2231,6 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 		 * SPARC flushes register windows to %sp, so restore osp.
 		 */
 		__asm__("mov %1, %%sp" : "=r" (ret) : "r" (current->osp));
-#else
-		/*
-		 * Do NOT switch %esp back to current->osp here on x86.
-		 *
-		 * We are about to call RESTORE_USER_CONTEXT, which is
-		 * setcontext(&current->ucontext): it never returns, and it
-		 * loads the target %esp directly from current->ucontext.kesp.
-		 *
-		 * Switching %esp to current->osp before calling setcontext()
-		 * caused the "pushl &current->ucontext; call setcontext"
-		 * sequence (and setcontext's own sigprocmask frame) to write
-		 * onto *current->osp.  When the syscall was execve(),
-		 * do_six_load_elf_binary() has just freed the old stack
-		 * (current->mm->start_stack) and do_mmap() has immediately
-		 * reused that same physical page to back the new binary's
-		 * .text segment at 0x03000000 -- so setcontext() pushed the
-		 * address of current->ucontext straight into the middle of
-		 * /etc/init's machine code!
-		 *
-		 * Staying on current->nsp (the task's dedicated kernel stack)
-		 * until setcontext() switches %esp to ucontext.kesp avoids
-		 * touching the old stack at all.
-		 */
 #endif
 		LEAVE_KERNEL;
 		/*

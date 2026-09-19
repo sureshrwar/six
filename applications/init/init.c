@@ -171,6 +171,9 @@ int main(int argc, char *argv[], char *env[])
 		}
 		endttyent();
 	}
+	if (!spawn && pid < 0 && !gothup && !gotabrt) {
+		pause();
+	}
 	check = 0;
   }
 	waitpid(-1, 0, 0);
