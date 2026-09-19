@@ -126,16 +126,31 @@ int argc;
 char *argv[];
 {
   int a, b, c, len, ind;
+  char fill = 0;
   char line[80];
 
-  for (argv++; --argc; argv++) {
+  argv++;
+  argc--;
+  if (argc >= 1 && argv[0][0] == '-' && argv[0][1] == 'c') {
+	if (argv[0][2] != '\0') {
+		fill = argv[0][2];
+		argv++;
+		argc--;
+	} else if (argc >= 2) {
+		fill = argv[1][0];
+		argv += 2;
+		argc -= 2;
+	}
+  }
+
+  for (; argc > 0; argc--, argv++) {
 	len = strlen(*argv);
 	if (len > 10) len = 10;
 	for (a = 0; a < 7; a++) {
 		for (b = 0; b < len; b++) {
 			if ((ind = (*argv)[b] - ' ') < 0) ind = 0;
 			for (c = 0; c < 7; c++) {
-				line[b * 8 + c] = glyphs[(ind / 8 * 7) + a][(ind % 8 * 7) + c] == '@' ? ind + ' ' : ' ';
+				line[b * 8 + c] = glyphs[(ind / 8 * 7) + a][(ind % 8 * 7) + c] == '@' ? (fill ? fill : ind + ' ') : ' ';
 			}
 			line[b * 8 + 7] = ' ';
 		}

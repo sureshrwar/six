@@ -8,7 +8,9 @@ sethostname `cat /etc/hostname`
 
 echo
 echo
-banner SIX
+banner -c# SIX
+echo
+echo Escape character is '^]'.
 
 
 
