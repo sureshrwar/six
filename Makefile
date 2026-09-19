@@ -103,6 +103,17 @@ else
 # on the right-hand side of "do-it-all:" must already have a value.
 SIX_IMAGE	= disk/x86/root
 do-it-all:	include/asm Version six $(SIX_IMAGE)
+	@echo ""
+	@echo "======================================================================"
+	@echo "  Build successful! Your early-2000s time machine is ready."
+	@echo ""
+	@echo "  To boot into SIX, run:"
+	@echo "      ./six"
+	@echo ""
+	@echo "  Login as 'root' (no password)."
+	@echo "  When you're done, run 'halt' or press Ctrl+] to return to the 2020s."
+	@echo "======================================================================"
+	@echo ""
 
 include/asm:
 	ln -sfn asm-$(ARCH) include/asm
