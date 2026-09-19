@@ -38,6 +38,7 @@ file  /bin/date             0755  applications/date/date
 file  /bin/echo             0755  applications/echo/echo
 file  /bin/fortune          0755  applications/fortune/fortune
 file  /bin/getty            0755  applications/getty/getty
+file  /bin/gomoku           0755  applications/gomoku/gomoku
 file  /bin/grep             0755  applications/grep/grep
 file  /bin/h                0755  applications/hello/hello
 file  /bin/halt             0755  applications/halt/halt

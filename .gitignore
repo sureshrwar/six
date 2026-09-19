@@ -63,6 +63,7 @@ applications/*/tty
 applications/*/vi
 applications/*/life
 applications/*/ttt
+applications/*/gomoku
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h

@@ -38,7 +38,8 @@ SUBDIRS	=	start \
 		vi \
 		advent \
 		life \
-		ttt
+		ttt \
+		gomoku
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
