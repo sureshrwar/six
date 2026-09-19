@@ -102,7 +102,10 @@ else
 # a rule's prerequisites at the moment it reads the rule, so a variable used
 # on the right-hand side of "do-it-all:" must already have a value.
 SIX_IMAGE	= disk/x86/root
-do-it-all:	Version six $(SIX_IMAGE)
+do-it-all:	include/asm Version six $(SIX_IMAGE)
+
+include/asm:
+	ln -sfn asm-$(ARCH) include/asm
 endif
 
 #
@@ -229,21 +232,11 @@ DRIVERS		=drivers/block/block.o \
 LIBS		=$(TOPDIR)/lib/lib.o
 #
 # The guest userland (library/ = the emulated machine's mini-libc,
-# applications/ = init, getty, login, sh, ls, ...) is deliberately NOT part
-# of the default build.  It targets the *emulated* machine rather than the
-# host, it is linked with Solaris ld mapfiles, and it carries its own
-# CFLAGS that do not inherit the GCC-15 compatibility set above.  The
-# checked-in disk images (disk/x86/root) already hold prebuilt guest
-# binaries, so the kernel boots without rebuilding any of this.
+# applications/ = init, getty, login, sh, ls, ...) is built alongside the
+# kernel and packaged into disk/x86/root by port/image/mkimage.sh.
+# Each guest Makefile includes Rules.guest for its compiler/linker flags.
 #
-# Rebuilding the userland is milestone M6; until then:
-#     make SIX_USERLAND=y ...
-# to put it back in the build.
-#
-SUBDIRS		=kernel drivers mm fs net ipc lib
-ifdef SIX_USERLAND
-SUBDIRS		:=$(SUBDIRS) library applications
-endif
+SUBDIRS		=kernel drivers mm fs net ipc lib library applications
 
 ifeq ($(CONFIG_ISDN),y)
 DRIVERS := $(DRIVERS) drivers/isdn/isdn.a
@@ -388,14 +381,14 @@ endif
 # SIX_IMAGE itself is defined near the top of this file, next to do-it-all.
 SIX_IMAGE_MANIFEST = port/image/manifest.txt
 SIX_IMAGE_TOOL	= port/image/mkimage.sh
-SIX_IMAGE_FILES	= $(wildcard $(shell sed 's/\#.*//' $(SIX_IMAGE_MANIFEST) | \
-		    $(AWK) '$$1 == "file" { print $$4 }'))
+SIX_IMAGE_FILES	= $(shell sed 's/\#.*//' $(SIX_IMAGE_MANIFEST) | \
+		    $(AWK) '$$1 == "file" { print $$4 }')
 
 # The order-only dependency on "six" keeps the image from being assembled in
 # parallel with the kernel link under make -j; the guest binaries are built
 # by linuxsubdirs, which is a prerequisite of six.
 $(SIX_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_IMAGE_FILES) | six
-	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL)
+	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict
 
 .PHONY: image image-clean
 image: $(SIX_IMAGE)
@@ -518,8 +511,11 @@ endif
 
 ifdef SOLARIS_USER_MODE
 clean:	image-clean
-	find . -name "*.[oa]" -exec rm {} \;
-	rm $(ROOT)/six
+	$(MAKE) -C library clean
+	$(MAKE) -C applications clean
+	find . -name '*.[oa]' -not -path './CVS/*' -delete
+	find . -name '.*.o.d' -delete
+	rm -f $(ROOT)/six arch/six/kernel/.trace_flag
 else
 clean:  archclean
         rm -f kernel/ksyms.lst include/linux/compile.h
