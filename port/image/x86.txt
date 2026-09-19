@@ -1,0 +1,25 @@
+
+
+Ok i just have had enough of x86. so far i have been porting
+this stuff back and forth across intel and x86 - but dont 
+have any more patience or energy. to make matters worse, the
+only x86 machine that i have access to, its damn slow, messy,
+and has innumerable problems. which now leads to me realize
+that it will be a better use of time if i concentrate just on
+sparc. in short, im leaving the x86 trail at a point where
+the whole thing compiles on x86, but with various runtime bugs,
+yet capable of loading something from the disk and running it.
+so i thought of putting in this bare shell, hardly anything
+more than a while loop, so anyone adventurous can ad-venture
+into trying out running simple stuff.
+
+in short - no init, no getty, no login, no nothing - all you
+have is an ultra-simple shell which sits in a while loop and
+attempts to execve() whatever you type in. till it reads in
+an "exit". then it dies, and you are left alone with our init
+task and its idle loop. it cant be, it cant end like this,
+but it just did. 
+
+
+
+

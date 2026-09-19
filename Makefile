@@ -94,7 +94,15 @@ CONFIGURATION = config
 do-it-all:	config
 endif
 else
-do-it-all:	Version six
+# The disk image is a build product now, exactly like the kernel binary.  It
+# used to be a 5 MB blob checked into CVS in 2005; see the "guest root
+# filesystem image" section further down for the rules and the reasoning.
+#
+# This has to be defined here rather than next to those rules: make expands
+# a rule's prerequisites at the moment it reads the rule, so a variable used
+# on the right-hand side of "do-it-all:" must already have a value.
+SIX_IMAGE	= disk/x86/root
+do-it-all:	Version six $(SIX_IMAGE)
 endif
 
 #
@@ -326,6 +334,58 @@ six:	linuxsubdirs init/version.o init/main.o
 
 endif
 
+#
+# ---------------------------------------------------------------------------
+# The guest root filesystem image
+# ---------------------------------------------------------------------------
+#
+# disk/x86/root was a 5 MB ext2 blob checked into CVS in February 2005.  It
+# has been deleted and untracked.  Nothing was lost: the pristine original,
+# along with the big-endian SPARC one, is in git tag "v2005-cvs".
+#
+# It is now generated, because a checked-in image has three problems that
+# only get worse with time:
+#
+#   1. Nothing tied its contents to the source tree sitting next to it.  The
+#      /bin/sh inside it was built from some revision of applications/sh/ in
+#      2003; which one, nobody can say.
+#   2. Changing anything on it meant booting the kernel and using its own
+#      built-in single-user shell (fs/single.c, "./six single") to copy files
+#      in -- the author's own bootstrap tool, and a hard thing to repeat.
+#   3. Every rebuild of a guest program silently did nothing, because the
+#      image the kernel actually mounts was never updated.
+#
+# The image is described declaratively by port/image/manifest.txt and built
+# by port/image/mkimage.sh (fakeroot + mke2fs -d, no privileges needed).
+#
+# IMAGE_FILES is the list of things the manifest copies in, extracted from
+# the manifest itself so the two can never disagree.  It is wrapped in
+# $(wildcard) so that binaries which do not exist yet -- the guest userland
+# is still being ported -- are simply absent from the prerequisite list
+# instead of making this an unbuildable target.  Once they exist, touching
+# applications/ls/ls.c rebuilds ls, which makes ls newer than the image,
+# which rebuilds the image.
+#
+# SIX_IMAGE itself is defined near the top of this file, next to do-it-all.
+SIX_IMAGE_MANIFEST = port/image/manifest.txt
+SIX_IMAGE_TOOL	= port/image/mkimage.sh
+SIX_IMAGE_FILES	= $(wildcard $(shell sed 's/\#.*//' $(SIX_IMAGE_MANIFEST) | \
+		    $(AWK) '$$1 == "file" { print $$4 }'))
+
+# The order-only dependency on "six" keeps the image from being assembled in
+# parallel with the kernel link under make -j; the guest binaries are built
+# by linuxsubdirs, which is a prerequisite of six.
+$(SIX_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_IMAGE_FILES) | six
+	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL)
+
+.PHONY: image image-clean
+image: $(SIX_IMAGE)
+
+image-clean:
+	rm -f $(SIX_IMAGE)
+	rm -rf port/image/.stage
+
+
 linuxsubdirs: dummy
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
 
@@ -438,7 +498,7 @@ modules modules_install: dummy
 endif
 
 ifdef SOLARIS_USER_MODE
-clean:	
+clean:	image-clean
 	find . -name "*.[oa]" -exec rm {} \;
 	rm $(ROOT)/six
 else

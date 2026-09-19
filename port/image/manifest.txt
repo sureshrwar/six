@@ -1,0 +1,72 @@
+# SIX guest root filesystem manifest
+# ---------------------------------------------------------------------------
+# This file is the single declarative description of what goes into the guest
+# root filesystem image (disk/x86/root).  port/image/mkimage.sh reads it,
+# builds a staging tree under fakeroot, and hands that tree to
+# "mke2fs -d" to produce a revision-0 ext2 image that the Linux 2.0.11
+# filesystem driver inside SIX can read.
+#
+# The 2005 prebuilt image that used to be checked in as disk/x86/root has been
+# deleted and untracked.  It is preserved for archaeology in git tag
+# "v2005-cvs".  Everything below is rebuilt from source.
+#
+# Columns are whitespace separated.  Blank lines and #-comments are ignored.
+#
+#   dir   <path-on-image>  <octal-mode>
+#   file  <path-on-image>  <octal-mode>  <source-path-relative-to-source-root>
+#   node  <path-on-image>  <octal-mode>  c|b  <major>  <minor>
+#   sym   <path-on-image>  -             <link-target>
+#
+# Everything is owned by root:root (achieved without privileges via fakeroot).
+# A "file" whose source is missing is skipped with a warning unless mkimage.sh
+# is run with --strict; this lets the image be built before the whole guest
+# userland has been ported.
+# ---------------------------------------------------------------------------
+
+dir   /bin                  0755
+dir   /etc                  0755
+dir   /dev                  0755
+dir   /tmp                  1777
+
+# --- the shell -------------------------------------------------------------
+# init/main.c execs /bin/sh directly on x86 (it execs /etc/init on SPARC),
+# so this is the one file the image absolutely cannot do without.
+file  /bin/sh               0755  applications/sh/sh
+
+# --- the rest of the userland ---------------------------------------------
+file  /bin/echo             0755  applications/echo/echo
+file  /bin/pwd              0755  applications/pwd/pwd
+file  /bin/ls               0755  applications/ls/ls
+file  /bin/date             0755  applications/date/date
+file  /bin/clear            0755  applications/clear/clear
+file  /bin/getty            0755  applications/getty/getty
+file  /bin/login            0755  applications/login/login
+file  /bin/hello            0755  applications/hello/hello
+file  /bin/fortune          0755  applications/fortune/fortune
+file  /bin/ps               0755  applications/ps/ps
+file  /bin/tty              0755  applications/tty/tty
+file  /bin/rm               0755  applications/rm/rm
+file  /bin/sync             0755  applications/sync/sync
+file  /bin/sethostname      0755  applications/sethostname/sethostname
+file  /bin/kill             0755  applications/kill/kill
+file  /bin/grep             0755  applications/grep/grep
+file  /bin/id               0755  applications/id/id
+file  /bin/last             0755  applications/last/last
+
+# /etc/init is an ELF binary, not a shell script.  The SPARC boot path execs
+# it; the x86 path currently does not, but ship it so both agree.
+file  /etc/init             0755  applications/init/init
+
+# --- historical note -------------------------------------------------------
+# Recovered verbatim from the 2005 image before it was deleted.  It is the
+# author's own explanation of why the x86 port was abandoned, and it belongs
+# on the disk it was found on.
+file  /etc/x86.txt          0644  port/image/x86.txt
+
+# --- device nodes ----------------------------------------------------------
+# Both are character major 0 minor 0, exactly as on the 2005 image.  SIX's
+# console driver does not decode the device number -- init/main.c just
+# sys_open()s /dev/tty1 and every write lands on the host terminal -- so the
+# numbers are cosmetic, but they are reproduced faithfully.
+node  /dev/tty1             0666  c  0  0
+node  /dev/console          0666  c  0  0

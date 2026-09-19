@@ -24,3 +24,40 @@ core
 
 # gcc -MMD header dependency files (see Rules.make)
 .*.o.d
+
+# Generated root filesystem images -- built by port/image/mkimage.sh
+# (the pristine 2005 images live forever in tag v2005-cvs)
+disk/x86/root
+disk/sparc/root
+disk/*/root
+
+# Guest userland binaries.  These were checked in as 2005 SPARC big-endian
+# ELF executables, which are useless on x86 and were silently being copied
+# into the disk image.  They are build products; port/image/mkimage.sh
+# rebuilds them.  The originals remain in tag v2005-cvs.
+applications/*/banner
+applications/*/cat
+applications/*/clear
+applications/*/date
+applications/*/echo
+applications/*/fortune
+applications/*/getty
+applications/*/grep
+applications/*/halt
+applications/*/hello
+applications/*/id
+applications/*/init
+applications/*/kill
+applications/*/last
+applications/*/login
+applications/*/ls
+applications/*/ps
+applications/*/pwd
+applications/*/rm
+applications/*/sethostname
+applications/*/sh
+applications/*/sync
+applications/*/tty
+
+# Staging tree used while assembling the disk image
+port/image/.stage/
