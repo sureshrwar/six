@@ -268,7 +268,9 @@ static void six_usage(const char *prog, FILE *fp, int code)
 		"  -w, --wait         Pause before boot and print host PID for gdb attach\n"
 		"  -s, --single       Boot into built-in single-user shell (go>)\n"
 		"  -d, --disk <path>  Root filesystem image (overrides $DISKFILE)\n"
-		"  -h, --help         Show this help message and exit\n",
+		"  -h, --help         Show this help message and exit\n"
+		"\n"
+		"Run 'halt' in the guest for a clean shutdown, or press Ctrl+] to quit immediately.\n",
 		prog ? prog : "./six");
 	exit(code);
 }
