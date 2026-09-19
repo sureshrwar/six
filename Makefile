@@ -174,15 +174,7 @@ SIX_TRACE_GUEST_SYSCALLS ?= 0
 export SIX_TRACE_GUEST_SYSCALLS
 
 SIX_STDFLAGS  = -std=gnu89 -fcommon -fno-strict-aliasing -fno-builtin -fno-pic
-SIX_WARNFLAGS = -w \
-		-Wno-error=implicit-function-declaration \
-		-Wno-error=implicit-int \
-		-Wno-error=int-conversion \
-		-Wno-error=incompatible-pointer-types \
-		-Wno-error=return-mismatch \
-		-Wno-error=declaration-missing-parameter-type \
-		-Wno-error=builtin-declaration-mismatch \
-		-Wsequence-point
+SIX_WARNFLAGS = -w
 
 CFLAGS = -g -O0 $(SIX_STDFLAGS) $(SIX_WARNFLAGS) \
 	 -DSIX_TRACE_GUEST_SYSCALLS=$(SIX_TRACE_GUEST_SYSCALLS)
