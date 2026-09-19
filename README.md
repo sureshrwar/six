@@ -1,6 +1,6 @@
 # SIX (Solaris / Linux 2.0.11 User-Mode Kernel)
 
-**SIX** (*SIX 1.0 Solaris UML*) is a 2003–2005 port of the **Linux 2.0.11** kernel and a **Minix** userland designed to run the entire operating system as an unprivileged user-space process. Originally developed on Solaris (SPARC and x86), it has been revived on `main` to build from source and run (`gcc -m32`) on modern 64-bit Linux (`x86_64`) systems.
+**SIX** (*SIX 1.0 Solaris UML*) is a 2003–2005 port of the **Linux 2.0.11** kernel designed to run the entire operating system—along with its own self-contained guest C library (`library/libc`, `library/sys`) and a suite of classic Unix/Minix user-space utilities—as an unprivileged user-space process. Originally developed on Solaris (SPARC and x86), it has been revived on `main` to build from source and run (`gcc -m32`) on modern 64-bit Linux (`x86_64`) systems.
 
 ```text
   #####    #*#   #     #
@@ -23,11 +23,11 @@ bash#
 ## How It Works
 
 * **Emulated Physical RAM & Paging**: At boot, `./six` creates a 32 MB backing file (`mem_file`) and maps it into a low 32-bit address range. Guest page tables (`arch/six/mm/`) translate guest virtual memory operations (`fork`, `execve`, `brk`, `mmap`) into host `mmap`/`mprotect`/`munmap` calls against offsets in `mem_file`.
-* **Context Switching & Preemption**: Each kernel task maintains user and kernel `ucontext_t` states (`getcontext`/`setcontext`/`swapcontext`) with dedicated 8 KB kernel stacks. A `10 Hz` interval timer (`SIGALRM`) drives `jiffies` and preemptive scheduling.
-* **System Call Trap**: Guest ELF32 binaries (`library/libc` + `library/sys`) issue system calls via software trap (`int $0x90` on x86), which raises `SIGSEGV` in the host process. The signal handler (`sun_handler` in `arch/six/kernel/irq.c`) switches to the task's kernel stack, dispatches through `sys_call_table[]`, and restores the guest context on return.
+* **Context Switching & Preemption**: Each kernel task maintains user and kernel `ucontext_t` states (`getcontext`/`setcontext`/`swapcontext`) with dedicated 8 KB kernel stacks. A virtual interval timer (`ITIMER_VIRTUAL` / `SIGVTALRM`) drives `jiffies` and preemptive scheduling.
+* **System Call Trap (`library/sys/syscall.c`)**: Because there is no hardware ring transition, a guest ELF32 binary enters the SIX kernel by sending the host `./six` process a dedicated trap signal (`SIX_TRAPSIG` — `SIGRTMIN+4` / signal `38` on Linux, `SIGLWP` on Solaris) via a raw host `kill(getpid(), SIX_TRAPSIG)`. On x86 Linux, the guest places the address of its on-stack `struct six_guest_call` argument block in `%esi` before raising the signal (replacing the 2005 Solaris x86 convention that packed arguments into MMX registers `mm0`/`mm2`). The kernel's signal handler (`sun_handler` in `arch/six/kernel/irq.c`) inspects the saved `ucontext_t`, switches to the task's kernel stack, dispatches through `sys_call_table[]`, writes the return value back to the guest's argument block, and restores the guest context.
 * **Block & Console I/O**:
   * **Hard Disk (`/dev/hda`)**: The stock Linux 2.0.11 IDE driver (`drivers/block/hd.c`) is backed by a 5 MB rev-0 `ext2` filesystem image (`disk/x86/root`). IDE port reads/writes (`0x1f0–0x1f7`) are intercepted and translated to `lseek`/`read`/`write` on the disk image.
-  * **Console (`/dev/console`)**: Host terminal input is delivered asynchronously via `O_ASYNC`/`SIGIO` (`drivers/char/keyboard.c`), and console framebuffer writes (`drivers/char/console.c`, `drivers/char/tga.c`) stream to the host terminal.
+  * **Console (`/dev/console`)**: Host terminal input is delivered asynchronously via `O_ASYNC`/`SIGIO` (`drivers/char/keyboard.c`), and console writes (`drivers/char/console.c`) stream directly to the host terminal.
 
 ## Building and Running
 
@@ -37,7 +37,7 @@ sudo apt-get install build-essential gcc-multilib e2fsprogs fakeroot
 ```
 
 ### Build Everything
-A single `make` builds the `./six` kernel, the 32-bit guest `libc.a`, all 30 guest userland programs under `applications/`, and assembles the root `ext2` disk image (`disk/x86/root` via `port/image/mkimage.sh`):
+A single `make` builds the `./six` kernel, the 32-bit guest `libc.a`, all 31 guest userland programs under `applications/`, and assembles the root `ext2` disk image (`disk/x86/root` via `port/image/mkimage.sh`):
 
 ```bash
 make
@@ -48,7 +48,7 @@ make
 ./six
 ```
 * Log in at `[black] login:` as **`root`** (no password).
-* Included guest utilities in `/bin`: `advent` (*Colossal Cave Adventure*), `banner`, `cal`, `cat`, `clear`, `date`, `echo`, `fortune`, `getty`, `gomoku` (Five-in-a-Row), `grep`, `halt`, `hello`, `id`, `init` (`/etc/init`), `kill`, `last`, `life` (Conway's Game of Life), `login`, `ls`, `ps`, `pwd`, `rm`, `sethostname`, `sh` (with `~/.bash_history` and Up/Down arrow recall), `sync`, `ttt` (Tic-Tac-Toe), `tty`, `vi` (`elvis`).
+* Included guest utilities in `/bin`: `advent` (*Colossal Cave Adventure*), `banner`, `cal`, `cat`, `clear`, `date`, `dhrystone` (Dhrystone 1.1 benchmark), `echo`, `fortune`, `getty`, `gomoku` (Five-in-a-Row), `grep`, `halt`, `hello`, `id`, `init` (`/etc/init`), `kill`, `last`, `life` (Conway's Game of Life), `login`, `ls`, `ps`, `pwd`, `rm`, `sethostname`, `sh` (Minix Bourne shell with `~/.bash_history` and Up/Down arrow recall), `sync`, `ttt` (Tic-Tac-Toe), `tty`, `vi` (`elvis`).
 * Run **`halt`** at the shell prompt to flush buffers, mark the `ext2` superblock clean, restore the host terminal, and exit — or press **`Ctrl+]`** at any time for an immediate exit.
 
 ### Command-Line Options
