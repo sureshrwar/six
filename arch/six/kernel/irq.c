@@ -112,13 +112,42 @@ int syscall(int num, long one, long two, long three)
 int0x80()
 {
 #if (__i386__)
-        __asm__("pushl  $0x21\n  /* push SIGLWP */
-                 movl   $0x14,%eax\n  /* 0x14 is getpid */
-                 lcall  $0x7,$0x0\n  /* call getpid */
-                 pushl  %eax\n /* push  what getpid gave, ie our pid */
-                 pushl $0x5\n  /* dummy */
-                 movl   $0x25,%eax\n  /* 0x25 is kill */
-                 lcall  $0x7,$0x0");  /* call kill */
+	/*
+	 * Raise the SIX syscall trap by signalling ourselves.
+	 *
+	 * Solaris entered the kernel through its call gate:
+	 *
+	 *      pushl $0x21             ! SIGLWP
+	 *      movl  $0x14,%eax        ! getpid
+	 *      lcall $0x7,$0x0         ! arguments on the stack
+	 *
+	 * Linux/i386 instead uses "int $0x80" with the arguments in
+	 * registers (eax = number, ebx/ecx/edx = args).  Conveniently the
+	 * call numbers themselves are identical -- both Solaris and Linux
+	 * inherit them from System V -- so only the gate changes:
+	 *
+	 *      getpid = 20 = 0x14      kill = 37 = 0x25
+	 *
+	 * This is deliberately raw assembly rather than a call to the host
+	 * libc, so that it is unambiguously a *host* system call and cannot
+	 * be confused with SIX's own emulated syscall layer.
+	 *
+	 * The "b" constraint is safe because the kernel is built -fno-pic,
+	 * so %ebx is not reserved for the GOT pointer.
+	 */
+	int pid;
+
+	__asm__ __volatile__ ("int $0x80"
+			      : "=a" (pid)
+			      : "0"  (20)               /* __NR_getpid */
+			      : "memory");
+
+	__asm__ __volatile__ ("int $0x80"
+			      :
+			      : "a" (37),               /* __NR_kill    */
+				"b" (pid),
+				"c" (SIX_TRAPSIG)
+			      : "memory");
 #endif
 }
 
@@ -586,10 +615,10 @@ void six_chroot(struct pt_regs *u)
 void six_ustat(struct pt_regs *u)
 {
 	long dev;
-	struct ustat *u;
+	struct ustat *ubuf;
 	int ret;
-	grab_args(u, (long *)&dev, (long *)&u, 0);
-	ret = sys_ustat(dev, u);
+	grab_args(u, (long *)&dev, (long *)&ubuf, 0);
+	ret = sys_ustat(dev, ubuf);
 	put_ret(u, (long)ret);
 }
 
@@ -962,10 +991,10 @@ void six_fchmod(struct pt_regs *u)
 void six_fchown(struct pt_regs *u)
 {
 	int fd, ret;
-	uid_t u;
+	uid_t uid;
 	gid_t g;
-	grab_args(u, (long *)&fd, (long *)&u, (long *)&g);
-	ret = sys_fchown(fd, u, g);
+	grab_args(u, (long *)&fd, (long *)&uid, (long *)&g);
+	ret = sys_fchown(fd, uid, g);
 	put_ret(u, (long)ret);
 }
 
@@ -1265,10 +1294,10 @@ void six_adjtimex(struct pt_regs *u)
 
 void six_setfsuid(struct pt_regs *u)
 {
-	uid_t u;
+	uid_t uid;
 	int ret;
-	grab_args(u, (long *)&u, 0, 0);
-	ret = sys_setfsuid(u);
+	grab_args(u, (long *)&uid, 0, 0);
+	ret = sys_setfsuid(uid);
 	put_ret(u, (long)ret);
 }
 

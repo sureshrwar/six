@@ -28,6 +28,13 @@
 #include <asm/bitops.h>
 #include <asm/pgtable.h>
 
+/* Forward declarations hoisted for modern GCC -- these statics are
+ * called earlier in this file than they are defined.  Older gcc
+ * accepted the resulting implicit declaration; modern gcc does not.
+ */
+static int swap_out(unsigned int priority, int dma, int wait);
+
+
 /*
  * When are we next due for a page scan?
  */

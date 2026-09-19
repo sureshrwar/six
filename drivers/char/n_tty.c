@@ -40,6 +40,13 @@
 #include <asm/system.h>
 #include <asm/bitops.h>
 
+/* Forward declarations hoisted for modern GCC -- these statics are
+ * called earlier in this file than they are defined.  Older gcc
+ * accepted the resulting implicit declaration; modern gcc does not.
+ */
+static void n_tty_set_termios(struct tty_struct *tty, struct termios * old);
+
+
 #define CONSOLE_DEV MKDEV(TTY_MAJOR,0)
 
 #ifndef MIN

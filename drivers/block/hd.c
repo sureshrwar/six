@@ -94,6 +94,14 @@ int wbuf_offset = 0;
 #endif
 
 /*
+ * Defined near the bottom of this file, but called from hd_ioctl()
+ * well above it.  Needs a real prototype: kdev_t is an unsigned short
+ * and so is subject to default argument promotion, which makes the
+ * old implicit int() declaration incompatible with the definition.
+ */
+static int revalidate_hddisk(kdev_t dev, int maxusage);
+
+/*
  *  This struct defines the HD's and their types.
  */
 struct hd_i_struct {

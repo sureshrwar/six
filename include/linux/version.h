@@ -1,3 +1,2 @@
-
 #define UTS_RELEASE "2.0.11"
 #define LINUX_VERSION_CODE 131083

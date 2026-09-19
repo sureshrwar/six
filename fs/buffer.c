@@ -36,6 +36,23 @@
 #include <asm/segment.h>
 #include <asm/io.h>
 
+/* Forward declarations hoisted for modern GCC -- these statics are
+ * called earlier in this file than they are defined.  Older gcc
+ * accepted the resulting implicit declaration; modern gcc does not.
+ */
+static inline struct buffer_head * find_buffer(kdev_t dev, int block, int size);
+struct buffer_head * get_hash_table(kdev_t dev, int block, int size);
+static int maybe_shrink_lav_buffers(int size);
+static int shrink_specific_buffers(unsigned int priority, int size);
+static void wakeup_bdflush(int wait);
+static inline void after_unlock_page (struct page * page);
+static inline void free_async_buffers (struct buffer_head * bh);
+static inline void put_last_free(struct buffer_head * bh);
+static inline void insert_into_queues(struct buffer_head * bh);
+static void put_unused_buffer_head(struct buffer_head * bh);
+static struct buffer_head * create_buffers(unsigned long page, unsigned long size);
+
+
 #define NR_SIZES 5
 static char buffersize_index[17] =
 {-1,  0,  1, -1,  2, -1, -1, -1, 3, -1, -1, -1, -1, -1, -1, -1, 4};

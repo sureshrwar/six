@@ -7,6 +7,19 @@
 #include <linux/posix_types.h>
 #include <asm/types.h>
 
+#if defined(__KERNEL__) && SIX
+/*
+ * SIX builds the kernel as an ordinary host user process, so kernel .c
+ * files also pull in host headers (<stdio.h> in init/main.c and
+ * drivers/block/hd.c, for instance).  glibc's <features.h> defines
+ * __KERNEL_STRICT_NAMES, which would suppress the entire typedef block
+ * below -- u_int, time_t, uid_t, gid_t, mode_t, nlink_t, ino_t, loff_t,
+ * fd_set and friends -- leaving linux/fs.h and linux/nfs.h unable to
+ * compile.  Inside the kernel we do want those names, so undo it.
+ */
+#undef __KERNEL_STRICT_NAMES
+#endif
+
 #ifndef __KERNEL_STRICT_NAMES
 
 typedef __kernel_fd_set		fd_set;

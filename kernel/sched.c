@@ -51,6 +51,15 @@ long tick = 1000000 / HZ;               /* timer interrupt period */
 volatile struct timeval xtime;		/* The current time */
 int tickadj = 500/HZ;                   /* microsecs */
 
+/*
+ * Forward declarations: these static inlines are defined near the bottom
+ * of this file but are called from timer_bh() above them.  Older gcc
+ * accepted the resulting implicit declaration; modern gcc does not.
+ */
+static inline void run_timer_list(void);
+static inline void run_old_timers(void);
+static inline void calc_load(unsigned long ticks);
+
 #if (SIX)
 extern pgd_t swapper_pg_dir[1024];
 #endif

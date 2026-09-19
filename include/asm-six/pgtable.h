@@ -252,6 +252,9 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 	return pte;
 }
 
+static inline unsigned long pte_page(pte_t pte)
+{ return pte_val(pte) & PAGE_MASK; }
+
 static inline void dup_pte(pte_t *dst, pte_t *src)
 {
 	unsigned long page;
@@ -259,9 +262,6 @@ static inline void dup_pte(pte_t *dst, pte_t *src)
 	memcpy((void *)page, (void *)pte_page(*src), PAGE_SIZE); 
 	*dst = page | _PAGE_TABLE;
 }
-
-static inline unsigned long pte_page(pte_t pte)
-{ return pte_val(pte) & PAGE_MASK; }
 
 static inline unsigned long pmd_page(pmd_t pmd)
 { return pmd_val(pmd) & PAGE_MASK; }

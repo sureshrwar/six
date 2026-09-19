@@ -4,6 +4,19 @@
 
 #include <solaris.h>
 
+/*
+ * The emulated IDE controller.  These are implemented in
+ * drivers/block/hd.c and are called from the inb/outb port emulation
+ * further down this file.  They used to be reached via implicit
+ * declaration, which assumed a return type of int -- wrong for
+ * get_hard_data(), which really returns unsigned short.
+ */
+extern void           do_hard_read(int from, int count);
+extern void           do_hard_write(int from, int count);
+extern void           raise_hard_int(int cmd);
+extern void           put_hard_data(unsigned short val);
+extern unsigned short get_hard_data(void);
+
 static inline void udelay(int usecs)
 {               
         volatile int count =  usecs;
@@ -147,7 +160,7 @@ static inline insw (unsigned long port, void *dst, unsigned long count)
                         return;
                 count--;
                 *(unsigned short* ) dst = inw(port);
-                ((unsigned short *) dst)++;
+                dst = (unsigned short *) dst + 1;
         }
 
         while (count >= 2) {
@@ -157,7 +170,7 @@ static inline insw (unsigned long port, void *dst, unsigned long count)
                 w |= (unsigned int)inw(port);
                 w |= ((unsigned int)inw(port) << 16);
                 *(unsigned int *) dst = w;
-                ((unsigned int *) dst)++;
+                dst = (unsigned int *) dst + 1;
 #else
                 unsigned int w = 0;
                 unsigned int tmp;
@@ -167,7 +180,7 @@ static inline insw (unsigned long port, void *dst, unsigned long count)
                 tmp = (unsigned int)inw(port);
                 w |= tmp;
                 *(unsigned int *) dst = w;
-                ((unsigned int *) dst)++;
+                dst = (unsigned int *) dst + 1;
 #endif
 
         }
@@ -191,7 +204,7 @@ static inline void outsw (unsigned long port, const void *src, unsigned long cou
                         panic("outsw: memory not short aligned");
                 }
                 outw(*(unsigned short*)src, port);
-                ((unsigned short *) src)++;
+                src = (const unsigned short *) src + 1;
                 --count;
         }
 
@@ -199,7 +212,7 @@ static inline void outsw (unsigned long port, const void *src, unsigned long cou
                 unsigned int w;
                 count -= 2;
                 w = *(unsigned int *) src;
-                ((unsigned int *) src)++;
+                src = (const unsigned int *) src + 1;
 #ifdef __i386__
                 outw(w >>  0, port);
                 outw(w >> 16, port);

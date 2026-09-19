@@ -20,6 +20,14 @@
 #include <asm/system.h>
 #include <asm/pgtable.h>
 
+/* Forward declarations hoisted for modern GCC -- these statics are
+ * called earlier in this file than they are defined.  Older gcc
+ * accepted the resulting implicit declaration; modern gcc does not.
+ */
+unsigned long do_mmap(struct file * file, unsigned long addr, unsigned long len, unsigned long prot, unsigned long flags, unsigned long off);
+unsigned long get_unmapped_area(unsigned long addr, unsigned long len);
+
+
 #if (SIX)
 int RAMFD;
 #endif

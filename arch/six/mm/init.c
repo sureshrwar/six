@@ -329,8 +329,8 @@ void mem_init(unsigned long start_mem, unsigned long end_mem)
                         free_page(tmp);
         }
         tmp = nr_free_pages << PAGE_SHIFT;
-        printk("Memory: %luk/%luk available (%dk kernel code, %dk reserved, %dk data)
-",
+        printk("Memory: %luk/%luk available "
+               "(%dk kernel code, %dk reserved, %dk data)\n",
                 tmp >> 10,
                 high_memory >> 10,
                 codepages << (PAGE_SHIFT-10),

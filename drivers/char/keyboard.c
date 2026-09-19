@@ -70,6 +70,13 @@
 #include <asm/io.h>
 #include <asm/system.h>
 
+/* Forward declarations hoisted for modern GCC -- these statics are
+ * called earlier in this file than they are defined.  Older gcc
+ * accepted the resulting implicit declaration; modern gcc does not.
+ */
+unsigned char handle_diacr(unsigned char ch);
+
+
 unsigned char kbd_read_mask = 0x01;     /* modified by psaux.c */
 
 /*

@@ -38,6 +38,13 @@
 
 #include <linux/elf.h>
 
+/* Forward declarations hoisted for modern GCC -- these statics are
+ * called earlier in this file than they are defined.  Older gcc
+ * accepted the resulting implicit declaration; modern gcc does not.
+ */
+static load_six_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs);
+
+
 static int load_elf_binary(struct linux_binprm * bprm, struct pt_regs * regs);
 static int load_elf_library(int fd);
 

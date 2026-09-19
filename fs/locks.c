@@ -106,6 +106,23 @@
 
 #include <asm/segment.h>
 
+/* Forward declarations hoisted for modern GCC -- these statics are
+ * called earlier in this file than they are defined.  Older gcc
+ * accepted the resulting implicit declaration; modern gcc does not.
+ */
+static void posix_remove_locks(struct file_lock **before, struct task_struct *task);
+static void flock_remove_locks(struct file_lock **before, struct file *filp);
+static int posix_make_lock(struct file *filp, struct file_lock *fl, struct flock *l);
+static int flock_make_lock(struct file *filp, struct file_lock *fl, unsigned int cmd);
+static int posix_locks_conflict(struct file_lock *caller_fl, struct file_lock *sys_fl);
+static int locks_conflict(struct file_lock *caller_fl, struct file_lock *sys_fl);
+static int locks_overlap(struct file_lock *fl1, struct file_lock *fl2);
+static int flock_lock_file(struct file *filp, struct file_lock *caller, unsigned int wait);
+static int posix_lock_file(struct file *filp, struct file_lock *caller, unsigned int wait);
+static struct file_lock *locks_alloc_lock(struct file_lock *fl);
+static void locks_insert_lock(struct file_lock **pos, struct file_lock *fl);
+
+
 #define OFFSET_MAX      ((off_t)0x7fffffff)     /* FIXME: move elsewhere? */
 
 
@@ -246,8 +263,8 @@ int fcntl_setlk(unsigned int fd, unsigned int cmd, struct flock *l)
         if (!count) {
                 count=1;
                 printk(KERN_WARNING
-                       "fcntl_setlk() called by process %d (%s) with broken flock() emulation
-\n",
+                       "fcntl_setlk() called by process %d (%s) "
+                       "with broken flock() emulation\n",
                        current->pid, current->comm);
         }
 }

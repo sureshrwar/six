@@ -45,6 +45,14 @@
 #include <linux/nfs_fs_sb.h>
 #include <linux/nfs_mount.h>
 
+/* Forward declarations hoisted for modern GCC -- these statics are
+ * called earlier in this file than they are defined.  Older gcc
+ * accepted the resulting implicit declaration; modern gcc does not.
+ */
+static struct super_block * get_super(kdev_t dev);
+static int do_remount_sb(struct super_block *sb, int flags, char *data);
+
+
 extern int root_mountflags;
 
 /* this is initialized in init/main.c */

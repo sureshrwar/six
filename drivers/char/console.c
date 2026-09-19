@@ -97,6 +97,46 @@
 #include "selection.h"
 #include "console_struct.h"
 
+/* Forward declarations hoisted for modern GCC -- these statics are
+ * called earlier in this file than they are defined.  Older gcc
+ * accepted the resulting implicit declaration; modern gcc does not.
+ */
+static inline unsigned short *screenpos(int currcons, int offset, int viewed);
+
+
+/* Forward declarations hoisted for modern GCC -- these statics are
+ * called earlier in this file than they are defined.  Older gcc
+ * accepted the resulting implicit declaration; modern gcc does not.
+ */
+static void vc_init(unsigned int currcons, unsigned long rows, unsigned long cols, int do_clear);
+static void save_cur(int currcons);
+static void csi_J(int currcons, int vpar);
+static void csi_K(int currcons, int vpar);
+static void csi_X(int currcons, int vpar);
+static void csi_m(int currcons);
+static void cursor_report(int currcons, struct tty_struct * tty);
+static inline void status_report(struct tty_struct * tty);
+static inline void respond_ID(struct tty_struct * tty);
+static void set_mode(int currcons, int on_off);
+static void setterm_command(int currcons);
+static void insert_char(int currcons);
+static void csi_at(int currcons, unsigned int nr);
+static void csi_L(int currcons, unsigned int nr);
+static void csi_P(int currcons, unsigned int nr);
+static void csi_M(int currcons, unsigned int nr);
+static void restore_cur(int currcons);
+static void gotoxy(int currcons, int new_x, int new_y);
+static void set_origin(int currcons);
+static void lf(int currcons);
+static void ri(int currcons);
+static inline void cr(int currcons);
+static inline void bs(int currcons);
+static inline void del(int currcons);
+static void default_attr(int currcons);
+static void update_attr(int currcons);
+static void reset_terminal(int currcons, int do_clear);
+
+
 #ifndef MIN
 #define MIN(a,b)        ((a) < (b) ? (a) : (b))
 #endif

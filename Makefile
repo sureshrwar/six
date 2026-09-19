@@ -186,11 +186,36 @@ ARCHIVES	= kernel/kernel.o \
 		  ipc/ipc.o \
 		  net/network.o
 
+ifdef SOLARIS_USER_MODE
+# fs/Makefile rolls filesystems.o into fs.o for the SIX build, and ARCHIVES
+# already links fs.o.  Naming it here as well would link it twice
+# ("multiple definition of sys_setup").  The 2005 Makefile only avoided
+# this by misspelling the variable as FILESSYSTEMS in the link rule, so it
+# silently expanded to nothing.
+FILESYSTEMS	=
+else
 FILESYSTEMS	=fs/filesystems.o 
+endif
 DRIVERS		=drivers/block/block.o \
 		 drivers/char/char.o
 LIBS		=$(TOPDIR)/lib/lib.o
-SUBDIRS		=kernel drivers mm fs net ipc lib library applications 
+#
+# The guest userland (library/ = the emulated machine's mini-libc,
+# applications/ = init, getty, login, sh, ls, ...) is deliberately NOT part
+# of the default build.  It targets the *emulated* machine rather than the
+# host, it is linked with Solaris ld mapfiles, and it carries its own
+# CFLAGS that do not inherit the GCC-15 compatibility set above.  The
+# checked-in disk images (disk/x86/root) already hold prebuilt guest
+# binaries, so the kernel boots without rebuilding any of this.
+#
+# Rebuilding the userland is milestone M6; until then:
+#     make SIX_USERLAND=y ...
+# to put it back in the build.
+#
+SUBDIRS		=kernel drivers mm fs net ipc lib
+ifdef SIX_USERLAND
+SUBDIRS		:=$(SUBDIRS) library applications
+endif
 
 ifeq ($(CONFIG_ISDN),y)
 DRIVERS := $(DRIVERS) drivers/isdn/isdn.a
@@ -291,7 +316,7 @@ symlinks:
 config: symlinks
 	@echo Configuration complete.
 six:	linuxsubdirs init/version.o init/main.o
-	$(CC) $(CFLAGS) -no-pie init/main.o init/version.o\
+	$(CC) $(CFLAGS) -no-pie init/main.o init/version.o \
 	-o $(INSTALL_PATH)/six \
 	$(DRIVERS) \
 	$(ARCHIVES) \

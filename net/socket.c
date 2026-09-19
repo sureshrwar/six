@@ -80,6 +80,13 @@ s,
 #include <asm/system.h>
 #include <asm/segment.h>
 
+/* Forward declarations hoisted for modern GCC -- these statics are
+ * called earlier in this file than they are defined.  Older gcc
+ * accepted the resulting implicit declaration; modern gcc does not.
+ */
+static int sock_fasync(struct inode *inode, struct file *filp, int on);
+
+
 static struct file_operations socket_file_ops = {
         NULL, //sock_lseek,
         NULL, //sock_read,

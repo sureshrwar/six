@@ -521,7 +521,7 @@ struct task_struct {
 
 extern unsigned long volatile jiffies;
 
-extern struct timeval xtime;
+extern volatile struct timeval xtime;
 extern int need_resched;
 extern void do_timer(struct pt_regs *);
 
@@ -545,7 +545,7 @@ extern struct task_struct *current_set[NR_CPUS];
 extern struct  task_struct *mapped_proc;
 #endif
 
-extern struct timeval xtime;
+extern volatile struct timeval xtime;
 
 extern struct   mm_struct init_mm;
 extern struct task_struct *task[NR_TASKS];
