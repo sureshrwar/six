@@ -37,7 +37,7 @@ sudo apt-get install build-essential gcc-multilib e2fsprogs fakeroot
 ```
 
 ### Build Everything
-A single `make` builds the `./six` kernel, the 32-bit guest `libc.a`, all 34 guest userland programs under `applications/`, and assembles the root `ext2` disk image (`disk/x86/root` via `port/image/mkimage.sh`):
+A single `make` builds the `./six` kernel, the 32-bit guest `libc.a`, all 35 guest userland programs under `applications/`, and assembles the root `ext2` disk image (`disk/x86/root` via `port/image/mkimage.sh`):
 
 ```bash
 make
@@ -48,7 +48,7 @@ make
 ./six
 ```
 * Log in at `[black] login:` as **`root`** (no password).
-* Included guest utilities in `/bin`: `advent` (*Colossal Cave Adventure*), `banner`, `cal`, `cat`, `clear`, `date`, `dhrystone` (Dhrystone 1.1 benchmark), `echo`, `fortune`, `getty`, `gomoku` (Five-in-a-Row), `grep`, `halt`, `hello`, `id`, `init` (`/etc/init`), `kill`, `last`, `life` (Conway's Game of Life), `login`, `ls`, `matrix` (Matrix digital rain screensaver), `ps`, `pwd`, `rm`, `rogue` (classic BSD-style dungeon crawler), `sethostname`, `sh` (Minix Bourne shell with `~/.bash_history` and Up/Down arrow recall), `sync`, `tetris` (colored ANSI Tetris), `ttt` (Tic-Tac-Toe), `tty`, `vi` (`elvis`).
+* Included guest utilities in `/bin`: `advent` (*Colossal Cave Adventure*), `banner`, `basic` (interactive Dartmouth/Tiny BASIC interpreter), `cal`, `cat`, `clear`, `date`, `dhrystone` (Dhrystone 1.1 benchmark), `echo`, `fortune`, `getty`, `gomoku` (Five-in-a-Row), `grep`, `halt`, `hello`, `id`, `init` (`/etc/init`), `kill`, `last`, `life` (Conway's Game of Life), `login`, `ls`, `matrix` (Matrix digital rain screensaver), `ps`, `pwd`, `rm`, `rogue` (classic BSD-style dungeon crawler), `sethostname`, `sh` (Minix Bourne shell with `~/.bash_history` and Up/Down arrow recall), `sync`, `tetris` (colored ANSI Tetris), `ttt` (Tic-Tac-Toe), `tty`, `vi` (`elvis`).
 * Run **`halt`** at the shell prompt to flush buffers, mark the `ext2` superblock clean, restore the host terminal, and exit — or press **`Ctrl+]`** at any time for an immediate exit.
 
 ### Command-Line Options

@@ -44,7 +44,8 @@ SUBDIRS	=	start \
 		dhrystone \
 		tetris \
 		matrix \
-		rogue
+		rogue \
+		basic
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
