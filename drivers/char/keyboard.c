@@ -310,6 +310,8 @@ static void handle_scancode(unsigned char scancode)
 {
 #if (SIX)
 	tty = ttytab[fg_console];
+	if (tty && (scancode == '\010' || scancode == '\177'))
+		scancode = ERASE_CHAR(tty);
 	put_queue(scancode);
 	if(scancode == 'q')
 	{
