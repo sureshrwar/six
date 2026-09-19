@@ -401,6 +401,8 @@ int f;
         PUSHIO(afile, f, filechar);
 }
 
+void sh_restore_tty(void);
+
 void
 onintr(s)
 int s;                          /* ANSI C requires a parameter */
@@ -408,6 +410,7 @@ int s;                          /* ANSI C requires a parameter */
         signal(SIGINT, onintr);
         intr = 1;
         if (talking) {
+                sh_restore_tty();
                 if (inparse) {
                         prs("\n");
                         fail();

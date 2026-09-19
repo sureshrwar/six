@@ -262,6 +262,275 @@ register struct ioarg *ap;
 	return(c|QUOTE);
 }
 
+#include <linux/termios.h>
+
+#define HIST_MAX	64
+#define HIST_LINE_MAX	256
+
+static char hist_lines[HIST_MAX][HIST_LINE_MAX];
+static int  hist_count = 0;
+static int  hist_loaded = 0;
+
+static char rl_linebuf[HIST_LINE_MAX];
+static int  rl_linepos = 0;
+static int  rl_linelen = 0;
+
+static struct termios rl_saved_tio;
+static int            rl_tio_active = 0;
+
+static void
+sh_hist_path(buf, sz)
+char *buf;
+int sz;
+{
+	char *h = (homedir && homedir->value && homedir->value[0]) ? homedir->value : "/";
+	if (strcmp(h, "/") == 0) {
+		strncpy(buf, "/.bash_history", sz - 1);
+	} else {
+		strncpy(buf, h, sz - 16);
+		buf[sz - 16] = '\0';
+		strcat(buf, "/.bash_history");
+	}
+	buf[sz - 1] = '\0';
+}
+
+static void
+sh_hist_mem_push(line)
+char *line;
+{
+	int i;
+	if (!line || !line[0])
+		return;
+	if (hist_count > 0 && strcmp(hist_lines[hist_count - 1], line) == 0)
+		return;
+	if (hist_count < HIST_MAX) {
+		strncpy(hist_lines[hist_count], line, HIST_LINE_MAX - 1);
+		hist_lines[hist_count][HIST_LINE_MAX - 1] = '\0';
+		hist_count++;
+	} else {
+		for (i = 1; i < HIST_MAX; i++)
+			strcpy(hist_lines[i - 1], hist_lines[i]);
+		strncpy(hist_lines[HIST_MAX - 1], line, HIST_LINE_MAX - 1);
+		hist_lines[HIST_MAX - 1][HIST_LINE_MAX - 1] = '\0';
+	}
+}
+
+static void
+sh_hist_load()
+{
+	char path[128];
+	char fbuf[512];
+	char lbuf[HIST_LINE_MAX];
+	int fd, n, i, lpos;
+
+	if (hist_loaded)
+		return;
+	hist_loaded = 1;
+	sh_hist_path(path, sizeof(path));
+	fd = open(path, 0);
+	if (fd < 0)
+		return;
+	lpos = 0;
+	while ((n = read(fd, fbuf, sizeof(fbuf))) > 0) {
+		for (i = 0; i < n; i++) {
+			if (fbuf[i] == '\n' || fbuf[i] == '\r') {
+				lbuf[lpos] = '\0';
+				if (lpos > 0)
+					sh_hist_mem_push(lbuf);
+				lpos = 0;
+			} else if (lpos < HIST_LINE_MAX - 1) {
+				lbuf[lpos++] = fbuf[i];
+			}
+		}
+	}
+	if (lpos > 0) {
+		lbuf[lpos] = '\0';
+		sh_hist_mem_push(lbuf);
+	}
+	close(fd);
+}
+
+static void
+sh_hist_add(line)
+char *line;
+{
+	char path[128];
+	int fd, len;
+
+	if (!line || !line[0])
+		return;
+	sh_hist_load();
+	sh_hist_mem_push(line);
+	sh_hist_path(path, sizeof(path));
+	fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0600);
+	if (fd >= 0) {
+		len = strlen(line);
+		write(fd, line, len);
+		write(fd, "\n", 1);
+		close(fd);
+	}
+}
+
+void
+sh_restore_tty()
+{
+	rl_linepos = 0;
+	rl_linelen = 0;
+	if (rl_tio_active) {
+		tcsetattr(0, &rl_saved_tio);
+		rl_tio_active = 0;
+	}
+}
+
+void
+sh_hist_print()
+{
+	int i;
+	sh_hist_load();
+	for (i = 0; i < hist_count; i++) {
+		prs("  ");
+		prn(i + 1);
+		prs("  ");
+		prs(hist_lines[i]);
+		prs("\n");
+	}
+}
+
+static void
+rl_replace_line(buf, lenp, newstr)
+char *buf;
+int *lenp;
+char *newstr;
+{
+	int cur = *lenp;
+	int nlen = strlen(newstr);
+	if (nlen > HIST_LINE_MAX - 2)
+		nlen = HIST_LINE_MAX - 2;
+	while (cur > 0) {
+		write(1, "\b \b", 3);
+		cur--;
+	}
+	memcpy(buf, newstr, nlen);
+	buf[nlen] = '\0';
+	if (nlen > 0)
+		write(1, buf, nlen);
+	*lenp = nlen;
+}
+
+static int
+sh_readline(outbuf)
+char *outbuf;
+{
+	struct termios raw_tio;
+	char saved_cur[HIST_LINE_MAX];
+	int len = 0;
+	int hist_idx;
+	int r;
+	unsigned char ch, s1, s2;
+
+	sh_hist_load();
+	saved_cur[0] = '\0';
+	hist_idx = hist_count;
+
+	if (tcgetattr(0, &rl_saved_tio) == 0) {
+		raw_tio = rl_saved_tio;
+		raw_tio.c_lflag &= ~(ICANON | ECHO | ECHOE | ECHOK | ECHONL | ECHOCTL);
+		raw_tio.c_cc[VMIN] = 1;
+		raw_tio.c_cc[VTIME] = 0;
+		tcsetattr(0, &raw_tio);
+		rl_tio_active = 1;
+	}
+
+	for (;;) {
+		r = read(0, &ch, 1);
+		if (r <= 0) {
+			if (r < 0 && errno == EINTR)
+				continue;
+			sh_restore_tty();
+			return 0;
+		}
+		if (ch == '\r' || ch == '\n') {
+			write(1, "\n", 1);
+			outbuf[len] = '\0';
+			sh_hist_add(outbuf);
+			outbuf[len++] = '\n';
+			outbuf[len] = '\0';
+			sh_restore_tty();
+			return len;
+		}
+		if (ch == 0x04) { /* Ctrl+D */
+			if (len == 0) {
+				write(1, "\n", 1);
+				sh_restore_tty();
+				return 0;
+			}
+			continue;
+		}
+		if (ch == '\b' || ch == 0x7f) { /* Backspace / DEL */
+			if (len > 0) {
+				len--;
+				outbuf[len] = '\0';
+				write(1, "\b \b", 3);
+			}
+			continue;
+		}
+		if (ch == 0x15) { /* Ctrl+U: kill line */
+			while (len > 0) {
+				len--;
+				write(1, "\b \b", 3);
+			}
+			outbuf[0] = '\0';
+			continue;
+		}
+		if (ch == 0x17) { /* Ctrl+W: erase word */
+			while (len > 0 && outbuf[len - 1] == ' ') {
+				len--;
+				write(1, "\b \b", 3);
+			}
+			while (len > 0 && outbuf[len - 1] != ' ') {
+				len--;
+				write(1, "\b \b", 3);
+			}
+			outbuf[len] = '\0';
+			continue;
+		}
+		if (ch == 0x1b) { /* ESC sequence (arrow keys: ESC [ A / B) */
+			if (read(0, &s1, 1) <= 0)
+				continue;
+			if (s1 == '[' || s1 == 'O') {
+				if (read(0, &s2, 1) <= 0)
+					continue;
+				if (s2 == 'A') { /* Up arrow */
+					if (hist_idx > 0) {
+						if (hist_idx == hist_count) {
+							outbuf[len] = '\0';
+							strcpy(saved_cur, outbuf);
+						}
+						hist_idx--;
+						rl_replace_line(outbuf, &len, hist_lines[hist_idx]);
+					}
+				} else if (s2 == 'B') { /* Down arrow */
+					if (hist_idx < hist_count) {
+						hist_idx++;
+						if (hist_idx == hist_count)
+							rl_replace_line(outbuf, &len, saved_cur);
+						else
+							rl_replace_line(outbuf, &len, hist_lines[hist_idx]);
+					}
+				}
+			}
+			continue;
+		}
+		if (ch >= ' ' && ch < 0x7f) {
+			if (len < HIST_LINE_MAX - 2) {
+				outbuf[len++] = ch;
+				outbuf[len] = '\0';
+				write(1, &ch, 1);
+			}
+		}
+	}
+}
+
 /*
  * Return the characters from a file.
  */
@@ -289,6 +558,18 @@ register struct ioarg *ap;
 	  }
 	  ap->afpos++;
 	  return *bp->bufp++ & 0177;
+	}
+
+	if (ap->afile == 0 && talking && e.iop == iostack) {
+		if (rl_linepos >= rl_linelen) {
+			rl_linelen = sh_readline(rl_linebuf);
+			rl_linepos = 0;
+			if (rl_linelen <= 0) {
+				closef(ap->afile);
+				return 0;
+			}
+		}
+		return rl_linebuf[rl_linepos++] & 0177;
 	}
 
 	do {

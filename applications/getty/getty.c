@@ -223,8 +223,6 @@ int main(int argc, char **argv)
   sigaction(SIGUSR1, &sa, NULL);
   sigaction(SIGUSR2, &sa, NULL);
 
-  clrscr();
-
   do_getty(name, sizeof(name), argv+1);	/* handle getty() */
   name[29] = '\0';		/* make sure the name fits! */
   do_login(name);		/* and call login(1) if OK */

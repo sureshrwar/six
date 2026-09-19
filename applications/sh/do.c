@@ -461,6 +461,15 @@ dotimes()
 	return(0);
 }
 
+void sh_hist_print(void);
+
+int
+dohistory()
+{
+	sh_hist_print();
+	return(0);
+}
+
 struct	builtin {
 	char	*command;
 	int	(*fn)();
@@ -485,6 +494,7 @@ static struct	builtin	builtin[] = {
 	"login",	dologin,
 	"newgrp",	dologin,
 	"times",	dotimes,
+	"history",	dohistory,
 	0,
 };
 

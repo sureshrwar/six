@@ -6,5 +6,9 @@ echo executing /etc/rc.
 
 sethostname `cat /etc/hostname`
 
+echo
+echo
+banner SIX
+
 
 
