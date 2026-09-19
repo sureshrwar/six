@@ -41,14 +41,35 @@ first_rule: sub_dirs
 # Common rules
 #
 
+#
+# Automatic header dependencies.
+#
+# The 2.0 build has no header dependency tracking unless you remember to
+# run "make dep", and nothing in the normal build enforces it.  That is
+# genuinely dangerous here: struct task_struct embeds two struct pt_regs,
+# so changing the pt_regs layout changes the layout of almost every
+# structure in the kernel.  Editing include/asm-six/ptrace.h and then
+# running plain "make" rebuilt only the files whose .c had changed, leaving
+# the rest of the tree compiled against the old layout -- an ABI mismatch
+# inside a single binary, which showed up as sun_handler() switching to a
+# stack pointer of 0.
+#
+# -MMD makes gcc emit a .<name>.d file alongside each object listing the
+# headers it actually read; those get included below.  Cheap, and it makes
+# the whole class of bug impossible.
+#
+SIX_DEPFLAGS = -MMD -MF $(dir $@).$(notdir $@).d
+
 %.s: %.c
 	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) -S $< -o $@
 
 %.o: %.c
-	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(SIX_DEPFLAGS) -c -o $@ $<
 
 %.o: %.s
 	$(AS) $(ASFLAGS) $(EXTRA_CFLAGS) -o $@ $<
+
+-include $(wildcard .*.o.d)
 
 #
 #

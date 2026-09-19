@@ -21,3 +21,6 @@ core
 # Port scratch area (build logs etc). Disk images are NOT ignored:
 # disk/x86/root and disk/sparc/root are checked in on purpose.
 /port/log/
+
+# gcc -MMD header dependency files (see Rules.make)
+.*.o.d
