@@ -61,6 +61,10 @@ applications/*/sh
 applications/*/sync
 applications/*/tty
 applications/*/vi
+applications/advent/advent
+applications/advent/setup
+applications/advent/advtext.h
+applications/advent/*.dat
 
 # Staging tree used while assembling the disk image
 port/image/.stage/

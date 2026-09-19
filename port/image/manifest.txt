@@ -27,8 +27,10 @@ dir   /tmp                  1777
 dir   /usr                  0755
 dir   /usr/adm              0755
 dir   /usr/lib              0755
+dir   /usr/lib/advent       0755
 
-# --- /bin (all 23 programs from the SPARC root disk) -----------------------
+# --- /bin (all 23 programs from the SPARC root disk + vi & advent) ----------
+file  /bin/advent           0755  applications/advent/advent
 file  /bin/banner           0755  applications/banner/banner
 file  /bin/cat              0755  applications/cat/cat
 file  /bin/clear            0755  applications/clear/clear
@@ -70,6 +72,10 @@ file  /etc/x86.txt          0644  port/image/x86.txt
 # --- /usr (wtmp accounting + the 434-entry fortunes database) --------------
 file  /usr/adm/wtmp         0644  port/image/rootfs/usr/adm/wtmp
 file  /usr/lib/fortunes     0644  port/image/rootfs/usr/lib/fortunes
+file  /usr/lib/advent/advent1.dat 0644 applications/advent/advent1.dat
+file  /usr/lib/advent/advent2.dat 0644 applications/advent/advent2.dat
+file  /usr/lib/advent/advent3.dat 0644 applications/advent/advent3.dat
+file  /usr/lib/advent/advent4.dat 0644 applications/advent/advent4.dat
 
 # --- /dev (character major 4 = TTY_MAJOR; both minor 1 as on SPARC) --------
 # /etc/ttytab spawns getty on "console", so /etc/init opens /dev/console for

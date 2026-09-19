@@ -37,7 +37,7 @@ sudo apt-get install build-essential gcc-multilib e2fsprogs fakeroot
 ```
 
 ### Build Everything
-A single `make` builds the `./six` kernel, the 32-bit guest `libc.a`, all 25 guest userland programs under `applications/`, and assembles the root `ext2` disk image (`disk/x86/root` via `port/image/mkimage.sh`):
+A single `make` builds the `./six` kernel, the 32-bit guest `libc.a`, all 26 guest userland programs under `applications/`, and assembles the root `ext2` disk image (`disk/x86/root` via `port/image/mkimage.sh`):
 
 ```bash
 make
@@ -48,7 +48,7 @@ make
 ./six
 ```
 * Log in at `[black] login:` as **`root`** (no password).
-* Included guest utilities in `/bin`: `banner`, `cat`, `clear`, `date`, `echo`, `fortune`, `getty`, `grep`, `halt`, `hello`, `id`, `init` (`/etc/init`), `kill`, `last`, `login`, `ls`, `ps`, `pwd`, `rm`, `sethostname`, `sh` (with `~/.bash_history` and Up/Down arrow recall), `sync`, `tty`, `vi` (`elvis`).
+* Included guest utilities in `/bin`: `advent` (*Colossal Cave Adventure*), `banner`, `cat`, `clear`, `date`, `echo`, `fortune`, `getty`, `grep`, `halt`, `hello`, `id`, `init` (`/etc/init`), `kill`, `last`, `login`, `ls`, `ps`, `pwd`, `rm`, `sethostname`, `sh` (with `~/.bash_history` and Up/Down arrow recall), `sync`, `tty`, `vi` (`elvis`).
 * Run **`halt`** at the shell prompt to flush buffers, mark the `ext2` superblock clean, restore the host terminal, and exit — or press **`Ctrl+]`** at any time for an immediate exit.
 
 ### Command-Line Options
