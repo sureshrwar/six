@@ -65,6 +65,7 @@ applications/*/life
 applications/*/ttt
 applications/*/gomoku
 applications/*/cal
+applications/*/dhrystone
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h

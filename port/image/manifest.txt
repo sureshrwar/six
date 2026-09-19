@@ -36,6 +36,7 @@ file  /bin/cal              0755  applications/cal/cal
 file  /bin/cat              0755  applications/cat/cat
 file  /bin/clear            0755  applications/clear/clear
 file  /bin/date             0755  applications/date/date
+file  /bin/dhrystone        0755  applications/dhrystone/dhrystone
 file  /bin/echo             0755  applications/echo/echo
 file  /bin/fortune          0755  applications/fortune/fortune
 file  /bin/getty            0755  applications/getty/getty

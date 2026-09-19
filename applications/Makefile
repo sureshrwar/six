@@ -40,7 +40,8 @@ SUBDIRS	=	start \
 		life \
 		ttt \
 		gomoku \
-		cal
+		cal \
+		dhrystone
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

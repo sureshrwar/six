@@ -45,10 +45,17 @@ struct timezone sys_tz = { 0, 0};
  * why not move it into the appropriate arch directory (for those
  * architectures that need it).
  */
+#if (SIX)
+extern long time(long *);
+#endif
+
 asmlinkage int sys_time(int * tloc) 
 {
         int i;  
 
+#if (SIX)
+        xtime.tv_sec = time(NULL);
+#endif
         i = CURRENT_TIME;       
         if (tloc) {
                 int error = verify_area(VERIFY_WRITE, tloc, sizeof(*tloc));
