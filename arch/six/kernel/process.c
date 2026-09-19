@@ -151,15 +151,21 @@ void copy_thread(int nr, unsigned long clone_flags, unsigned long esp, struct ta
 		p->kcontext.pc = (unsigned int) kernel_thread_start;
 		p->mm->start_stack = alloc_stack();
 #if (__i386__)
-		p->kcontext.esp = p->mm->start_stack + DEFAULT_STACK_SIZE - 4;
 		/*
-		 * glibc's setcontext() restores %esp from gregs[REG_UESP]
-		 * but %ebp from gregs[REG_EBP]; leaving the parent's frame
-		 * pointer in place would have the child unwinding into a
-		 * stack it does not own the moment kernel_thread_start
-		 * returns.
+		 * Set BOTH stack pointer slots in ucontext_t.
+		 *
+		 * glibc's setcontext()/swapcontext() on i386 reloads %esp
+		 * from gregs[REG_ESP] (our "kesp", word 12) and ignores
+		 * gregs[REG_UESP] (our "esp", word 22) completely.  Setting
+		 * only "esp" left "kesp" pointing at task[0]'s host stack,
+		 * so init, bdflush and kswapd all ran on the same stack and
+		 * trampled each other's call frames the moment bdflush or
+		 * kswapd woke up (for example, when halt's sys_kill(-1,
+		 * SIGKILL) woke bdflush from interruptible_sleep_on).
 		 */
-		p->kcontext.ebp = p->kcontext.esp;
+		p->kcontext.esp  = (p->mm->start_stack + DEFAULT_STACK_SIZE - 16) & ~15UL;
+		p->kcontext.kesp = p->kcontext.esp;
+		p->kcontext.ebp  = p->kcontext.esp;
 #else
 		p->kcontext.esp = p->mm->start_stack + DEFAULT_STACK_SIZE - SPARC_FRAME;
 		p->kcontext.npc = p->kcontext.pc + 4;
