@@ -41,7 +41,8 @@ SUBDIRS	=	start \
 		ttt \
 		gomoku \
 		cal \
-		dhrystone
+		dhrystone \
+		tetris
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
