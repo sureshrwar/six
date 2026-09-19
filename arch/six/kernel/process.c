@@ -15,6 +15,7 @@
 
 #include <stdarg.h>
 
+#include <asm/sixcall.h>
 #include <linux/errno.h>
 #include <linux/sched.h>
 #include <linux/kernel.h>
@@ -81,6 +82,31 @@ void flush_thread()
 void kernel_thread_start();
 
 
+/*
+ * Repair a relocated host context.
+ *
+ * glibc's ucontext_t is self-referential: getcontext() (and the kernel,
+ * when it builds a signal frame) sets uc_mcontext.fpregs to point at the
+ * FPU save area *embedded in that same structure*.  The moment a context
+ * is memcpy'd somewhere else -- which is exactly what copy_thread() does,
+ * and what SIX does all over the place -- that pointer still refers to the
+ * original, which for a signal frame is a stack address that is about to
+ * be reused.
+ *
+ * setcontext()/swapcontext() follow the pointer to restore the FPU state,
+ * so leaving it dangling means loading floating-point state out of
+ * whatever happens to be on the old stack. Call this after every copy.
+ *
+ * (This is not a bug the 2005 code could have had: Solaris embeds the FPU
+ * state in the ucontext by value.)
+ */
+void six_fix_context(struct pt_regs *p)
+{
+#if (__i386__)
+	p->fpregs = (unsigned int) &p->fpregs_mem[0];
+#endif
+}
+
 void copy_thread(int nr, unsigned long clone_flags, unsigned long esp, struct task_struct * p, struct pt_regs * regs)
 {
 	/*
@@ -112,6 +138,7 @@ void copy_thread(int nr, unsigned long clone_flags, unsigned long esp, struct ta
 	 * up straight in userland when scheduled in for the first time.
 	 */
 	memcpy(&p->kcontext, regs, sizeof(struct pt_regs));
+	six_fix_context(&p->kcontext);
 	if(!current->is_mapped)
 	{
 
@@ -121,10 +148,18 @@ void copy_thread(int nr, unsigned long clone_flags, unsigned long esp, struct ta
 	 * scheduled and run, this context will be put into the cpu,
 	 * and the control will go to kernel_thread_start.
 	 */
-		p->kcontext.pc = kernel_thread_start;
+		p->kcontext.pc = (unsigned int) kernel_thread_start;
 		p->mm->start_stack = alloc_stack();
 #if (__i386__)
 		p->kcontext.esp = p->mm->start_stack + DEFAULT_STACK_SIZE - 4;
+		/*
+		 * glibc's setcontext() restores %esp from gregs[REG_UESP]
+		 * but %ebp from gregs[REG_EBP]; leaving the parent's frame
+		 * pointer in place would have the child unwinding into a
+		 * stack it does not own the moment kernel_thread_start
+		 * returns.
+		 */
+		p->kcontext.ebp = p->kcontext.esp;
 #else
 		p->kcontext.esp = p->mm->start_stack + DEFAULT_STACK_SIZE - SPARC_FRAME;
 		p->kcontext.npc = p->kcontext.pc + 4;
@@ -151,11 +186,8 @@ void copy_thread(int nr, unsigned long clone_flags, unsigned long esp, struct ta
 pid_t kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 {
  
+#if (!__i386__)
 	int ret;
-#if (__i386__)
-	long long val;
-	long *valp;
-	valp = &val;
 #endif
 /*
  * ok,what we need here is to first put 0 into g7.put clone systemcall
@@ -172,33 +204,25 @@ pid_t kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 
 
 #if (__i386__)
-	/* 
-	 * this takes care of the system call number and the flag 
-	 * that this is a request from kernel_thread.both are 
-	 * combined into a single 8 byte strip.
-	 */
-
-	val = KERNEL_THREAD_REQUEST;
-	val <<= 32;
-	val += 120;
-	__asm__("movq (%1), %%mm0" : "=r" (ret) : "r" (valp));
-
 	/*
-	 * here we combine the function pointer and arguments into
-	 * one.
+	 * This used to be three movq's into mm0/mm2/mm4:
+	 *
+	 *      mm0 = (KERNEL_THREAD_REQUEST << 32) | 120   (120 = clone)
+	 *      mm2 = (arg << 32) | fn
+	 *      mm4 = flags
+	 *
+	 * which the trap handler then read back out of the FPU image in
+	 * the saved context.  Linux wipes the FPU on the way into a signal
+	 * handler, so the same values now go through the memory channel.
+	 * Field-for-field identical, just somewhere the host cannot erase
+	 * them -- see include/asm-six/sixcall.h.
 	 */
-
-	val = arg;
-	val <<= 32;
-	val += fn;
-	__asm__("movq (%1), %%mm2" : "=r" (ret) : "r" (valp));
-
-	/*
-	 * and here goes the flags.
-	 */
-
-	val = flags;
-	__asm__("movq (%1), %%mm4" : "=r" (ret) : "r" (valp));
+	six_call.g2 = 120;                      /* __NR_clone            */
+	six_call.g3 = KERNEL_THREAD_REQUEST;    /* was mm0's high half   */
+	six_call.g4 = (unsigned long) fn;       /* was mm2's low half    */
+	six_call.g5 = (unsigned long) arg;      /* was mm2's high half   */
+	six_call.g6 = flags;                    /* was mm4               */
+	six_call.g7 = 0;
 
 #else
 	/*
@@ -226,7 +250,12 @@ pid_t kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
  * brought into action,the setcontext on that context jumps control to
  * to kernel_thread_start.
  */
-	return;
+#if (__i386__)
+	/* sys_clone()'s return value comes back through the channel. */
+	return (pid_t) six_call.g2;
+#else
+	return 0;
+#endif
 }
 
 /*
@@ -239,15 +268,25 @@ void kernel_thread_start()
 	int *args;
 
 #if (__i386__)
-	long long get;
-	long *getp;
-	int ret;
-	getp = &get;
-
-	__asm__("movq %%mm2, (%1)" : "=r" (ret) : "r" (getp));
-	fun = get;
-	get >>= 32;
-	args = get;
+	/*
+	 * Recover the function and argument that kernel_thread() passed.
+	 *
+	 * The old code read them back out of mm2, which worked because
+	 * setcontext() restored the child's saved FPU state -- and hence
+	 * its MMX registers -- as it scheduled the child in for the first
+	 * time.  That gave each child its own private copy.
+	 *
+	 * The memory channel cannot be read directly here: by the time the
+	 * child actually runs, any number of other syscalls will have
+	 * overwritten six_call.  But copy_thread() memcpy'd the whole trap
+	 * context (channel values included) into p->kcontext, and g4/g5
+	 * sit *past the end of the host ucontext_t*, so swapcontext()
+	 * leaves them alone.  The child's private copy is therefore right
+	 * here, in its own task struct -- the same per-task delivery, by
+	 * other means.
+	 */
+	fun  = (int (*)(void *)) current->kcontext.g4;
+	args = (int *)           current->kcontext.g5;
 #else
 	__asm__("mov %%g4, %0" : "=r" (args)); 
 
@@ -260,8 +299,8 @@ void kernel_thread_start()
 	/* work done - now prepare to call exit() */
 
 #if (__i386__)
-	get = 1;
-	__asm__("movq (%1), %%mm0" : "=r" (ret) : "r" (getp));
+	six_call.g2 = 1;        /* 1 is the exit system call number */
+	six_call.g3 = 0;        /* exit status                      */
 #else
  	__asm__("mov 1, %g2\n"); /* 1 is the exit system call number */
 #endif

@@ -57,29 +57,33 @@
 
 /*
  * SIX_TRAPSIG -- the signal a process raises on itself to trap into the
- * SIX kernel.  Defined once here so the choice isn't hardcoded as 33/0x21
- * across arch/six/kernel/irq.c, include/asm-six/system.h and library/sys/.
+ * SIX kernel.
  *
  * ---------------------------------------------------------------------
- * TODO(M3): the signal numbers in this file are SOLARIS's, and several of
- * them mean something different on Linux:
+ * The signal numbers in the rest of this file are SOLARIS's, because this
+ * header is a verbatim copy of Solaris's <sys/signal.h>.  Several of them
+ * mean something different on Linux:
  *
  *      name        Solaris   Linux      SIX uses it as
- *      SIGLWP         33      -         syscall trap        <-- no Linux equivalent
- *      SIGVTALRM      28      26        timer IRQ
- *      SIGWINCH       20      28        window resize
- *      (Linux SIGTSTP is 20; Linux SIGWINCH is 28)
+ *      SIGLWP         33      (none)    syscall trap
+ *      SIGVTALRM      28        26      timer IRQ
+ *      SIGWINCH       20        28      window resize
+ *      SIGPOLL        22        (SIGIO 29)  keyboard input
  *
- * So the timer currently arms SIGVTALRM expecting 28, while Linux will
- * actually deliver 26, and 28 is Linux's SIGWINCH.  The IRQ table in
- * arch/six/kernel/irq.c is indexed by these numbers, so the whole map has
- * to be reconciled before the kernel can run correctly.  Keeping 33 for
- * now only so the tree builds; NPTL reserves 32 and 33, so sigaction()
- * will refuse it at runtime and this must change to a free signal
- * (SIGSYS/31, or a realtime signal) as part of M3.
+ * Note that the trap and the resize signals swap places: Solaris
+ * SIGVTALRM is 28, which on Linux is SIGWINCH, so the timer tick would
+ * have been delivered to the window-resize handler.  And NPTL reserves 32
+ * and 33, so sigaction() flatly refuses to install a handler for SIGLWP.
+ *
+ * The reconciled Linux numbers live in arch/six/kernel/host.h, which is
+ * the single source of truth; this macro just forwards to it so that
+ * anything still saying SIX_TRAPSIG gets the right answer.  Do not add new
+ * users -- call six_host_raise_trap() instead.
  * ---------------------------------------------------------------------
  */
-#define SIX_TRAPSIG SIGLWP
+#include "../../arch/six/kernel/host.h"
+
+#define SIX_TRAPSIG SIX_HOST_TRAPSIG
 
 /*
  * sa_flags values: SA_STACK is not currently supported, but will allow the

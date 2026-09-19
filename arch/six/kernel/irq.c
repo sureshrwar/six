@@ -21,6 +21,7 @@
 #include <solaris.h>
 
 #include <linux/ptrace.h>
+#include <asm/sixcall.h>
 #include <linux/errno.h>
 #include <linux/kernel_stat.h>
 #include <linux/signal.h>
@@ -64,29 +65,35 @@ void schedule(void);
 extern void reset_sun_tty();
 
 
+/*
+ * The syscall argument channel.  See include/asm-six/sixcall.h for why
+ * this is a struct in memory rather than the MMX registers it used to be.
+ */
+#if (__i386__)
+struct six_call_regs six_call;
+#endif
+
 int syscall(int num, long one, long two, long three)
 {
 #if (__i386__)
-        int ret;
-        long long val;
-        long *valp;
-        valp = (long *)&val;
-
-        val = one;
-        val <<= 32;
-        val += num;
-        __asm__("movq (%1), %%mm0" : "=r" (ret) : "r" (valp));
-
-        val = (long)two;
-        val <<= 32;
-        val += three;
-        __asm__("movq (%1), %%mm2" : "=r" (ret) : "r" (valp));
+        /*
+         * Used to be:
+         *      mm0 = (one << 32) | num
+         *      mm2 = (two << 32) | three
+         * with the halves read back out of the FPU image embedded in the
+         * Solaris ucontext.  Linux clears MMX before signal handlers run,
+         * so the values are now simply left in memory.  The g4/g5
+         * inversion below is inherited from the old mm2 packing and is
+         * what grab_args() expects.
+         */
+        six_call.g2 = num;
+        six_call.g3 = one;
+        six_call.g4 = three;
+        six_call.g5 = two;
 
         INT_SYSCALL;
 
-        __asm__("movq %%mm0, (%1)" : "=r" (ret) : "r" (valp));
-
-        return (long)val;
+        return (long)six_call.g2;
 #else
         long ret;
         __asm__("mov %1, %%g2"   :  "=r" (ret)  : "r" (num));
@@ -2210,30 +2217,59 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 void system_call(int num, void *why, struct pt_regs *context)
 {
 	int syscallnum;
-#if (__i386__)
-	long long val;
-	long *valp;
-	int ret;
-	valp = &val;
-#endif
 
-	/* find out the system call number stored in g2 */
-
-#if (__i386__)
 	/*
-	 * the first four bytes of the content of mm0 holds the
-	 * system call number
+	 * Load the syscall "registers" into the context.
+	 *
+	 * On SPARC these arrive for free: %g2..%g5 are real registers and
+	 * the host saves them into the ucontext when it delivers the
+	 * signal.  On x86 they used to arrive for free as well, by way of
+	 * the MMX-registers-alias-the-FPU-save-area trick described in
+	 * include/asm-six/sixcall.h -- but Linux zeroes the FPU state
+	 * before entering a signal handler, so nothing survives the trap.
+	 *
+	 * Copying them in here means grab_args(), put_ret() and all 165
+	 * entries of sys_call_table continue to read context->g2..g5 and
+	 * neither know nor care where the values came from.
 	 */
-	__asm__("movq %%mm0, (%1)" : "=r" (ret) : "r" (valp));
-	syscallnum = (int)val;
-#else
-	__asm__("mov %%g2, %0" : "=r" (syscallnum) );	
+#if (__i386__)
+	context->g2 = six_call.g2;
+	context->g3 = six_call.g3;
+	context->g4 = six_call.g4;
+	context->g5 = six_call.g5;
+	context->g6 = six_call.g6;
+	context->g7 = six_call.g7;
 #endif
+
+	syscallnum = context->g2;
+
+	/*
+	 * SIX has no NR_syscalls of its own -- the table is just however
+	 * many entries the initialiser at line ~1558 happens to have.
+	 */
+	if (syscallnum < 0 ||
+	    syscallnum >= (int)(sizeof(sys_call_table) / sizeof(sys_call_table[0])) ||
+	    sys_call_table[syscallnum] == 0) {
+		printk("six: bad syscall %d\n", syscallnum);
+		context->g2 = -ENOSYS;
+#if (__i386__)
+		six_call.g2 = context->g2;
+#endif
+		return;
+	}
 
 	/*
 	 * call the system call worker
 	 */
 	cli();
-	sys_call_table[context->g2](context);
+	sys_call_table[syscallnum](context);
 	sti();
+
+	/*
+	 * put_ret() left the return value in context->g2; hand it back to
+	 * the caller through the channel.
+	 */
+#if (__i386__)
+	six_call.g2 = context->g2;
+#endif
 }

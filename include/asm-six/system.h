@@ -88,6 +88,19 @@ static inline int xchg(long *ptr, long val)
 	return old;
 }
 
-#define  INT_SYSCALL	raise(SIGLWP)
+/*
+ * Trap into the kernel.
+ *
+ * This was raise(SIGLWP), i.e. Solaris signal 33.  Linux/NPTL reserves 32
+ * and 33 for the threading library and sigaction() refuses to install a
+ * handler for them, so the trap moved to SIGRTMIN+4 -- but this macro was
+ * left pointing at the old number, with the result that every syscall
+ * raised a signal nobody was listening for and system_call() was never
+ * entered.  Go through the host shim so there is exactly one definition of
+ * which signal the trap actually is.
+ */
+extern void six_host_raise_trap(void);
+
+#define  INT_SYSCALL	six_host_raise_trap()
 
 #endif
