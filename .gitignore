@@ -7,6 +7,8 @@ vmlinux
 .depend
 .hdepend
 .tmpdepend
+.version
+.ver
 include/linux/compile.h
 
 # include/asm is a generated symlink (make symlinks -> asm-six)

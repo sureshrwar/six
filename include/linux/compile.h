@@ -1,6 +1,0 @@
-#define UTS_VERSION "#2866 Sat Sep 19 09:30:52 AM UTC 2026"
-#define LINUX_COMPILE_TIME "09:30:52"
-#define LINUX_COMPILE_BY "motorman"
-#define LINUX_COMPILE_HOST "hangman.c.googlers.com"
-#define LINUX_COMPILE_DOMAIN "c.googlers.com"
-#define LINUX_COMPILER "gcc version 15.2.0 (Debian 15.2.0-14) "

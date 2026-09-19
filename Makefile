@@ -515,7 +515,7 @@ clean:	image-clean
 	$(MAKE) -C applications clean
 	find . -name '*.[oa]' -not -path './CVS/*' -delete
 	find . -name '.*.o.d' -delete
-	rm -f $(ROOT)/six arch/six/kernel/.trace_flag
+	rm -f $(ROOT)/six arch/six/kernel/.trace_flag .version include/linux/compile.h
 else
 clean:  archclean
         rm -f kernel/ksyms.lst include/linux/compile.h
