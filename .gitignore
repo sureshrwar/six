@@ -1,0 +1,23 @@
+# Build products
+*.o
+*.a
+/six
+System.map
+vmlinux
+.depend
+.hdepend
+.tmpdepend
+include/linux/compile.h
+
+# include/asm is a generated symlink (make symlinks -> asm-six)
+/include/asm
+
+# Editor / misc
+*~
+*.orig
+*.rej
+core
+
+# Port scratch area (build logs etc). Disk images are NOT ignored:
+# disk/x86/root and disk/sparc/root are checked in on purpose.
+/port/log/
