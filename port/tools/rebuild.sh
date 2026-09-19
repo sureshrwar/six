@@ -39,10 +39,22 @@ if [ ! -e include/asm ]; then
 	ln -sfn asm-six include/asm
 fi
 
-echo "removing kernel objects (leaving library/ alone -- guest userland)"
-find . -name '*.o' -not -path './library/*' -not -path './CVS/*' -delete
-find . -name '.*.o.d' -not -path './library/*' -delete
+echo "removing kernel objects"
+find . -name '*.o' -not -path './CVS/*' -delete
+find . -name '.*.o.d' -delete
+find . -path './library/*/lib/*.a' -delete
 rm -f six
+
+# Guest programs are build products too.  They used to be left alone here,
+# which was a mistake: the disk image is generated from them, so a "full
+# rebuild" that skipped them could still produce an image full of binaries
+# compiled against headers that no longer exist.
+echo "removing guest binaries"
+for d in applications/*/; do
+	name=$(basename "$d")
+	[ -f "$d/$name" ] && rm -f "$d/$name"
+done
+rm -f applications/hello/hello
 
 # The root filesystem image is a build product like everything else; a full
 # rebuild regenerates it.  (It used to be a blob checked into CVS in 2005.)
@@ -53,10 +65,13 @@ rm -rf port/image/.stage
 LOG=port/log/rebuild.log
 mkdir -p port/log
 
+# SIX_USERLAND=y builds library/ and applications/.  They are not in the
+# default SUBDIRS because for most of the port's life they did not compile;
+# they do now, and the image cannot be built without them.
 if [ "$QUIET" = 1 ]; then
-	make > "$LOG" 2>&1
+	make SIX_USERLAND=y > "$LOG" 2>&1
 else
-	make 2>&1 | tee "$LOG"
+	make SIX_USERLAND=y 2>&1 | tee "$LOG"
 fi
 
 errors=$(grep -c 'error:' "$LOG")

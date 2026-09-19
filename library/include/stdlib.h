@@ -59,10 +59,19 @@ extern char *getenv(const char *name);
 extern char **envlist;
 
 /* --- getopt --------------------------------------------------------------
- * library/libc/getopt.c.  optopt is declared but, unlike the other three,
- * is not defined anywhere in this libc -- referencing it will not link.
+ * library/libc/getopt.c, which defines all four of these.
+ *
+ * Deliberately not the POSIX spelling
+ *
+ *     int getopt(int, char *const [], const char *);
+ *
+ * getopt.c has an old-style definition ("char **argv; char *opts;"), and C
+ * treats a const-qualified parameter in the prototype as a mismatch against
+ * an unqualified old-style one: "argument 'argv' doesn't match prototype".
+ * Nothing in the guest userland passes a const string to it, so match the
+ * definition rather than rewrite 1990s code for the sake of a qualifier.
  */
-extern int getopt(int argc, char *const argv[], const char *optstring);
+extern int getopt(int argc, char **argv, char *optstring);
 extern char *optarg;
 extern int optind, opterr, optopt;
 
