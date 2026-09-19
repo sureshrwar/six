@@ -68,6 +68,7 @@ applications/*/cal
 applications/*/dhrystone
 applications/*/tetris
 applications/*/matrix
+applications/*/rogue
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h

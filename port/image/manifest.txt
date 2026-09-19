@@ -55,6 +55,7 @@ file  /bin/matrix           0755  applications/matrix/matrix
 file  /bin/ps               0755  applications/ps/ps
 file  /bin/pwd              0755  applications/pwd/pwd
 file  /bin/rm               0755  applications/rm/rm
+file  /bin/rogue            0755  applications/rogue/rogue
 file  /bin/sethostname      0755  applications/sethostname/sethostname
 file  /bin/sh               0755  applications/sh/sh
 file  /bin/sync             0755  applications/sync/sync

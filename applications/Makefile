@@ -43,7 +43,8 @@ SUBDIRS	=	start \
 		cal \
 		dhrystone \
 		tetris \
-		matrix
+		matrix \
+		rogue
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
