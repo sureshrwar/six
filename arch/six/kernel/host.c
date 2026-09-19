@@ -28,6 +28,9 @@
 #include <signal.h>
 #include <string.h>
 #include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <getopt.h>
 #include <termios.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -254,4 +257,66 @@ void six_host_tty_restore(int fd)
 	tcsetattr(fd, TCSANOW, &six_saved_termios);
 
 	sigaction(SIGTTOU, &old_ttou, (struct sigaction *)0);
+}
+
+static void six_usage(const char *prog, FILE *fp, int code)
+{
+	fprintf(fp,
+		"Usage: %s [-w|--wait] [-s|--single] [-d|--disk <path>] [single]\n"
+		"\n"
+		"Options:\n"
+		"  -w, --wait         Pause before boot and print host PID for gdb attach\n"
+		"  -s, --single       Boot into built-in single-user shell (go>)\n"
+		"  -d, --disk <path>  Root filesystem image (overrides $DISKFILE)\n"
+		"  -h, --help         Show this help message and exit\n",
+		prog ? prog : "./six");
+	exit(code);
+}
+
+void six_host_parse_args(int argc, char *argv[],
+			 int *single_out, int *wait_out,
+			 const char **disk_out)
+{
+	static const struct option long_opts[] = {
+		{ "wait",   no_argument,       0, 'w' },
+		{ "single", no_argument,       0, 's' },
+		{ "disk",   required_argument, 0, 'd' },
+		{ "help",   no_argument,       0, 'h' },
+		{ 0,        0,                 0,  0  }
+	};
+	int c;
+
+	*single_out = 0;
+	*wait_out   = 0;
+	*disk_out   = 0;
+
+	while ((c = getopt_long(argc, argv, "wsd:h", long_opts, 0)) != -1) {
+		switch (c) {
+		case 'w':
+			*wait_out = 1;
+			break;
+		case 's':
+			*single_out = 1;
+			break;
+		case 'd':
+			*disk_out = optarg;
+			break;
+		case 'h':
+			six_usage(argv[0], stdout, 0);
+			break;
+		default:
+			six_usage(argv[0], stderr, 2);
+			break;
+		}
+	}
+
+	for (; optind < argc; optind++) {
+		if (strcmp(argv[optind], "single") == 0)
+			*single_out = 1;
+		else {
+			fprintf(stderr, "%s: unexpected argument '%s'\n",
+				argv[0], argv[optind]);
+			six_usage(argv[0], stderr, 2);
+		}
+	}
 }

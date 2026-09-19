@@ -509,25 +509,28 @@ void setup_disk_info()
 #endif
 }
 
-void check_root()
+void check_root(const char *disk_arg)
 {
-	char *root;
+	const char *root = disk_arg;
 	extern int DISKFD;
 	/*
-	 * Check env first...
+	 * Precedence: -d/--disk CLI flag -> $DISKFILE environment variable ->
+	 * default DISKFILE (./disk/x86/root).
 	 */
-        if (!(root=getenv("DISKFILE")))
-		root = DISKFILE; /* else look in current dir */
+	if (!root && !(root = getenv("DISKFILE")))
+		root = DISKFILE;
 
         DISKFD = open(root, O_RDWR);
 
         if(DISKFD < 0)
 	{
-		fprintf(stderr, "ERROR : cant locate root disk\n\n" 
-				"the root disk file should be accessible either:\n\n"
+		fprintf(stderr, "ERROR : can't locate root disk (%s)\n\n"
+				"The root disk file should be accessible either:\n\n"
+				"* via -d / --disk <path>\n"
 				"* as disk/sparc/root (or disk/x86/root) under the current\n"
 				"  directory\n"
-				"* through the environment variable DISKFILE\n");
+				"* through the environment variable DISKFILE\n",
+				root);
 		exit(1);
 	}
 }
@@ -596,21 +599,18 @@ void grow_ram()
 
 void main(int argc, char *argv[])
 {
-	int i, wait_flag = 0;
+	int wait_flag = 0;
+	const char *disk_arg = NULL;
 
-	for (i = 1; i < argc; i++) {
-		if (!strcmp(argv[i], "single"))
-			single = 1;
-		else if (!strcmp(argv[i], "-w"))
-			wait_flag = 1;
-	}
+	six_host_parse_args(argc, argv, &single, &wait_flag, &disk_arg);
+
 	/* We are opening some files for recording debug info, the pid etc */
 	setup_files();
-	/* Wait for a keypress before booting only if -w was given */
+	/* Wait for a keypress before booting only if -w/--wait was given */
 	if (wait_flag)
 		wait_for_key();
-	/* ensure that we have a root disk */
-	check_root();
+	/* Ensure that we have a root disk */
+	check_root(disk_arg);
 	/* build the signal masks for locked and unlocked conditions and store them */
 	setup_masks();
 	/* update empty_zero_page with information abt the hard disk setup. We are

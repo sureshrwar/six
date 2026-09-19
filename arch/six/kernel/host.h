@@ -54,4 +54,9 @@ void six_host_get_winsize(int *rows, int *cols);
 int  six_host_tty_open_raw(void);
 void six_host_tty_restore(int fd);
 
+/* Command-line option parsing via host getopt_long(). */
+void six_host_parse_args(int argc, char *argv[],
+			 int *single_out, int *wait_out,
+			 const char **disk_out);
+
 #endif /* _SIX_HOST_H */
