@@ -152,6 +152,12 @@ SVGA_MODE=	-DSVGA_MODE=NORMAL_VGA
 #   -Wno-error=...        GCC 14+ promoted these to hard errors; this code
 #                         predates the relevant standards, so demote them again
 #
+#
+# Set to 1 to have system_call() print every system call a guest makes.
+# Off by default; it is very noisy and the console is slow.
+#
+SIX_TRACE_GUEST_SYSCALLS ?= 0
+
 SIX_STDFLAGS  = -std=gnu89 -fcommon -fno-strict-aliasing -fno-builtin -fno-pic
 SIX_WARNFLAGS = -w \
 		-Wno-error=implicit-function-declaration \
@@ -163,7 +169,8 @@ SIX_WARNFLAGS = -w \
 		-Wno-error=builtin-declaration-mismatch \
 		-Wsequence-point
 
-CFLAGS = -g -O0 $(SIX_STDFLAGS) $(SIX_WARNFLAGS)
+CFLAGS = -g -O0 $(SIX_STDFLAGS) $(SIX_WARNFLAGS) \
+	 -DSIX_TRACE_GUEST_SYSCALLS=$(SIX_TRACE_GUEST_SYSCALLS)
 
 ifdef CONFIG_CPP
 CFLAGS := $(CFLAGS) -x c++

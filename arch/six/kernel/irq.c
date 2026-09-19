@@ -2308,6 +2308,17 @@ void system_call(int num, void *why, struct pt_regs *context)
 		context->g7 = gc->a4;
 		context->g8 = gc->a5;
 		context->g9 = gc->a6;
+
+		/*
+		 * Build with -DSIX_TRACE_GUEST_SYSCALLS=1 to see every call a
+		 * guest makes.  There is no other way to watch a guest from
+		 * outside: host strace only ever sees the getpid/kill pair
+		 * that raises the trap, never what the trap was for.
+		 */
+#if SIX_TRACE_GUEST_SYSCALLS
+		printk("guest[%d] syscall %d (%08lx %08lx %08lx)\n",
+		       current->pid, (int)gc->nr, gc->a1, gc->a2, gc->a3);
+#endif
 	} else {
 		context->g2 = six_call.g2;
 		context->g3 = six_call.g3;

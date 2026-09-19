@@ -885,6 +885,7 @@ static inline int
 do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	int retval, size, ret, i;
 	long tbase = 0, tsize = 0, dsize = 0, total = 0;
+	unsigned long entry;
 	char *str;
 
 	struct vm_area_struct *stack_vm = 0;
@@ -1089,13 +1090,40 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	}
 	if(ss[BSS])
 	{
-		kfree(ss[BSS]);
 		/*
 		 * this is bss - uninitialized data - which should
 		 * be all set to zeroes. so ask some zeroes to go live there.
+		 *
+		 * Two bugs lived in these four lines.  The kfree() came
+		 * first, so the section header was read after it had been
+		 * returned to the allocator.  And the arguments were in the
+		 * order (address, size, fill) rather than memset's actual
+		 * (address, fill, size), so the call asked to write zero
+		 * bytes of the value sh_size -- that is, it did nothing at
+		 * all, and .bss was left holding whatever happened to be in
+		 * the freshly mapped pages.
 		 */
-		memset(ss[3]->sh_addr, ss[3]->sh_size, 0);
+		memset((void *)ss[BSS]->sh_addr, 0, ss[BSS]->sh_size);
+		kfree(ss[BSS]);
 	}
+
+	/*
+	 * the beginning of the page in bprm->page[0] contains an initial list
+	 * of addresses which point to strings in argv. then comes a null, and
+	 * then another list which points to strings in envp.
+	 *
+	 * Take the entry point out of the ELF header *before* freeing it.
+	 * This is the bug that kept the x86 port from ever running a guest:
+	 * the original freed `e' and then read e->e_entry three lines later,
+	 * so the address control was transferred to was whatever the
+	 * allocator had since put in that memory.  On Solaris in 2005 kfree()
+	 * evidently left the bytes alone and it worked by luck; this kernel's
+	 * allocator reuses the block immediately, and the guest was being
+	 * entered at a garbage address -- which is exactly what it looked
+	 * like from outside: the exec succeeds, control leaves the kernel,
+	 * and the guest never executes a single system call.
+	 */
+	entry = e->e_entry;
 
 	/*
 	 * clean up
@@ -1105,13 +1133,39 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	kfree(str);
 
 	/*
-	 * the beginning of the page in bprm->page[0] contains an initial list
-	 * of addresses which point to strings in argv.then comes a null,and
-	 * then another list which points to strings in envp
+	 * cstart(argc, argv, envp) -- three arguments, not four.  makecontext
+	 * reads exactly as many as it is told to, so asking for four made it
+	 * copy one word past the end of the argument list onto the new stack.
 	 */
-	makecontext(regs, e->e_entry, 4, bprm->argc,
+	makecontext(regs, entry, 3, bprm->argc,
 			(char **)bprm->page[0],
 			(char **)(bprm->page[0]+(bprm->argc+1)*4));
+
+	/*
+	 * From here on this task is running guest code, and that has to be
+	 * recorded, because it is how system_call() knows where to look for
+	 * a system call's arguments: a guest leaves them in its own memory
+	 * and passes the address in %esi, while the kernel's own callers use
+	 * the six_call global.  See include/asm-six/sixcall.h.
+	 *
+	 * go_user_mode() has existed in include/asm-six/ptrace.h since 2003
+	 * and was never called from anywhere.  It did not need to be on
+	 * SPARC, where the arguments arrive in real registers that the host
+	 * saves into the ucontext whoever the caller was, so there was
+	 * nothing for the kernel to decide.  On x86 there are two channels
+	 * and the flag is the only thing that distinguishes them.
+	 *
+	 * Leaving it unset produced a very good disguise.  The guest would
+	 * start, make its first system call, and system_call() would read
+	 * six_call -- which still held the arguments of the last call made
+	 * through that channel, namely init()'s own execve of /bin/sh.  So
+	 * it would exec /bin/sh again.  The guest would start, make its
+	 * first system call, and so on.  From the outside it looked like a
+	 * program that produced no output.
+	 */
+	go_user_mode();
+
+	return 0;
 }
 
 static int
