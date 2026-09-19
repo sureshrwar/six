@@ -343,7 +343,7 @@ int kill_proc(int pid, int sig, int priv)
 }
 
 /*
- * POSIX specifies that kill(-1,sig) is unspecified, but what we have
+ * POSIX specifies that kill(-1, sig) is unspecified, but what we have
  * is probably wrong.  Should make it like BSD or SYSV.
  */     
 asmlinkage int sys_kill(int pid,int sig)
@@ -518,7 +518,7 @@ static void exit_notify(void)
          * as a result of our exiting, and if they have any stopped
          * jobs, send them a SIGHUP and then a SIGCONT.  (POSIX 3.2.2.2)
          *
-         * Case i: Our father is in a different pgrp than we are
+         * Case I: Our father is in a different pgrp than we are
          * and we were the only connection outside, so our pgrp
          * is about to become orphaned.
          */

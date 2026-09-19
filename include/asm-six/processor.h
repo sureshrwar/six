@@ -24,7 +24,7 @@ extern char wp_works_ok;        /* doesn't work on a 386 */
 extern int EISA_bus;
 
 /*
- * no task is gonna go beyond this.
+ * No task is going to go beyond this.
  */
 #define TASK_SIZE       STACK_BASE
 
@@ -94,9 +94,9 @@ struct thread_struct {
 };
 
 /*
- * this is the vm_area_struct of init_task's mm_struct. note that vm_start and
- * vm_end are zeroes. so when init_task calls for a fork(), dup_mmap() doesnt
- * have much work to do. advantages of a user-mode kernel :)
+ * This is the vm_area_struct of init_task's mm_struct. Note that vm_start and
+ * vm_end are zeroes. So when init_task calls for a fork(), dup_mmap() doesn't
+ * have much work to do. Advantages of a user-mode kernel :)
  * dup_mmap() has to work hard only when a mapped process - that is, a process
  * whose text/data has been loaded from the disk instead of being part of the
  * kernel - calls a fork.
@@ -113,7 +113,7 @@ static inline start_thread(struct pt_regs * regs, unsigned long eip, unsigned lo
 
 #if (SIX)
 /*
- * dunno for sure, but me thinks we need more stack.
+ * Dunno for sure, but me thinks we need more stack.
  */
 #define alloc_kernel_stack()    __get_free_pages(GFP_KERNEL, 1, 0)
 #define free_kernel_stack(page) free_pages((page), 1)

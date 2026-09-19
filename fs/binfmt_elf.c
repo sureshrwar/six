@@ -778,9 +778,9 @@ unsigned long alloc_stack()
  *	.				.
  *	.				.
  *	.      				.
- *	.     various libraries like	.
- *	.	  libelf.so		.
- *	.	  libdl.so		.
+ *	.     Various libraries like	.
+ *	.	  Libelf. So		.
+ *	.	  Libdl.so		.
  *	.	  libc.so		.
  *	.         .......		.
  *	.				.
@@ -863,7 +863,7 @@ unsigned long alloc_stack()
  * is the one lying in (A). Remember that (A) contains the whole of the kernel code. Soon
  * the end of start_kernel() is reached, and a kernel_task() of init() is called; This
  * creates the init() kernel thread, which has its own stack. Remember that this stack space
- * comes from the mmapped 'ram' part. which is (E). All memory requirements, including the
+ * comes from the mmapped 'ram' part. Which is (E). All memory requirements, including the
  * stacks of all kernel threads and user processes are satisfied from this segment, (E).
  * So in other words, once init() is spawned the stack in (M) is hardly used anymore; Unless
  * there is a need for the idle thread to be brought in.
@@ -876,7 +876,7 @@ unsigned long alloc_stack()
  * data, right after it. When it gets scheduled, execution switches over to (G).
  *
  * Now each time a timer interrupt comes in, execution switches off to sun_handler() which
- * is part of the kernel code -  ie, part of (A). after completing its work, it switches the
+ * is part of the kernel code -  I.e., part of (A). After completing its work, it switches the
  * context back to (G). The case is similar when a system call happens.
  *
  */
@@ -916,7 +916,7 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 
 
 	/*
-	 * parse through the elf image, and read in the section headers. If one is either
+	 * Parse through the elf image, and read in the section headers. If one is either
 	 * a text, data, bss or rodata header, then store it.
 	 */
         for(i=0; i<e->e_shnum; i++)
@@ -1008,7 +1008,7 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	}
 
 	/*
-	 * create mappings for text, rodata, data and bss
+	 * Create mappings for text, rodata, data and bss
 	 */
 	retval  =  do_mmap(0, tbase, total, PROT_READ | PROT_WRITE | PROT_EXEC,
 		   MAP_PRIVATE | MAP_FIXED, 0);
@@ -1028,7 +1028,7 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 		return 0;
 	}
 	/*
-	 * wipe the slate clean!
+	 * Wipe the slate clean!
 	 */
 	memset(STACK_BASE - DEFAULT_STACK_SIZE, 0, DEFAULT_STACK_SIZE);
 
@@ -1049,16 +1049,16 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	regs->uc_sp_size = DEFAULT_STACK_SIZE - 8;
 #if (!__i386__)
 	/*
-	 * leave space for a double word. (thanks to smx guys)
+	 * Leave space for a double word. (thanks to smx guys)
 	 */
 	regs->uc_sp = STACK_BASE - 8;
 #else
 	/*
-	 * im clueless abt this one; for some strange reason, makecontext()
+	 * Im clueless abt this one; for some strange reason, makecontext()
 	 * on x86 behaves wierd - you need to point ss_sp to the beginning of
-	 * the stack area. unlike the sparc scenario, where you have to point
+	 * the stack area. Unlike the sparc scenario, where you have to point
 	 * it to the end, from where it will grown down, before calling 
-	 * makecontext(). have you ever noticed how easy it is to commit
+	 * makecontext(). Have you ever noticed how easy it is to commit
 	 * silly changes once you add proper comments? :) its almost like
 	 * this - stupidity is not a bad thing, if you are aware of its
 	 * existence, approximate measure etc!
@@ -1091,8 +1091,8 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	if(ss[BSS])
 	{
 		/*
-		 * this is bss - uninitialized data - which should
-		 * be all set to zeroes. so ask some zeroes to go live there.
+		 * This is bss - uninitialized data - which should
+		 * be all set to zeroes. So ask some zeroes to go live there.
 		 *
 		 * Two bugs lived in these four lines.  The kfree() came
 		 * first, so the section header was read after it had been
@@ -1108,8 +1108,8 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	}
 
 	/*
-	 * the beginning of the page in bprm->page[0] contains an initial list
-	 * of addresses which point to strings in argv. then comes a null, and
+	 * The beginning of the page in bprm->page[0] contains an initial list
+	 * of addresses which point to strings in argv. Then comes a null, and
 	 * then another list which points to strings in envp.
 	 *
 	 * Take the entry point out of the ELF header *before* freeing it.
@@ -1126,7 +1126,7 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	entry = e->e_entry;
 
 	/*
-	 * clean up
+	 * Clean up
 	 */
 	kfree(e);
 	kfree(strhdr);

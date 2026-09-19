@@ -110,7 +110,7 @@ void setup_arch(char **cmdline_p, unsigned long * memory_start_p, unsigned long 
 #if 0
 	/*
 	 * init_task is part of the kernel, so use the values accordingly.
-	 * all this is purely academic - i cant really imagine these things
+	 * All this is purely academic - I can't really imagine these things
 	 * being put to any real use anywhere down the six lane.
 	 */
 	init_task.mm->start_code = _stext;
@@ -133,8 +133,8 @@ void setup_arch(char **cmdline_p, unsigned long * memory_start_p, unsigned long 
 /*
  * The 'mem=' argument :
  * We can limit/specify the max amount of memory available to linux using
- * this argument.In other words,this indicates the highest addressable RAM
- * address.Another purpose of this is 'mem=nopentium' which disables the
+ * this argument. In other words, this indicates the highest addressable RAM
+ * address. Another purpose of this is 'mem=nopentium' which disables the
  * 4MB page tables.
  */ 
 	        for (;;) {

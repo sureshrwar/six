@@ -13,7 +13,7 @@
 
 #if (SIX)
 /*
- * on solaris we already have this _ctype.so get around that clumsily.
+ * On solaris we already have this _ctype. So get around that clumsily.
  */
 extern unsigned char _ctype_[];
 #else

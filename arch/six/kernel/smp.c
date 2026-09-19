@@ -4,7 +4,7 @@
  *	hosts.
  *
  *	(c) 1995 Alan Cox, CymruNET Ltd  <alan@cymru.net>
- *	Supported by Caldera http://www.caldera.com.
+ *	Supported by Caldera http://www. Caldera.com.
  *	Much of the core SMP work is based on previous work by Thomas Radke, to
  *	whom a great many thanks are extended.
  *

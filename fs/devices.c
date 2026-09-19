@@ -53,9 +53,9 @@ e */
                  * is no device with major number == 0. And furthermore
                  * it locks the reboot process :-(
                  *
-                 * Jacques Gelinas (jacques@solucorp.qc.ca)
+                 * Jacques Gelinas (jacques@solucorp. Qc.ca)
                  *
-                 * A. Haritsis <ah@doc.ic.ac.uk>: fix for serial module
+                 * A. Haritsis <ah@doc. Ic.ac.uk>: fix for serial module
                  *  though we need the minor here to check if serial dev,
                  *  we pass only the normal major char dev to kerneld
                  *  as there is no other loadable dev on these majors

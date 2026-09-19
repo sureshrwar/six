@@ -6,9 +6,9 @@
 
 
 
-/* $Id: ioctl.h,v 1.1.1.1 2005/03/30 08:40:48 motorbreathing Exp $
+/* $Id: ioctl.h, v 1.1.1.1 2005/03/30 08:40:48 motorbreathing Exp $
  *
- * linux/ioctl.h for Linux by H.H. Bergman.
+ * Linux/ioctl.h for Linux by H.H. Bergman.
  */
 
 #ifndef _ASMI386_IOCTL_H

@@ -24,7 +24,7 @@ static inline void barrier()  {
 #define ULONG_MAX       (~0UL)
 #else
 /*
- * we have these in linux/limits.h.
+ * We have these in linux/limits.h.
  */
 #endif
 

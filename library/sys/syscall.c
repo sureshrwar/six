@@ -1,5 +1,5 @@
 /*
- * syscall() -- the guest side of the SIX system call interface.
+ * Syscall() -- the guest side of the SIX system call interface.
  *
  * Everything in library/sys/ is a thin stub that marshals its arguments and
  * lands here.  This function is the one place where a guest program leaves
@@ -14,7 +14,7 @@
  *      mm0 = (arg1 << 32) | syscall_number
  *      mm2 = (arg2 << 32) | arg3
  *
- * and trapped.  MMX aliases the x87 register stack, Solaris embedded the
+ * And trapped.  MMX aliases the x87 register stack, Solaris embedded the
  * whole FPU save area inside the ucontext_t it handed to the signal
  * handler, and so the kernel could read the arguments straight out of the
  * signal frame at fixed word offsets.  That is what the g2..g9 fields of

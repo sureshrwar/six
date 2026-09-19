@@ -119,7 +119,7 @@
 #define BT463_WINDOW_TYPE_BASE  0x0300
 
 /*
- * built-in font management constants
+ * Built-in font management constants
  *
  * NOTE: the built-in font is 8x16, and the video resolution
  * is 640x480 @ 60Hz.
@@ -463,7 +463,7 @@ tga_blitc(unsigned int charattr, unsigned long addr)
   attrib = (charattr >> 8) & 0x00ff;
 
   /*
-   * extract foreground and background indices
+   * Extract foreground and background indices
    * NOTE: we always treat blink/underline bits as color for now...
    */
   fgmask = attrib & 0x0f;
@@ -472,7 +472,7 @@ tga_blitc(unsigned int charattr, unsigned long addr)
   i = (c & 0xff) << 4; /* NOTE: assumption of 16 bytes per character bitmap */
 
   /*
-   * calculate (row,col) from addr and video_mem_base
+   * Calculate (row, col) from addr and video_mem_base
    */
   temp = (addr - video_mem_base) >> 1;
   col = temp % 80;

@@ -289,7 +289,7 @@ static void parse_options(char *line)
                 if ((next = strchr(line,' ')) != NULL)
                         *next++ = 0;
                 /*
-                 * check for kernel options first..
+                 * Check for kernel options first..
                  */
                 if (!strncmp(line,"root=",5)) {
                         parse_root_dev(line+5);
@@ -469,8 +469,8 @@ so_sigset_t saved_sig;
 setup_masks()
 {
 /*
- * get the lock and unlock masks into a global place
- * so we dont need a function call each time.
+ * Get the lock and unlock masks into a global place
+ * so we don't need a function call each time.
  */
 	get_kernel_mask(&uni_lock);
    	sosigemptyset(&uni_unlock);
@@ -514,7 +514,7 @@ void check_root()
 	char *root;
 	extern int DISKFD;
 	/*
-	 * check env first...
+	 * Check env first...
 	 */
         if (!(root=getenv("DISKFILE")))
 		root = DISKFILE; /* else look in current dir */
@@ -545,7 +545,7 @@ void grow_ram()
 	/*
 	 * Where to put the emulated "physical memory".
 	 *
-	 * The 2005 code mapped it MAP_FIXED at &_end + 2*SIX_GAP_SIZE, i.e.
+	 * The 2005 code mapped it MAP_FIXED at &_end + 2*SIX_GAP_SIZE, I.e.
 	 * about 80KB past the end of bss.  That was fine on Solaris, but on
 	 * Linux the brk heap starts just above _end -- and with ASLR its
 	 * base is randomised by up to 32MB.  MAP_FIXED does not fail on a
@@ -618,20 +618,20 @@ void main(int argc, char *argv[])
         /* Bios simulation etc done, now block all sun signals */
         cli();
 	/*
-	 * printk actually doesnt print this to the console yet. it just
+	 * printk actually doesnt print this to the console yet. It just
 	 * buffers the string till a console device registers itself with
-	 * the kernel. then the kernel passes the buffered console log 
+	 * the kernel. Then the kernel passes the buffered console log 
 	 * contents to the registered console device(s).
-	 * what happens is : console_init() calls con_init() which in turn
+	 * What happens is : console_init() calls con_init() which in turn
 	 * calls register_console() with the argument as console_print.
 	 * console_print is a pointer to the function which does the
-	 * actual work. and this function is registered to be used by
-	 * printk. from then on each printk uses this function to get the
+	 * actual work. And this function is registered to be used by
+	 * printk. From then on each printk uses this function to get the
 	 * job done immediately - instead of storing the stuff.
 	 */
 	printk(six_banner);
 	/*
-	 * yeah just what it says
+	 * Yeah just what it says
 	 */ 
 	grow_ram();
 	/* Exit light enter night Take my hand....Off to never never land */
@@ -662,7 +662,7 @@ asmlinkage void start_kernel(void)
  * enable them
  */
 	/*
-	 * setup arch fills up memory_start and memory_end,
+	 * Setup arch fills up memory_start and memory_end,
 	 * while its at it
 	 */
         setup_arch(&command_line, &memory_start, &memory_end);
@@ -721,7 +721,7 @@ asmlinkage void start_kernel(void)
         init_task.nsp = init_task.kernel_stack_page + DEFAULT_STACK_SIZE;
 #if (!__i386__)
         /*
-         * leave room for a sparc stack frame
+         * Leave room for a sparc stack frame
          */
         init_task.nsp -= 96;
 #else
@@ -844,7 +844,7 @@ static int init(void * unused)
 
 #if (SIX)
         /*
-         * fd 0, 1 and 2 for the first user process.
+         * Fd 0, 1 and 2 for the first user process.
          *
          * Stock Linux ignores the result here; SIX must not.  If /dev/tty1
          * is missing, or carries a character major that nobody registered,

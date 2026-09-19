@@ -89,7 +89,7 @@ static inline int dup_mmap(struct mm_struct * mm)
         mm->mmap = NULL;
         p = &mm->mmap;
 	/*
-	 * for each vm_area_struct...
+	 * For each vm_area_struct...
 	 */
         for (mpnt = current->mm->mmap ; mpnt ; mpnt = mpnt->vm_next)
 	{
@@ -218,7 +218,7 @@ static inline int copy_sighand(unsigned long clone_flags, struct task_struct * t
 #if (SIX)
 /*
  * A stupid, easy, ridiculous way to make ps work.
- * will implement all this properely later.
+ * Will implement all this properely later.
  */
 int sys_sixps(struct six_proc *sp)
 {
@@ -275,12 +275,12 @@ int do_fork(unsigned long clone_flags, unsigned long usp, struct pt_regs *regs)
 	p->nsp = p->kernel_stack_page + DEFAULT_STACK_SIZE;
 #if (!__i386__)
 	/*
-	 * leave room for a sparc stack frame
+	 * Leave room for a sparc stack frame
 	 */
 	p->nsp -= SPARC_FRAME;
 #else
 	/*
-	 * point to the last word.
+	 * Point to the last word.
 	 */
 	p->nsp -= 4;
 #endif

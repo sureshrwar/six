@@ -33,8 +33,8 @@ int RAMFD;
 #endif
 
 /*
- * description of effects of mapping type and prot in current implementation.
- * this is due to the limited x86 page protection hardware.  The expected
+ * Description of effects of mapping type and prot in current implementation.
+ * This is due to the limited x86 page protection hardware.  The expected
  * behavior is in parens:
  *
  * map_type     prot
@@ -61,7 +61,7 @@ pgprot_t protection_map[16] = {
 static inline int vm_enough_memory(long pages)
 {
         /*
-         * stupid algorithm to decide if we have enough memory: while
+         * Stupid algorithm to decide if we have enough memory: while
          * simple, it hopefully works in most obvious cases.. Easy to
          * fool it, but this should catch most mistakes.
          */
@@ -311,8 +311,8 @@ unsigned long do_mmap(struct file * file, unsigned long addr, unsigned long len,
         }
 
         /*
-         * do simple checking here so the lower-level routines won't have
-         * to. we assume access permissions have been handled by the open
+         * Do simple checking here so the lower-level routines won't have
+         * to. We assume access permissions have been handled by the open
          * of the memory object, so we don't do any here.
          */
 
@@ -322,7 +322,7 @@ unsigned long do_mmap(struct file * file, unsigned long addr, unsigned long len,
                         if ((prot & PROT_WRITE) && !(file->f_mode & 2))
                                 return -EACCES;
                         /*
-                         * make sure there are no mandatory locks on the file.
+                         * Make sure there are no mandatory locks on the file.
                          */
                         if (locks_verify_locked(file->f_inode))
                                 return -EAGAIN;
@@ -343,7 +343,7 @@ unsigned long do_mmap(struct file * file, unsigned long addr, unsigned long len,
                 return -EINVAL;
 
         /*
-         * obtain the address to map to. we verify (or select) it and ensure
+         * Obtain the address to map to. We verify (or select) it and ensure
          * that it represents a valid section of the address space.
          */
 
@@ -359,8 +359,8 @@ unsigned long do_mmap(struct file * file, unsigned long addr, unsigned long len,
         }
 
         /*
-         * determine the object being mapped and call the appropriate
-         * specific mapper. the address has already been validated, but
+         * Determine the object being mapped and call the appropriate
+         * specific mapper. The address has already been validated, but
          * not unmapped, but the maps are removed from the list.
          */
         if (file && (!file->f_op || !file->f_op->mmap))
@@ -496,13 +496,13 @@ unsigned long get_unmapped_area(unsigned long addr, unsigned long len)
 
 
 /* Since the trees are balanced, their height will never be large. */
-#define avl_maxheight   41      /* why this? a small exercise */
+#define avl_maxheight   41      /* why this? A small exercise */
 #define heightof(tree)  ((tree) == avl_empty ? 0 : (tree)->vm_avl_height)
 /*
  * Consistency and balancing rules:
- * 1. tree->vm_avl_height == 1+max(heightof(tree->vm_avl_left),heightof(tree->vm_avl_right))
- * 2. abs( heightof(tree->vm_avl_left) - heightof(tree->vm_avl_right) ) <= 1
- * 3. foreach node in tree->vm_avl_left: node->vm_avl_key <= tree->vm_avl_key,
+ * 1. Tree->vm_avl_height == 1+max(heightof(tree->vm_avl_left), heightof(tree->vm_avl_right))
+ * 2. Abs( heightof(tree->vm_avl_left) - heightof(tree->vm_avl_right) ) <= 1
+ * 3. Foreach node in tree->vm_avl_left: node->vm_avl_key <= tree->vm_avl_key,
  *    foreach node in tree->vm_avl_right: node->vm_avl_key >= tree->vm_avl_key.
  */
 
@@ -568,18 +568,18 @@ static inline void avl_neighbours (struct vm_area_struct * node, struct vm_area_
  * A vm_area_struct has the following fields:
  *   vm_avl_left     left son of a tree node
  *   vm_avl_right    right son of a tree node
- *   vm_avl_height   1+max(heightof(left),heightof(right))
+ *   vm_avl_height   1+max(heightof(left), heightof(right))
  * The empty tree is represented as NULL.
  */
 
 /* Since the trees are balanced, their height will never be large. */
-#define avl_maxheight   41      /* why this? a small exercise */
+#define avl_maxheight   41      /* why this? A small exercise */
 #define heightof(tree)  ((tree) == avl_empty ? 0 : (tree)->vm_avl_height)
 /*
  * Consistency and balancing rules:
- * 1. tree->vm_avl_height == 1+max(heightof(tree->vm_avl_left),heightof(tree->vm_avl_right))
- * 2. abs( heightof(tree->vm_avl_left) - heightof(tree->vm_avl_right) ) <= 1
- * 3. foreach node in tree->vm_avl_left: node->vm_avl_key <= tree->vm_avl_key,
+ * 1. Tree->vm_avl_height == 1+max(heightof(tree->vm_avl_left), heightof(tree->vm_avl_right))
+ * 2. Abs( heightof(tree->vm_avl_left) - heightof(tree->vm_avl_right) ) <= 1
+ * 3. Foreach node in tree->vm_avl_left: node->vm_avl_key <= tree->vm_avl_key,
  *    foreach node in tree->vm_avl_right: node->vm_avl_key >= tree->vm_avl_key.
  */
 
@@ -1129,36 +1129,36 @@ void merge_segments (struct task_struct * task, unsigned long start_addr, unsign
                         continue;
 #if (SIX)
 	/*
-	 * how do i explain this. 
-	 * if the map is not out of a file, well then why should we merge those
+	 * How do I explain this. 
+	 * If the map is not out of a file, well then why should we merge those
 	 * things together. For example, one map can be the text+data part and
 	 * the other one could be a brk one. Even if they are adjacent we can
 	 * just leave them separate - two mmap calls will patch them together
 	 * in memory. Yes - results in an additional mmap, but no big issue.
 	 *
-	 * if they belong to a file, better be clean and merge them. no logical
+	 * If they belong to a file, better be clean and merge them. No logical
 	 * point as such - just to be clean.
 	 *
-	 * but there is a point with regard to speed - this would make brk()
+	 * But there is a point with regard to speed - this would make brk()
 	 * work faster. If a program keeps on calling brk() number of times, it 
 	 * would have resulted in the new maps being merged with the main body of text
 	 * data and older brk segments each time. This way, we cut off the overhead.
 	 *
-	 * all things not out of a file lie as separate maps and get united in memory
+	 * All things not out of a file lie as separate maps and get united in memory
 	 * through separate mmap() calls.
 	 */
 		if(!mpnt->vm_ops)
 			continue;
 #endif
                 /*
-                 * and if we have an inode, the offsets must be contiguous..
+                 * And if we have an inode, the offsets must be contiguous..
                  */
                 if ((mpnt->vm_inode != NULL) || (mpnt->vm_flags & VM_SHM)) {
                         if (prev->vm_offset + prev->vm_end - prev->vm_start != mpnt->vm_offset)
                                 continue;
                 }
                 /*
-                 * merge prev with mpnt and set up pointers so the new
+                 * Merge prev with mpnt and set up pointers so the new
                  * big segment can possibly merge with the next one.
                  * The old unused mpnt is freed.
                  */

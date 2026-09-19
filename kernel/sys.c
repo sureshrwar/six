@@ -487,7 +487,7 @@ asmlinkage int sys_setreuid(uid_t ruid, uid_t euid)
 
 
 /*
- * setuid() is implemented like SysV w/ SAVED_IDS
+ * Setuid() is implemented like SysV w/ SAVED_IDS
  * 
  * Note that SAVED_ID's is deficient in that a setuid root program
  * like sendmail, for example, cannot set its uid to be a normal 

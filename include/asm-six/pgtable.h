@@ -125,11 +125,11 @@ static inline void flush_tlb_page(struct vm_area_struct *vma,
 #if (__i386__)
 #define PTRS_PER_PTE    1024*1 /* our pagesize is 8192 - which can hold 2048 addresses */
 #define PTRS_PER_PMD    1
-#define PTRS_PER_PGD    1024*1 /* yeah same applies here,too */
+#define PTRS_PER_PGD    1024*1 /* yeah same applies here, too */
 #else /* sparc */
 #define PTRS_PER_PTE    1024*2 /* our pagesize is 8192 - which can hold 2048 addresses */
 #define PTRS_PER_PMD    1
-#define PTRS_PER_PGD    1024*2 /* yes same applies here,too */
+#define PTRS_PER_PGD    1024*2 /* yes same applies here, too */
 #endif
 
 /* Just any arbitrary offset to the start of the vmalloc VM area: the
@@ -294,7 +294,7 @@ static inline void pgd_free(pgd_t * pgd)
 }
 
 /*
- * allocating and freeing a pmd is trivial: the 1-entry pmd is
+ * Allocating and freeing a pmd is trivial: the 1-entry pmd is
  * inside the pgd, so has no extra memory associated with it.
  */
 static inline void pmd_free(pmd_t * pmd)

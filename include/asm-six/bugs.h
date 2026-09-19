@@ -60,7 +60,7 @@ static void check_fpu(void)
                 return;
         }
         /*
-         * check if exception 16 works correctly.. This is truly evil
+         * Check if exception 16 works correctly.. This is truly evil
          * code: it disables the high 8 interrupts to make sure that
          * the irq13 doesn't happen. But as this will lead to a lockup
          * if no exception16 arrives, it depends on the fact that the

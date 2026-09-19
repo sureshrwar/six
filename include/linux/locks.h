@@ -45,9 +45,9 @@ extern inline void lock_buffer(struct buffer_head * bh)
 }
 
 /*                      
- * super-block locking. Again, interrupts may only unlock
+ * Super-block locking. Again, interrupts may only unlock
  * a super-block (although even this isn't done right now.
- * nfs may need it).
+ * Nfs may need it).
  */                     
 extern void __wait_on_super(struct super_block *);
 

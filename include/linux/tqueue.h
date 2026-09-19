@@ -33,7 +33,7 @@ typedef struct tq_struct * task_queue;
 
 /*
  * New proposed "bottom half" handlers:
- * (C) 1994 Kai Petzke, wpp@marie.physik.tu-berlin.de
+ * (C) 1994 Kai Petzke, wpp@marie. Physik.tu-berlin.de
  *
  * Advantages:
  * - Bottom halfs are implemented as a linked list.  You can have as many

@@ -61,7 +61,7 @@ void hard_reset_now(void)
 void show_regs(struct pt_regs * regs)
 {
 	/*
-	 * TODO. later.
+	 * TODO. Later.
 	 */
 }
 
@@ -110,30 +110,30 @@ void six_fix_context(struct pt_regs *p)
 void copy_thread(int nr, unsigned long clone_flags, unsigned long esp, struct task_struct * p, struct pt_regs * regs)
 {
 	/*
-	 * why this?
-	 * because, when this new child gets scheduled onto the cpu
+	 * Why this?
+	 * Because, when this new child gets scheduled onto the cpu
 	 * for the first time, it lands up straight into userland.
-	 * if you look into copy_thread(), you will find that the
+	 * If you look into copy_thread(), you will find that the
 	 * user context of the parent process is copied to the
 	 * kernel context of the child; now the scheduler always
 	 * restores the kernel context, and hence a child shoots
-	 * straight to userland when its scheduled for the first
-	 * time. for more info on what ucontext and kcontext are,
+	 * straight to userland when it's scheduled for the first
+	 * time. For more info on what ucontext and kcontext are,
 	 * check comments in linux/sched.h.
 	 */
 	p->kernel_level = 0;
 	/*
-	 * this is basically to ensure that makecontext() does a neat job.
-	 * we need to handover a "legal" initial context to makecontext() so that
-	 * it can convert it to what we want. now imagine that this is the first
+	 * This is basically to ensure that makecontext() does a neat job.
+	 * We need to handover a "legal" initial context to makecontext() so that
+	 * it can convert it to what we want. Now imagine that this is the first
 	 * fork() in the system; do_fork() has already copied the whole parent
-	 * task_struct to the child task_struct; ie, the child kcontext is now
-	 * a copy of the parents kcontext; but who is the parent? if this is the
-	 * first fork, then the parent is the init process. but the init process
+	 * task_struct to the child task_struct; I.e., the child kcontext is now
+	 * a copy of the parents kcontext; but who is the parent? If this is the
+	 * first fork, then the parent is the init process. But the init process
 	 * has never been scheduled before - remember, this is the first fork,
 	 * so there were no other processes - and hence its kcontext would only
 	 * contain garbage. (because schedule() is the guy who fills up kcontext
-	 * meaningfully. so it is not safe to rely on the parents kcontext; so
+	 * meaningfully. So it is not safe to rely on the parents kcontext; so
 	 * rely on the parents ucontext instead; after all, the child lands
 	 * up straight in userland when scheduled in for the first time.
 	 */
@@ -143,8 +143,8 @@ void copy_thread(int nr, unsigned long clone_flags, unsigned long esp, struct ta
 	{
 
 	/*
-	 * this is a request for a new kernel_thread.
-	 * now when the turn comes for this task table entry to be
+	 * This is a request for a new kernel_thread.
+	 * Now when the turn comes for this task table entry to be
 	 * scheduled and run, this context will be put into the cpu,
 	 * and the control will go to kernel_thread_start.
 	 */
@@ -174,7 +174,7 @@ void copy_thread(int nr, unsigned long clone_flags, unsigned long esp, struct ta
 	else
 	{
 	/*
-	 * just a normal fork. so modify the childs context such that the return
+	 * Just a normal fork. So modify the childs context such that the return
 	 * register contains a zero.
 	 */
 		p->kcontext.g2 = 0;
@@ -196,14 +196,14 @@ pid_t kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	int ret;
 #endif
 /*
- * ok,what we need here is to first put 0 into g7.put clone systemcall
- * number into g2.now we have g3,g4,g5 and g6 for other stuff like 
- * storing the arguments,etc.now send the syscall signal using raise.
- * the signal gets sent,caught by system_call() which checks the number
- * in g2 and calls sys_clone().inside over there,it creates a new task
- * struct entry and so on.before putting the context into the task entry,
- * g7 is made 1.indicates to the child what it is.
- * anyway the stuff that follows is a lil messy..
+ * Ok, what we need here is to first put 0 into g7. Put clone system call
+ * number into g2. Now we have g3, g4, g5 and g6 for other stuff like 
+ * storing the arguments, etc. Now send the syscall signal using raise.
+ * The signal gets sent, caught by system_call() which checks the number
+ * in g2 and calls sys_clone(). Inside over there, it creates a new task
+ * struct entry and so on. Before putting the context into the task entry,
+ * g7 is made 1. Indicates to the child what it is.
+ * Anyway the stuff that follows is a lil messy..
  */
 
 
@@ -247,13 +247,13 @@ pid_t kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	
 	INT_SYSCALL;
 /*
- * if we return, we are the parent.the child gets redirected with a new
- * stack to kernel_thread_start.and how that happens is, the copy_thread
+ * If we return, we are the parent. The child gets redirected with a new
+ * stack to kernel_thread_start. And how that happens is, the copy_thread
  * called inside do_fork() does a makecontext() on the context structure
  * before putting the context inside the newly created task table entry.
- * and the function pointer passed to makecontext is kernel_thread_start.
- * so when the times comes for the newly created task table entry to be
- * brought into action,the setcontext on that context jumps control to
+ * And the function pointer passed to makecontext is kernel_thread_start.
+ * So when the times comes for the newly created task table entry to be
+ * brought into action, the setcontext on that context jumps control to
  * to kernel_thread_start.
  */
 #if (__i386__)
@@ -298,7 +298,7 @@ void kernel_thread_start()
 
 	__asm__("mov %%g5, %0" : "=r" (fun)); 
 #endif
-	/* im the child,do the work - call the function */
+	/* I'm the child, do the work - call the function */
 		
 	(*fun)(args);
 

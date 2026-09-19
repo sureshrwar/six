@@ -11,9 +11,9 @@
  * all the functions are called within interrupts, we may not
  * sleep. Special care is recommended.
  *
- *  modified by Drew Eckhardt to check nr of hd's from the CMOS.
+ *  Modified by Drew Eckhardt to check nr of hd's from the CMOS.
  *
- *  Thanks to Branko Lankester, lankeste@fwi.uva.nl, who found a bug
+ *  Thanks to Branko Lankester, lankeste@fwi. Uva.nl, who found a bug
  *  in the early extended-partition checks and added DM partitions
  *
  *  IRQ-unmask, drive-id, multiple-mode, support for ">16 heads",
@@ -1179,8 +1179,8 @@ int hd_init(void)
         timer_table[HD_TIMER].fn = hd_times_out;
 #if (SIX)
 	/*
-	 * we need this function.i couldnt really figure out where
-	 * this gets called in the real world of linux.so inserting
+	 * We need this function.i couldn't really figure out where
+	 * this gets called in the real world of linux. So inserting
 	 * it out here as it feels in place.
 	 */
 	hd_geninit(0);

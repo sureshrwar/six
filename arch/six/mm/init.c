@@ -237,9 +237,9 @@ unsigned long paging_init(unsigned long start_mem, unsigned long end_mem)
                         start_mem += PAGE_SIZE;
                 }
 
-		/* in virtual space,the kernel lies from 3GB to 4GB.So a user
-	 	 * process cannot overcome the 3GB limit,and hence only the
-		 * first 768 entries are meaningfull. this is because, 768*4MB = 3GB 
+		/* In virtual space, the kernel lies from 3GB to 4GB. So a user
+	 	 * process cannot overcome the 3GB limit, and hence only the
+		 * first 768 entries are meaningfull. This is because, 768*4MB = 3GB 
 		 */
 	
                 /* also map it temporarily at 0x0000000 for init */
@@ -290,8 +290,8 @@ void mem_init(unsigned long start_mem, unsigned long end_mem)
 	start_mem = PAGE_ALIGN(start_mem);
 #if (SIX)
         /*
-         * free_area_init() marked all the pages as reserved. god knows why.
-	 * but anyway lets clear that bit for all papges starting from start_mem.
+         * free_area_init() marked all the pages as reserved. God knows why.
+	 * But anyway let's clear that bit for all papges starting from start_mem.
          */
 	tmp = start_mem;
         while (tmp < end_mem) {
@@ -405,18 +405,18 @@ void set_proc_mappings()
 				map_page_range(tmp, tmp->vm_start, tmp->vm_end);
 			}
 		}
-		/* else 
+		/* Else 
 	 	* {
-	 	* 	we dont need to map somethin which is already
+	 	* 	we don't need to map somethin which is already
 	 	* 	mapped in place 
 	 	* }
 	 	*/
 	}
 	/*
-	 * else
+	 * Else
 	 * {
-	 * 	which means this is not a user process. its text and data
-	 * 	are part of the kernel space. so no mappings.
+	 * 	which means this is not a user process. Its text and data
+	 * 	are part of the kernel space. So no mappings.
 	 * }
 	 */
 	sti();

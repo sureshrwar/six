@@ -1,5 +1,5 @@
 /*
- *  arch/six/kernel/host.h
+ *  Arch/six/kernel/host.h
  *
  *  Interface to the host ABI shim (arch/six/kernel/host.c).
  *

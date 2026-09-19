@@ -1,9 +1,9 @@
 
 /*
  * Some functions for single mode disk updating. Very very crude setup.
- * Am in no mood to worry abt proper programming style so am just whipping
- * together stuff and getting them to do what i want them to do. Not that
- * im a classy coder or anything, but i can definitely do better.
+ * Am in no mood to worry about proper programming style so am just whipping
+ * together stuff and getting them to do what I want them to do. Not that
+ * I'm a classy coder or anything, but I can definitely do better.
  */
 
 #include <stdio.h>
@@ -20,7 +20,7 @@
 
 
 /*
- * Bloody ripe for overflow. dont care though. 
+ * Bloody ripe for overflow. Don't care though. 
  */
 char line[1024];
 char pwd[512];
@@ -236,7 +236,7 @@ void goup()
 }
 
 /*
- * Verryy buggy. will fix em all later.
+ * Verryy buggy. Will fix em all later.
  */
 void single_cd()
 {

@@ -27,7 +27,7 @@ static void cp_old_stat(struct inode * inode, struct old_stat * statbuf)
 
 #if (!SIX)
 	/*
-	 * stupid warning, out of the way!
+	 * Stupid warning, out of the way!
 	 */
         printk("VFS: Warning: %s using old stat() call. Recompile your binary.\n",
                 current->comm);

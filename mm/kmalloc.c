@@ -9,7 +9,7 @@
  */
 
 /*
- * Modified by Alex Bligh (alex@cconcepts.co.uk) 4 Apr 1994 to use multiple
+ * Modified by Alex Bligh (alex@cconcepts. Co.uk) 4 Apr 1994 to use multiple
  * pages. So for 'page' throughout, read 'area'.
  *
  * Largely rewritten.. Linus
@@ -276,8 +276,8 @@ void *kmalloc(size_t size, int priority)
                 if (++count < 5) {
 /*
  * Note : __builtin_return_address (LEVEL) returns the return address of the
- * function, depending on the LEVEL.If LEVEL is zero,its the current function
- * whose return address is returned.If its 1,its the caller.And so on.This is
+ * function, depending on the LEVEL. If LEVEL is zero, it's the current function
+ * whose return address is returned. If its 1, it's the caller. And so on. This is
  * a gcc built in function.
  */
                         printk("kmalloc called nonatomically from interrupt %p\n",

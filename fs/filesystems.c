@@ -52,7 +52,7 @@ asmlinkage int sys_setup(void)
 #if (SIX)
         /*
          * If we were in single user mode, there are somethings which would have been done
-         * already; So dont do them again.
+         * already; So don't do them again.
          */
         if (!single)
         {

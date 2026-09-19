@@ -2061,7 +2061,7 @@ unsigned long con_init(unsigned long kmem_start)
                 MAX_NR_CONSOLES);
 
         /*
-         * can't register TGA yet, because PCI bus probe has *not* taken
+         * Can't register TGA yet, because PCI bus probe has *not* taken
          * place before con_init() gets called. Trigger the real TGA hw
          * initialization and register_console() event from
          * within the bus probing code... :-(

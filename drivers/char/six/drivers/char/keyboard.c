@@ -57,7 +57,7 @@
 
 #ifndef KBD_DEFLEDS
 /*
- * Some laptops take the 789uiojklm,. keys as number pad when NumLock
+ * Some laptops take the 789uiojklm,. Keys as number pad when NumLock
  * is on. This seems a good reason to start with NumLock off.
  */
 #define KBD_DEFLEDS 0
@@ -73,7 +73,7 @@
 unsigned char kbd_read_mask = 0x01;     /* modified by psaux.c */
 
 /*
- * global state includes the following, and various static variables
+ * Global state includes the following, and various static variables
  * in this module: prev_scancode, shift_state, diacr, npadch, dead_key_next.
  * (last_console is now a global variable)
  */
@@ -208,7 +208,7 @@ static void handle_scancode(unsigned char scancode)
 
         if (prev_scancode) {
           /*
-           * usually it will be 0xe0, but a Pause key generates
+           * Usually it will be 0xe0, but a Pause key generates
            * e1 1d 45 e1 9d c5 when pressed, and nothing when released
            */
           if (prev_scancode != 0xe0) {
@@ -449,7 +449,7 @@ static int send_data(unsigned char data)
 
 
 /*
- * The leds display either (i) the status of NumLock, CapsLock, ScrollLock,
+ * The leds display either (I) the status of NumLock, CapsLock, ScrollLock,
  * or (ii) whatever pattern of lights people want to show using KDSETLED,
  * or (iii) specified bits of specified words in kernel memory.
  */

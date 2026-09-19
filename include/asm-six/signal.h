@@ -6,7 +6,7 @@
 #define NSIG            _NSIG
 
 /*
- * there definitions are straight from /usr/include/sys/signal.h
+ * There definitions are straight from /usr/include/sys/signal.h
  */
 #define SIGHUP  1       /* hangup */
 #define SIGINT  2       /* interrupt (rubout) */
@@ -102,7 +102,7 @@
 #define SA_ONESHOT	0x04000000
 
 /*
- * again from /usr/include/sys/signal.h
+ * Again from /usr/include/sys/signal.h
  */
 #define SA_SIGINFO      0x00000008
 #define SA_ONSTACK      0x00000001
@@ -157,7 +157,7 @@ struct  sigaction  {
 #define MASK_LEN 4
 
 /*
- * this is specific to solaris.
+ * This is specific to solaris.
  */
 typedef struct {
     unsigned mask[MASK_LEN];

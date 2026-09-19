@@ -175,10 +175,10 @@ g */
 
 
 /*
- * all this might look confusing - there is a six_execve, there is a do_execve,
- * and now here comes a sys_execve. what are all these? 
+ * All this might look confusing - there is a six_execve, there is a do_execve,
+ * and now here comes a sys_execve. What are all these? 
  * sys_execve : this is called from one and only one place, that is inside init/main.c,
- * by the init() kernel thread. purpose - to load /etc/init.
+ * by the init() kernel thread. Purpose - to load /etc/init.
  * six_execve : this is the normal system call entry point for do_execve.
  * do_execve : the is the normal system call worker function, responsible for
  * loading a program from the harddisk.

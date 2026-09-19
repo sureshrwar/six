@@ -240,9 +240,9 @@ static inline char  inb_p(int port)
 					  */
 					 return 0x10 | 0x40 | 0x08;
 		case 0x1f1 :
-				/* related to hard disk controller.we will
-				 * return 1 anyway down below,and thats what
-				 * we want,too.
+				/* Related to hard disk controller. We will
+				 * return 1 anyway down below, and that's what
+				 * we want, too.
 				 */
 				break;
 		case 0x64 :	/* keyboard status */

@@ -26,7 +26,7 @@ asmlinkage int sys_waitpid(pid_t pid,unsigned long * stat_addr, int options);
 asmlinkage int do_signal(unsigned long oldmask, struct pt_regs * regs);
 
 /*
- * atomically swap in the new signal mask, and wait for a signal.
+ * Atomically swap in the new signal mask, and wait for a signal.
  */
 asmlinkage int sys_sigsuspend(struct pt_regs *regs, unsigned long *set)    
 {       
@@ -48,7 +48,7 @@ asmlinkage int sys_sigsuspend(struct pt_regs *regs, unsigned long *set)
 }
 
 /*
- * basically the old context needs to be restored. 
+ * Basically the old context needs to be restored. 
  */
 asmlinkage void sys_sigreturn(unsigned long sc, struct pt_regs *regs)
 {
@@ -71,7 +71,7 @@ asmlinkage void sys_sigreturn(unsigned long sc, struct pt_regs *regs)
 }
 
 /*
- * setup the signal stack frame; this IS going to be messsy.
+ * Setup the signal stack frame; this IS going to be messy.
  */
 static void setup_frame(struct sigaction *sa, struct pt_regs *regs, int signr,
         unsigned long oldmask)
@@ -99,7 +99,7 @@ static void setup_frame(struct sigaction *sa, struct pt_regs *regs, int signr,
 #endif
 
 	/*
-	 * we are basically abt to take the current context and
+	 * We are basically about to take the current context and
 	 * store it on the stack.
 	 */
 	scp = (struct sigcontext *)sp - 1;
@@ -107,12 +107,12 @@ static void setup_frame(struct sigaction *sa, struct pt_regs *regs, int signr,
 
 	memcpy(&sc.oldcon, regs, sizeof(struct pt_regs));
 	/*
-	 * backup of signal mask
+	 * Backup of signal mask
 	 */
 	sc.mask = oldmask;
 	
 	/*
-	 * there - we have done it.
+	 * There - we have done it.
 	 *
 	 * Note this writes straight into guest memory.  That is legitimate
 	 * under SIX: guest virtual addresses are host virtual addresses,
@@ -122,19 +122,19 @@ static void setup_frame(struct sigaction *sa, struct pt_regs *regs, int signr,
 
 
 	/*
-	 * point the stackpointer to after the point where we stored the
+	 * Point the stack pointer to after the point where we stored the
 	 * sigcontext structure.
-	 * now the stack will look like :
+	 * Now the stack will look like :
 	 *
 	 *	|			|
 	 *	|-----------------------| <- old sp
 	 *	|			|
 	 *	|      sigcontext	|
-	 	|      structure	| <- sigcontext struture that contains the
+	 	|      structure	| <- sigcontext structure that contains the
 	 *	|			|    old context, old signal mask etc.
 	 *	|			|
 	 *	|-----------------------| <- this address is stored in register G6.
-	 *	|			|    and the libc sigreturn() later uses this
+	 *	|			|    And the libc sigreturn() later uses this
 	 *	|    sparc frame	|    to find a copy of the old context, which
 	 *	|    (96 bytes)		|    it passes to the sigcontext syscall.
 	 *	|			|
@@ -163,9 +163,9 @@ static void setup_frame(struct sigaction *sa, struct pt_regs *regs, int signr,
 	 *	|-----------------------|
 	 *
 	 * The alignment is what the i386 ABI guarantees a function at its
-	 * entry point: %esp+4 is a multiple of 16, i.e. the stack was
+	 * entry point: %esp+4 is a multiple of 16, I.e. the stack was
 	 * 16-aligned immediately before the (notional) call pushed the
-	 * return address.  gcc is entitled to use movaps on locals.
+	 * return address.  Gcc is entitled to use movaps on locals.
 	 */
 	{
 		unsigned long *fp;
@@ -191,14 +191,14 @@ static void setup_frame(struct sigaction *sa, struct pt_regs *regs, int signr,
 	regs->g7 = sa->sa_handler;
 #endif
 	/*
-	 * point pc to libc's very own sigreturn function. so yes,
+	 * Point pc to libc's very own sigreturn function. So yes,
 	 * now the pc points to an execution address lying in userland.
-	 * the libc sigreturn() obtains the actual desired handlers's
-	 * address from register G7, and calls it. once thats done,
+	 * The libc sigreturn() obtains the actual desired handlers's
+	 * address from register G7, and calls it. Once that's done,
 	 * it retrieves the sigcontext address from G7, and passes it on
 	 * as argument to a sigreturn() system call - which accepts
 	 * the sigcontext argument, and restores the context lying in
-	 * the oldcon member of struct sigcontext. go to sched.h for
+	 * the oldcon member of struct sigcontext. Go to sched.h for
 	 * more details.  (On x86 both of those travel on the stack as
 	 * ordinary arguments instead; see above.)
 	 */
@@ -305,7 +305,7 @@ asmlinkage int do_signal(unsigned long oldmask, struct pt_regs * regs)
                 }
 		else if (current->_sigreturn <= 0) {
 			/*
-			 * some screwup.
+			 * Some screwup.
 			 */
                          current->signal |= _S(signr & 0x7f);
                          current->flags |= PF_SIGNALED;

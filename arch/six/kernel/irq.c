@@ -42,11 +42,11 @@
 
 
 /*
- * what happens in the case of say,timer_interrupt :
- * you use BUILD_IRQ(chip,nr,mask) to declare the function 
- * IRQ0_interrupt().This is put into interrupt[0].interrupt[0]
+ * What happens in the case of say, timer_interrupt :
+ * you use BUILD_IRQ(chip, nr, mask) to declare the function 
+ * IRQ0_interrupt(). This is put into interrupt[0]. Interrupt[0]
  * is registered using set_intr_gate() so that when the
- * timer interrupt happens,this function is called.what it 
+ * timer interrupt happens, this function is called. What it 
  * does is :
  *	increment intr_count
  *	call do_IRQ()
@@ -111,10 +111,10 @@ int syscall(int num, long one, long two, long three)
 }
 
 /*
- * the systemcall mechanism:
- * first calls getpid and gets our own pid.then calls kill using the
+ * The system call mechanism:
+ * first calls getpid and gets our own pid. Then calls kill using the
  * pid and SIGLWP as arguments so that we hit ourselves with a SIGLWP
- * causing the systemcall handler system_handler to be invoked.
+ * causing the system call handler system_handler to be invoked.
  */
 
 int0x80()
@@ -125,9 +125,9 @@ int0x80()
 	 *
 	 * Solaris entered the kernel through its call gate:
 	 *
-	 *      pushl $0x21             ! SIGLWP
+	 *      Pushl $0x21             ! SIGLWP
 	 *      movl  $0x14,%eax        ! getpid
-	 *      lcall $0x7,$0x0         ! arguments on the stack
+	 *      lcall $0x7,$0x0         ! Arguments on the stack
 	 *
 	 * Linux/i386 instead uses "int $0x80" with the arguments in
 	 * registers (eax = number, ebx/ecx/edx = args).  Conveniently the
@@ -1206,13 +1206,13 @@ void six_sigreturn(struct pt_regs *u)
 	int ret;
 	grab_args(u, (long *)&sc, 0, 0);
 	/*
-	 * u will be modified by sigreturn to bring the
+	 * U will be modified by sigreturn to bring the
 	 * process back to whatever it was doing at the
 	 * point of signal arrival.
 	 */
 	sys_sigreturn(sc, u);
 	/*
-	 * dont worry abt return values here. by now sigreturn
+	 * Don't worry about return values here. By now sigreturn
 	 * would have modified the context structure, and so when
 	 * we go back to sun_handler() and finally onto the
 	 * setcontext() that brings us to userland, the process
@@ -1691,7 +1691,7 @@ void (* sys_call_table[])(struct pt_regs *) = {
 		six_getpgid,
 		six_fchdir,
 		six_bdflush,
-		enosyscall,		// sysfs thingie. will figure out later
+		enosyscall,		// Sysfs thingie. Will figure out later
 		six_personality,
 		enosyscall,		// some afs stuff, god knows what
 		six_setfsuid,
@@ -2053,12 +2053,12 @@ int setup_x86_irq(int irq, struct irqaction * new)
                 shared = 1;
         }
 	/* This bit indicates that the generated interrupts can contribute
-	 * to the entropy pool used byt /dev/random and /dev/urandom.these
+	 * to the entropy pool used by /dev/random and /dev/urandom. These
 	 * devices return true random numbers which are in fact extracted
 	 * from an entropy pool that is contributed from various random 
-	 * events.if the device generates interrupts and truly random times,
-	 * then this flag should be set.devices prone to attacks should not
-	 * set this flag - example is network drivers,which can be subjected 
+	 * events. If the device generates interrupts and truly random times,
+	 * then this flag should be set. Devices prone to attacks should not
+	 * set this flag - example is network drivers, which can be subjected 
 	 * to predictable packet timing.
 	 */
 	
@@ -2152,16 +2152,16 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 	if(current->kernel_level == 1)
 	{
 		/*
-		 * we are coming from user land. so save our context
-		 * in our process table entry. we do this because we
+		 * We are coming from user land. So save our context
+		 * in our process table entry. We do this because we
 		 * are going to switch the stack next; so within a 
 		 * few lines of code, accessing local variables is
-		 * gonna be tricky. so we dont want any dependence
-		 * on local variables. this is time-consuming though.
+		 * going to be tricky. So we don't want any dependence
+		 * on local variables. This is time-consuming though.
 		 */
 		SAVE_ALL;
 		/*
-		 * save the old stack.
+		 * Save the old stack.
 		 */
 #if (!__i386__)
 		__asm__("mov  %%sp, %0" : "=r" (current->osp));
@@ -2173,7 +2173,7 @@ void sun_handler(int num, void *why, struct pt_regs *context)
                 __asm__("movl %%ebp, (%1)" : "=r" (ret) : "r" (&current->obp));
 #endif
 		/*
-		 * and load the new one.
+		 * And load the new one.
 		 */
 #if (!__i386__)
 		__asm__("mov %1, %%sp" : "=r" (ret) : "r" (current->nsp));
@@ -2234,7 +2234,7 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 #endif
 		LEAVE_KERNEL;
 		/*
-		 * restore the context stored in current->ucontext. we are leaving
+		 * Restore the context stored in current->ucontext. We are leaving
 		 * for userland.
 		 */
 		RESTORE_USER_CONTEXT;
@@ -2244,9 +2244,9 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 		LEAVE_KERNEL;
 		/*
 		 * We were already on kernel stack when we came in; so no stack
-		 * switching happened. so we rely on the context argument
+		 * switching happened. So we rely on the context argument
 		 * (that was pushed on to sun_handler()'s stack) to restart
-		 * whatever we were doing. we are not going to userland, but
+		 * whatever we were doing. We are not going to userland, but
 		 * to somewhere in kernel land, to some point where some interrupt
 		 * came in.
 		 */
@@ -2274,13 +2274,13 @@ void system_call(int num, void *why, struct pt_regs *context)
 	 * On x86 there are now two sources, and which one applies depends
 	 * on who trapped:
 	 *
-	 *   kernel  kernel_thread() and the exit path in
+	 *   Kernel  kernel_thread() and the exit path in
 	 *           kernel_thread_start() reach us through raise(), which
 	 *           is a libc call.  %esi is callee-saved, so its value at
 	 *           the inner "int $0x80" is not ours to choose, and the
 	 *           arguments come from the six_call global instead.
 	 *
-	 *   guest   a separately linked ELF executable running in the
+	 *   Guest   a separately linked ELF executable running in the
 	 *           emulated RAM.  It cannot see the six_call symbol, so it
 	 *           leaves the address of its own argument block in %esi.
 	 *           Guest virtual addresses are host virtual addresses in
@@ -2381,7 +2381,7 @@ void system_call(int num, void *why, struct pt_regs *context)
 	}
 
 	/*
-	 * call the system call worker
+	 * Call the system call worker
 	 */
 	cli();
 	sys_call_table[syscallnum](context);

@@ -41,7 +41,7 @@
 #include <linux/timex.h>
 
 /*              
- * kernel variables 
+ * Kernel variables 
  */                  
                         
 int securelevel = 0;                    /* system security level */
@@ -66,8 +66,8 @@ extern pgd_t swapper_pg_dir[1024];
 
 /*
  * tq_timer: the timer task queue, run on each timer interrupt and 
- * when releasing a tty device.Since the timer handler runs in interrupt 
- * context,tq_timer also runs in the interrupt context and cannot block.
+ * when releasing a tty device. Since the timer handler runs in interrupt 
+ * context, tq_timer also runs in the interrupt context and cannot block.
  */
 DECLARE_TASK_QUEUE(tq_timer);
 /*
@@ -79,7 +79,7 @@ DECLARE_TASK_QUEUE(tq_immediate);
 DECLARE_TASK_QUEUE(tq_scheduler);
 
 /*
- * phase-lock loop variables
+ * Phase-lock loop variables
  */
 /* TIME_ERROR prevents overwriting the CMOS clock */
 int time_state = TIME_ERROR;    /* clock synchronization status */
@@ -429,7 +429,7 @@ asmlinkage void schedule(void)
 #define idle_task (&init_task)
 #endif
 /*
- * Note! there may appear new tasks on the run-queue during this, as
+ * Note! There may appear new tasks on the run-queue during this, as
  * interrupts are enabled. However, they will be put on front of the
  * list, so our list starting at "p" is essentially fixed.
  */
@@ -567,7 +567,7 @@ void wake_up_interruptible(struct wait_queue **q)
 
 
 /*
- * this routine handles the overflow of the microsecond field
+ * This routine handles the overflow of the microsecond field
  *
  * The tricky bits of code to handle the accurate clock support
  * were provided by Dave Mills (Mills@UDEL.EDU) of NTP fame.
@@ -892,7 +892,7 @@ static unsigned long lost_ticks_system = 0;
 
 /*
  * update_times call update_process_times() where the updating for the time
- * left for a process is done.The counter variable gets decremented by ticks
+ * left for a process is done. The counter variable gets decremented by ticks
  * and when (counter<0) a flag is set ( need_resched = 1 )
  *
  */
@@ -1036,7 +1036,7 @@ asmlinkage int sys_nice(int increment)
         if (newprio > 40)
                 newprio = 40;
         /*
-         * do a "normalization" of the priority (traditionally
+         * Do a "normalization" of the priority (traditionally
          * unix nice values are -20..20, linux doesn't really
          * use that kind of thing, but uses the length of the
          * timeslice instead (default 150 msec). The rounding is
@@ -1221,7 +1221,7 @@ asmlinkage int sys_sched_rr_get_interval(pid_t pid, struct timespec *interval)
 }
 
 /*
- * change timeval to jiffies, trying to avoid the
+ * Change timeval to jiffies, trying to avoid the
  * most obvious overflows..
  */
 static unsigned long timespectojiffies(struct timespec *value)
@@ -1542,10 +1542,10 @@ static inline void calc_load(unsigned long ticks)
 /*	Interrupt handlers are sometimes divided into two parts: 
  *	a top half and a bottom half. 
  * 	The top half is the real interrupt handler : it tells the
- *	kernel to run the bottom half and exits.The kernel guarantees
- *	that the top half is never re-entered.If another interrupt 
- *	arrives in the meanwhile,it is queued until the top half 
- *	execution is finished.Because the top half disables interrupts,
+ *	kernel to run the bottom half and exits. The kernel guarantees
+ *	that the top half is never re-entered. If another interrupt 
+ *	arrives in the meanwhile, it is queued until the top half 
+ *	execution is finished. Because the top half disables interrupts,
  *	it is designed to be fast.
  *	So when are the bottom halfs executed - at two points :
  *	a) on each schedule

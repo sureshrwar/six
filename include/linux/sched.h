@@ -238,15 +238,15 @@ struct task_struct {
 	int user_mode;
 	int kernel_level;
 	/*
-	 * user context and kernel context :
-	 * a process can be in user land or in kernel land. the details
-	 * of whatever it was doing in user land is stored in ucontext. in
+	 * User context and kernel context :
+	 * a process can be in user land or in kernel land. The details
+	 * of whatever it was doing in user land is stored in ucontext. In
 	 * other words, when a process comes into kernel land, ucontext 
 	 * gets updated with context info which can be later used to
-	 * return to user land. now while in kernel land, a process can
+	 * return to user land. Now while in kernel land, a process can
 	 * get scheduled out; while doing so, the context at that point gets
 	 * stored to kcontext, so that it can be later scheduled in by
-	 * restoring the context stored in kcontext. in brief, ucontext 
+	 * restoring the context stored in kcontext. In brief, ucontext 
 	 * is needed for returning to userland, and kcontext is needed for
 	 * scheduling in a process.
 	 *
@@ -261,15 +261,15 @@ struct task_struct {
 	 *  	  -->-----+     +-->---+	          +----->----......
 	 *
 	 * Consider the flow of a process through userland, during which it
-	 * keeps moving into and out of kernel land. point A denotes where
+	 * keeps moving into and out of kernel land. Point A denotes where
 	 * it moves into kernel land for the first time; and the context at
-	 * this point gets saved into ucontext. then into kernel land and
+	 * this point gets saved into ucontext. Then into kernel land and
 	 * at point B, ucontext(A) gets restored and the process lands back in
-	 * user land. moving on, C denotes another entry into kernel land. 
-	 * but this time, the process gets scheduled out. point D stands for
+	 * user land. Moving on, C denotes another entry into kernel land. 
+	 * But this time, the process gets scheduled out. Point D stands for
 	 * this phenomenon, and the context at point D gets stored into kcontext.
-	 * at a later point of time, point E, the process is scheduled back
-	 * in; this is done by restoring kcontext(D). the process comes back
+	 * At a later point of time, point E, the process is scheduled back
+	 * in; this is done by restoring kcontext(D). The process comes back
 	 * into user land at point F, and this is achieved by restoring ucontext(C).
 	 */
 	struct pt_regs ucontext;
@@ -277,50 +277,50 @@ struct task_struct {
 	int signum;
 	/*
 	 * Now what are these?
-	 * To answer that, i should point out that there are 
+	 * To answer that, I should point out that there are 
 	 * some system calls - like select() - which take more than
-	 * three arguments. now we can use the ucontext_t structure 
+	 * three arguments. Now we can use the ucontext_t structure 
 	 * to pass three arguments at a time. How do we cope with
 	 * a system call that takes, say, 6 arguments? The answer is,
 	 * issue SIGLWP *twice*. First time: the three arguments that
 	 * came in, are stored in the members which you see below. 
-	 * second time: the remaining 3 arguments are collected, and
+	 * Second time: the remaining 3 arguments are collected, and
 	 * along with the ones stored in one two and three, are used
-	 * to fire the system call. yes i agree - sorry arsed setup.
+	 * to fire the system call. Yes I agree - sorry arsed setup.
 	 */
 	long one, two, three;
 	/*
-	 * And what abt this?
-	 * this holds the address of the C library sigreturn() function.
+	 * And what about this?
+	 * This holds the address of the C library sigreturn() function.
 	 *
-	 * consider 2 processes, say A and B. suppose A comes up, and makes a
-	 * call to signal(SIGUSR1, handler). the signal() library wrapper,
+	 * Consider 2 processes, say A and B. Suppose A comes up, and makes a
+	 * call to signal(SIGUSR1, handler). The signal() library wrapper,
 	 * while triggering the system call, passes along the address of
-	 * the sigreturn() library function. when control eventually reaches
+	 * the sigreturn() library function. When control eventually reaches
 	 * the system call worker function, sys_signal(), it collects the
 	 * address of the library sigreturn() and stores it here in this
-	 * variable. and the address of the handler function gets stored
+	 * variable. And the address of the handler function gets stored
 	 * in A's process table entry.
 	 *
-	 * now later on, B comes up, and decides to send a SIGUSR1 to A.
-	 * to do this, B makes a call to kill(pid_of_A, SIGUSR1). which 
+	 * Now later on, B comes up, and decides to send a SIGUSR1 to A.
+	 * To do this, B makes a call to kill(pid_of_A, SIGUSR1). Which 
 	 * leads to calls to kill_proc() -> send_sig() -> generate() etc
-	 * and finally the signal mask of process A is set. and the state
+	 * and finally the signal mask of process A is set. And the state
 	 * of A is ensured to be TASK_RUNNING so that it gets scheduled soon.
 	 *
-	 * so the scheduler soon finds A lying there, ready to fly, and
-	 * gives it the CPU slot. suddenly A finds itself awake, and in the
+	 * So the scheduler soon finds A lying there, ready to fly, and
+	 * gives it the CPU slot. Suddenly A finds itself awake, and in the
 	 * process of coming out of the schedule() system call, from the same
-	 * point where it got scheduled out at an earlier point of time. it
+	 * point where it got scheduled out at an earlier point of time. It
 	 * comes out of schedule(), finds itself back in ret_from_sys_call().
-	 * now here, it checks its own signal mask; and finds that it is
-	 * set, and proceeds to do_signal(). now a lot of messy work happens,
+	 * Now here, it checks its own signal mask; and finds that it is
+	 * set, and proceeds to do_signal(). Now a lot of messy work happens,
 	 * which can be summarised as 5 steps :
 	 *
 	 * [1]
 	 * first step is to have a backup of A's current context somewhere, so
-	 * that we can come back later, once the signal business is over. the
-	 * best place to do this is A'a stack itself. we have A's current stack
+	 * that we can come back later, once the signal business is over. The
+	 * best place to do this is A'a stack itself. We have A's current stack
 	 * pointer lying in context.uc_mcontext.gregs[17], so we grab it and
 	 * (a) make room for a sigcontext structure 
 	 * (b) copy the current context into that sigcontext structure
@@ -330,57 +330,57 @@ struct task_struct {
 	 *
 	 * [2]
 	 * next, it should be ensured that the library wrapper should be called
-	 * when A comes into user land. to do that, the value stored in this
+	 * when A comes into user land. To do that, the value stored in this
 	 * variable _sigreturn is stored in context.uc_mcontext.gregs[1], which
-	 * denotes PC. and yes, context.uc_mcontext.gregs[2] is NPC, and it is
+	 * denotes PC. And yes, context.uc_mcontext.gregs[2] is NPC, and it is
 	 * set to PC + 4. 
 	 * 
 	 * [3]
 	 * the sigcontext structure that we stored in A's stack should be accessed
-	 * later on, so we need to remember its position in the stack. that is
-	 * achieved by storing its stack address in register G6. corresponding
+	 * later on, so we need to remember its position in the stack. That is
+	 * achieved by storing its stack address in register G6. Corresponding
 	 * entry in the context structure is context.uc_mcontext.gregs[19].
 	 *
 	 * [4]
 	 * Obviously the C library routine sigreturn() is going to execute when
-	 * A comes into user land; and its the duty of sigreturn() to call the
-	 * handler specified earlier by A, via the call to signal(). so we should
-	 * make the value of handler available to sigreturn(). this is achieved
+	 * A comes into user land; and it's the duty of sigreturn() to call the
+	 * handler specified earlier by A, via the call to signal(). So we should
+	 * make the value of handler available to sigreturn(). This is achieved
 	 * by storing taking the value of handler from A's process table entry 
 	 * and storing it in register G7.
 	 * 
 	 * All this done, handle_signal() etc returns, back into ret_from_sys_call,
 	 * and then onto sun_handler(), and finally into a getcontext() which
-	 * brings A back into userland. now sigreturn() executes, since thats what
+	 * brings A back into userland. Now sigreturn() executes, since that's what
 	 * the PC is set to. sigreturn does the following :
 	 *
 	 * [1] finds the value of the actual handler from register G7 and calls it.
 	 * 
-	 * [2] so now the system call handling has taken place and its time to
-	 * clean up. first, the address of the sigcontext structure lying on the stack
-	 * is obtained from register G6. next, the sigreturn *system call* is triggered.
-	 * and the address of the sigcontext structure is passed as argument.
+	 * [2] so now the system call handling has taken place and it's time to
+	 * clean up. First, the address of the sigcontext structure lying on the stack
+	 * is obtained from register G6. Next, the sigreturn *system call* is triggered.
+	 * And the address of the sigcontext structure is passed as argument.
 	 *
 	 * [3] the sigreturn system call takes the sigcontext structure, finds in it
 	 * the old context information, and replaces the current context information
 	 * with the old one. 
 	 * 
-	 * so when A is brought into userland after the sigreturn system call, the
+	 * So when A is brought into userland after the sigreturn system call, the
 	 * context that gets restored is the old one, which stands for what A was
-	 * doing when B made the kill(). so A happily returns to that point and
+	 * doing when B made the kill(). So A happily returns to that point and
 	 * resumes whatever it was doing.
 	 */
 	unsigned int _sigreturn;
 	/*
 	 * Now what the fuck is this?
-	 * Ok basically more shit. consider a process running in user land.
-	 * now say some damn interrupt comes in, say the timer, or say someone
-	 * fingered the keyboard, something like that. whatever, we reach
-	 * the generic interrupt handler, sun_handler(). so we are now into
+	 * Ok basically more shit. Consider a process running in user land.
+	 * Now say some damn interrupt comes in, say the timer, or say someone
+	 * fingered the keyboard, something like that. Whatever, we reach
+	 * the generic interrupt handler, sun_handler(). So we are now into
 	 * kernel land, and it is no longer a wise idea to keep sitting on
-	 * the user stack. we need to switch over to kernel stack, and to
+	 * the user stack. We need to switch over to kernel stack, and to
 	 * do that, we need to save the user stack pointer somewhere, so that
-	 * we can restore it later, when we leave kernel land. and thats 
+	 * we can restore it later, when we leave kernel land. And that's 
 	 * why we have the member 'ost' here. 
 	 */
 	long osp, nsp;

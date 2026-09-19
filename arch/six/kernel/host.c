@@ -1,5 +1,5 @@
 /*
- *  arch/six/kernel/host.c
+ *  Arch/six/kernel/host.c
  *
  *  The host ABI shim.
  *
@@ -73,14 +73,14 @@ void six_host_masks_init(void)
 	six_build_masks();
 }
 
-/* cli() -- block host signals, i.e. "disable interrupts". */
+/* cli() -- block host signals, I.e. "disable interrupts". */
 void six_host_cli(void)
 {
 	six_build_masks();
 	sigprocmask(SIG_SETMASK, &six_kernel_mask, (sigset_t *)0);
 }
 
-/* sti() -- unblock everything, i.e. "enable interrupts". */
+/* sti() -- unblock everything, I.e. "enable interrupts". */
 void six_host_sti(void)
 {
 	six_build_masks();
@@ -207,7 +207,7 @@ int six_host_tty_open_raw(void)
 		return -1;
 
 	/*
-	 * tcsetattr() on the controlling terminal from a *background*
+	 * Tcsetattr() on the controlling terminal from a *background*
 	 * process group raises SIGTTOU at the caller, which by default
 	 * stops it.  SIX gets run that way routinely -- under gdb, or from
 	 * a shell that has put it in the background -- and the result was

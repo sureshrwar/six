@@ -91,7 +91,7 @@ static inline int xchg(long *ptr, long val)
 /*
  * Trap into the kernel.
  *
- * This was raise(SIGLWP), i.e. Solaris signal 33.  Linux/NPTL reserves 32
+ * This was raise(SIGLWP), I.e. Solaris signal 33.  Linux/NPTL reserves 32
  * and 33 for the threading library and sigaction() refuses to install a
  * handler for them, so the trap moved to SIGRTMIN+4 -- but this macro was
  * left pointing at the old number, with the result that every syscall

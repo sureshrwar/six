@@ -16,13 +16,13 @@
  * *Solaris* ucontext_t.  glibc's differs in almost every position, so the
  * padding has been recounted.  Do not adjust these numbers by hand: run
  *
- *      gcc -m32 -o /tmp/uclayout port/tools/ucontext_layout.c && /tmp/uclayout
+ *      Gcc -m32 -o /tmp/uclayout port/tools/ucontext_layout.c && /tmp/uclayout
  *
- * and transcribe what it prints.  The build will refuse to compile if the
+ * And transcribe what it prints.  The build will refuse to compile if the
  * total size stops matching sizeof(ucontext_t) -- see the assertion at the
  * bottom of this file.
  *
- *      field         Solaris word   glibc word
+ *      Field         Solaris word   glibc word
  *      uc_sp              6              2
  *      uc_sp_size         7              4
  *      ebp               15             11

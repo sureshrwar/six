@@ -7,7 +7,7 @@
  * this was once a literal call gate, and on SPARC it never was.
  *
  * On x86 this is now only reachable from code that does not need to pass
- * arguments.  library/sys/syscall.c issues its own trap inline, because
+ * arguments.  Library/sys/syscall.c issues its own trap inline, because
  * it has to keep %esi -- which points at the argument block -- live right
  * up to the trapping instruction, and it cannot do that across a function
  * call.  See include/asm-six/sixcall.h.

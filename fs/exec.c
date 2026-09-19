@@ -619,8 +619,8 @@ int do_execve(char * filename, char ** argv, char ** envp, struct pt_regs * regs
 		char **hand;
 		char *ch;
 		/*
-		 * 	ok lets be stingy.
-		 * 	this basically means we have a single page for storing
+		 * 	Ok let's be stingy.
+		 * 	This basically means we have a single page for storing
 		 * 	all the argument and env crap.
 		 */
         bprm.p = PAGE_SIZE-sizeof(void *); 
@@ -653,18 +653,18 @@ int do_execve(char * filename, char ** argv, char ** envp, struct pt_regs * regs
                         retval = -E2BIG;
 #if (SIX)
 				/*
-				 * and we are setting up the argument structure out here.
-				 * at the far end of the page in bprm.page[0], we have
-				 * the strings of argv and envp copied down.now we need
+				 * And we are setting up the argument structure out here.
+				 * At the far end of the page in bprm.page[0], we have
+				 * the strings of argv and envp copied down. Now we need
 				 * to get the addresses of the strings copied somewhere
 				 * in an array form which will be the (char **) arrays
-				 * passed to the executable.and the place where we list 
-				 * the addresses are the beginning of the page.so if you
+				 * passed to the executable. And the place where we list 
+				 * the addresses are the beginning of the page. So if you
 				 * look at the beginning of the page in bprm.page[0], you
 				 * find a list of addresses which point to strings at lying
-				 * towards the end of the page.this is argv.next comes a
-				 * null character,followed by another list of addresses,
-				 * again pointing to strings at the far end.this is envp.
+				 * towards the end of the page. This is argv. Next comes a
+				 * null character, followed by another list of addresses,
+				 * again pointing to strings at the far end. This is envp.
 				 */
 				if(bprm.p < (bprm.argc + bprm.envc +2)*4)
                         		retval = -E2BIG;

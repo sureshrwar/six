@@ -16,7 +16,7 @@
 
 struct vm86_regs {
 /*
- * normal regs, with special meaning for the segment descriptors..
+ * Normal regs, with special meaning for the segment descriptors..
  */
         long ebx;
         long ecx;

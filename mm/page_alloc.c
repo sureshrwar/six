@@ -78,7 +78,7 @@ static inline void remove_mem_queue(struct page * head, struct page * entry)
 }
 
 /*
- * set up the free-area data structures:
+ * Set up the free-area data structures:
  *   - mark all pages reserved
  *   - mark all memory queues empty
  *   - clear the memory bitmaps
@@ -92,7 +92,7 @@ unsigned long free_area_init(unsigned long start_mem, unsigned long end_mem)
 
 	printk("Free area initializaton...");
         /*
-         * select nr of pages we try to keep free for important stuff
+         * Select nr of pages we try to keep free for important stuff
          * with a minimum of 17 pages. This is totally arbitrary
          */
         i = (end_mem - PAGE_OFFSET) >> (PAGE_SHIFT+7);
@@ -114,13 +114,13 @@ unsigned long free_area_init(unsigned long start_mem, unsigned long end_mem)
 
 	/*
 	 * NR_MEM_LISTS is 6
-	 * we start with i = 0
+	 * we start with I = 0
 	 * what we do here is : take the end_mem and divide it by page size.
-	 * what we get is the bitmap size.divide it by 8, since we have 8 bits
-	 * in a byte. allocate bitmap_size bytes from start_mem into free_area[i].map.
-	 * now increment i. this time  we divide end_mem by double of page size.
-	 * divide by 8,allocate the memory in free_area[i].map.
-	 * next time divide by four times page size,etc...This is the loop
+	 * What we get is the bitmap size. Divide it by 8, since we have 8 bits
+	 * in a byte. Allocate bitmap_size bytes from start_mem into free_area[i].map.
+	 * Now increment I. This time  we divide end_mem by double of page size.
+	 * Divide by 8, allocate the memory in free_area[i].map.
+	 * Next time divide by four times page size, etc...This is the loop
 	 */
         for (i = 0 ; i < NR_MEM_LISTS ; i++) {
                 unsigned long bitmap_size;

@@ -56,7 +56,7 @@
  * Anyway, this needs more thought....          pjsg (1993-08-28)
  *
  * If you are really that interested, you should be reading
- * comp.protocols.time.ntp!
+ * comp. Protocols.time. Ntp!
  */
 
 #define TICK_SIZE tick
@@ -72,7 +72,7 @@ static unsigned long do_slow_gettimeoffset(void)
         static unsigned long jiffies_p = 0;
 
         /*
-         * cache volatile jiffies temporarily; we have IRQs turned off.
+         * Cache volatile jiffies temporarily; we have IRQs turned off.
          */
         unsigned long jiffies_t;
 
@@ -84,13 +84,13 @@ static unsigned long do_slow_gettimeoffset(void)
         jiffies_t = jiffies;
 
         /*
-         * avoiding timer inconsistencies (they are rare, but they happen)...
+         * Avoiding timer inconsistencies (they are rare, but they happen)...
          * there are three kinds of problems that must be avoided here:
-         *  1. the timer counter underflows
-         *  2. hardware problem with the timer, not giving us continuous time,
+         *  1. The timer counter underflows
+         *  2. Hardware problem with the timer, not giving us continuous time,
          *     the counter does small "jumps" upwards on some Pentium systems,
          *     thus causes time warps
-         *  3. we are after the timer interrupt, but the bottom half handler
+         *  3. We are after the timer interrupt, but the bottom half handler
          *     hasn't executed yet.
          */
         if( count > count_p ) {
@@ -99,14 +99,14 @@ static unsigned long do_slow_gettimeoffset(void)
                                 offset = TICK_SIZE;
                         else
                                 /*
-                                 * argh, the timer is bugging we cant do nothing
+                                 * Argh, the timer is bugging we can't do nothing
                                  * but to give the previous clock value.
                                  */
                                 count = count_p;
                 } else {
                         if( test_bit(TIMER_BH, &bh_active) ) {
                                 /*
-                                 * we have detected a counter underflow.
+                                 * We have detected a counter underflow.
                                  */
                                 offset = TICK_SIZE;
                                 count_p = count;
@@ -200,7 +200,7 @@ er */
                 BCD_TO_BIN(cmos_minutes);
 
         /*
-         * since we're only adjusting minutes and seconds,
+         * Since we're only adjusting minutes and seconds,
          * don't interfere with hour overflow. This avoids
          * messing with unknown time zones but requires your
          * RTC not to be off by more than 15 minutes
@@ -266,7 +266,7 @@ static inline void timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 }
 
 /* Converts Gregorian date to seconds since 1970-01-01 00:00:00.
- * Assumes input in normal date format, i.e. 1980-12-31 23:59:59
+ * Assumes input in normal date format, I.e. 1980-12-31 23:59:59
  * => year=1980, mon=12, day=31, hour=23, min=59, sec=59.
  *
  * [For the Julian calendar (which was used in Russia before 1917,
