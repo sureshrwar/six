@@ -34,7 +34,8 @@ SUBDIRS	=	start \
 		last \
 		banner \
 		cat \
-		halt
+		halt \
+		vi
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

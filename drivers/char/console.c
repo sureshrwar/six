@@ -399,6 +399,18 @@ static int con_write(struct tty_struct * tty, int from_user,
                 clear_selection();
 
         disable_bh(CONSOLE_BH);
+#if (SIX)
+        while (!tty->stopped && count) {
+                unsigned char ch;
+                enable_bh(CONSOLE_BH);
+                ch = from_user ? get_user(buf) : *buf;
+                buf++; n++; count--;
+                disable_bh(CONSOLE_BH);
+                write(1, &ch, 1);
+        }
+        enable_bh(CONSOLE_BH);
+        return n;
+#endif
         while (!tty->stopped && count) {
                 enable_bh(CONSOLE_BH);
                 c = from_user ? get_user(buf) : *buf;

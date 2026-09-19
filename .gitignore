@@ -60,6 +60,7 @@ applications/*/sethostname
 applications/*/sh
 applications/*/sync
 applications/*/tty
+applications/*/vi
 
 # Staging tree used while assembling the disk image
 port/image/.stage/

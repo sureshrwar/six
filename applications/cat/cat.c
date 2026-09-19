@@ -54,10 +54,7 @@ char *argv[];
 			fd = open(argv[i], O_RDONLY);
 			if (fd < 0) {
 				std_err("cat: cannot open ");
-				std_err(argv[i]);
-				std_err(": ");
-				std_err(perror("cat"));
-				std_err("\n");
+				perror(argv[i]);
 				excode = 1;
 			} else {
 				copyfile(fd, STDOUT_FILENO);

@@ -52,6 +52,7 @@ file  /bin/sethostname      0755  applications/sethostname/sethostname
 file  /bin/sh               0755  applications/sh/sh
 file  /bin/sync             0755  applications/sync/sync
 file  /bin/tty              0755  applications/tty/tty
+file  /bin/vi               0755  applications/vi/vi
 
 # --- /etc (init binary + configuration recovered from the SPARC root disk) -
 file  /etc/init             0755  applications/init/init
