@@ -1,6 +1,6 @@
 # /etc/rc
 
-echo executing /etc/rc.
+echo Executing /etc/rc.
 
 #set the hostname
 

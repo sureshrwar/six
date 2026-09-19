@@ -45,6 +45,7 @@ file  /bin/hello            0755  applications/hello/hello
 file  /bin/id               0755  applications/id/id
 file  /bin/kill             0755  applications/kill/kill
 file  /bin/last             0755  applications/last/last
+file  /bin/life             0755  applications/life/life
 file  /bin/login            0755  applications/login/login
 file  /bin/ls               0755  applications/ls/ls
 file  /bin/ps               0755  applications/ps/ps

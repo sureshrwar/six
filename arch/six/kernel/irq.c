@@ -2153,13 +2153,31 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 	{
 		/*
 		 * We are coming from user land. So save our context
-		 * in our process table entry. We do this because we
-		 * are going to switch the stack next; so within a 
-		 * few lines of code, accessing local variables is
-		 * going to be tricky. So we don't want any dependence
-		 * on local variables. This is time-consuming though.
+		 * in our process table entry.
+		 *
+		 * Subtle x86 Linux detail: RESTORE_USER_CONTEXT calls glibc's
+		 * setcontext(&current->ucontext) after LEAVE_KERNEL has
+		 * decremented kernel_level to 0.  Inside setcontext(), glibc
+		 * first invokes rt_sigprocmask (int $0x80) to unmask signals
+		 * BEFORE loading the guest %esp and %eip from ucontext.  If a
+		 * pending SIGVTALRM or SIGIO is delivered at the instruction
+		 * immediately following int $0x80 inside setcontext(),
+		 * context->pc is still in host libc (< 0x03000000) and %esp is
+		 * still on current->nsp, while current->ucontext ALREADY holds
+		 * the true guest context (>= 0x03000000) that setcontext() was
+		 * in the middle of restoring.  In that case, keep
+		 * current->ucontext intact so RESTORE_USER_CONTEXT restarts
+		 * setcontext(&current->ucontext) cleanly from the top.
 		 */
+#if (__i386__)
+#define IS_GUEST_USER_PC(p) \
+	((unsigned long)(p) >= 0x03000000UL && (unsigned long)(p) < TASK_SIZE)
+		if (!(!IS_GUEST_USER_PC(context->pc) &&
+		      IS_GUEST_USER_PC(current->ucontext.pc)))
+			SAVE_ALL;
+#else
 		SAVE_ALL;
+#endif
 		/*
 		 * Save the old stack.
 		 */
@@ -2191,16 +2209,6 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 		 * on current->nsp, when an interrupt (e.g. SIGVTALRM after
 		 * sti() in schedule()) arrived.  Handle the IRQ and return
 		 * straight to the interrupted kernel frame.
-		 *
-		 * Do NOT call ret_from_sys_call(context) here: "context" is
-		 * the interrupted *kernel* frame on current->nsp, not the
-		 * guest's ucontext.  Running ret_from_sys_call(context) on a
-		 * nested interrupt caused do_signal() to push a userland
-		 * signal frame onto the kernel stack (0x0d0e7fe8) and jump
-		 * into the guest's signal handler with kernel_level still 1!
-		 * The outer sun_handler (kernel_level == 1) will run
-		 * ret_from_sys_call(&current->ucontext) when the syscall
-		 * actually finishes and returns to userland.
 		 */
 		do_IRQ(current->signum, context);
 	}
@@ -2208,19 +2216,6 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 
 	/*
 	 * Block host interrupt signals across LEAVE_KERNEL -> setcontext().
-	 *
-	 * system_call() and schedule() call sti() before returning here, so
-	 * SIGVTALRM is unblocked at this point while %esp is still on the
-	 * kernel stack (current->nsp, e.g. 0x0d0e7fe8).  The instant
-	 * LEAVE_KERNEL decrements current->kernel_level from 1 to 0, a
-	 * timer signal arriving before setcontext() finishes would enter a
-	 * new sun_handler(), see kernel_level become 1, mistake the kernel
-	 * stack for userland, and overwrite current->ucontext via SAVE_ALL
-	 * with kesp=0x0d0e7fe8.
-	 *
-	 * setcontext() restores uc_sigmask from the target ucontext_t, so
-	 * signals are automatically re-enabled the moment userland (or the
-	 * interrupted kernel frame) resumes.
 	 */
 	cli();
 
@@ -2242,15 +2237,16 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 	else
 	{	
 		LEAVE_KERNEL;
+#if (__i386__)
 		/*
-		 * We were already on kernel stack when we came in; so no stack
-		 * switching happened. So we rely on the context argument
-		 * (that was pushed on to sun_handler()'s stack) to restart
-		 * whatever we were doing. We are not going to userland, but
-		 * to somewhere in kernel land, to some point where some interrupt
-		 * came in.
+		 * Return normally so the host kernel's rt_sigreturn restores
+		 * context and uc_sigmask atomically without a user-space
+		 * setcontext() window.
 		 */
+		return;
+#else
 		RESTORE_CONTEXT;
+#endif
 	}
 }
 
