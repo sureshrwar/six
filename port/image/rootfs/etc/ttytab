@@ -1,0 +1,8 @@
+# ttytab - terminals
+#
+# Device        Type            Program         Init
+console         xterm           getty
+#tty1            xterm           getty
+#tty2            xterm           getty
+#tty3            xterm           getty
+

@@ -2,6 +2,9 @@
 #include "word.h"
 #include "area.h"
 
+/* Defined below its first use; see the note in var.c.  Not static. */
+_PROTOTYPE(char *memcopy, (char *ato, char *from, int nb ));
+
 #define	NSTART	16	/* default number of words to allow for initially */
 
 struct wdblock *

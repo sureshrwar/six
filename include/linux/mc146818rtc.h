@@ -47,7 +47,13 @@ static int CMOS_READ(addr)
 		case 2  : return t->tm_min;
 		case 4  : return t->tm_hour;
 		case 7  : return t->tm_mday;
-		case 8  : return t->tm_mon;
+		/*
+		 * struct tm's tm_mon is 0..11; the MC146818 month register
+		 * and mk_time() in arch/six/kernel/time.c both expect 1..12.
+		 * Returning tm_mon unadjusted shifted the emulated clock back
+		 * by one month, turning Sat Sep 19 into Wed Aug 19.
+		 */
+		case 8  : return t->tm_mon + 1;
 		case 9  : return t->tm_year;
 		case 10 : 
 			  if(!flag)

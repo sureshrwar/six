@@ -8,6 +8,9 @@
  */
 
 _PROTOTYPE(static int xstrcmp, (char *p1, char *p2 ));
+/* Both defined below their first use; see the note in var.c. */
+_PROTOTYPE(static char *generate, (char *start1, char *end1, char *middle, char *end ));
+_PROTOTYPE(static int anyspcl, (struct wdblock *wb ));
 
 #define	scopy(x) strsave((x), areanum)
 #define	BLKSIZ	512

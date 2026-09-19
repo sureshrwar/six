@@ -3,6 +3,9 @@
 #include "io.h"
 #include "var.h"
 
+/* Defined below its first use; see the note in var.c. */
+_PROTOTYPE(static void readhere, (char **name, char *s, int ec ));
+
 /*
  * here documents
  */

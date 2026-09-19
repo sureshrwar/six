@@ -138,6 +138,14 @@ static inline void wait_on_page(struct page * page)
                 __wait_on_page(page);
 }
 
-
+/*
+ * Defined in mm/filemap.c.  Must be prototyped here: fs/ext2/file.c passes
+ * a 64-bit loff_t as the second argument ("pos"), and without a prototype
+ * in scope GCC pushes both 32-bit halves onto the stack, shifting the high
+ * word (0) into "buf" and the buffer pointer into "count".  Any write to a
+ * file that already has a cached page then calls memcpy(page, NULL, buf)
+ * and faults.
+ */
+extern void update_vm_cache(struct inode *, unsigned long, const char *, int);
 
 #endif

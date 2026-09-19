@@ -1,5 +1,8 @@
 #include "sh.h"
 
+/* Defined below its first use; see the note in var.c. */
+_PROTOTYPE(static char *cclass, (char *p, int sub ));
+
 /*
  * int gmatch(string, pattern)
  * char *string, *pattern;

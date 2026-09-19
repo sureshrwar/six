@@ -6,9 +6,10 @@
 # "mke2fs -d" to produce a revision-0 ext2 image that the Linux 2.0.11
 # filesystem driver inside SIX can read.
 #
-# The 2005 prebuilt image that used to be checked in as disk/x86/root has been
-# deleted and untracked.  It is preserved for archaeology in git tag
-# "v2005-cvs".  Everything below is rebuilt from source.
+# The layout matches the 2005 SPARC root disk (preserved in git tag
+# "v2005-cvs"), bringing the x86 port to full parity with SPARC:
+#
+#   kernel init() -> /etc/init -> sh /etc/rc -> getty -> login -> /bin/sh
 #
 # Columns are whitespace separated.  Blank lines and #-comments are ignored.
 #
@@ -16,66 +17,62 @@
 #   file  <path-on-image>  <octal-mode>  <source-path-relative-to-source-root>
 #   node  <path-on-image>  <octal-mode>  c|b  <major>  <minor>
 #   sym   <path-on-image>  -             <link-target>
-#
-# Everything is owned by root:root (achieved without privileges via fakeroot).
-# A "file" whose source is missing is skipped with a warning unless mkimage.sh
-# is run with --strict; this lets the image be built before the whole guest
-# userland has been ported.
 # ---------------------------------------------------------------------------
 
 dir   /bin                  0755
 dir   /etc                  0755
 dir   /dev                  0755
+dir   /lib                  0755
 dir   /tmp                  1777
+dir   /usr                  0755
+dir   /usr/adm              0755
+dir   /usr/lib              0755
 
-# --- the shell -------------------------------------------------------------
-# init/main.c execs /bin/sh directly on x86 (it execs /etc/init on SPARC),
-# so this is the one file the image absolutely cannot do without.
-file  /bin/sh               0755  applications/sh/sh
-
-# --- the rest of the userland ---------------------------------------------
-file  /bin/echo             0755  applications/echo/echo
-file  /bin/pwd              0755  applications/pwd/pwd
-file  /bin/ls               0755  applications/ls/ls
-file  /bin/date             0755  applications/date/date
+# --- /bin (all 23 programs from the SPARC root disk) -----------------------
+file  /bin/banner           0755  applications/banner/banner
+file  /bin/cat              0755  applications/cat/cat
 file  /bin/clear            0755  applications/clear/clear
-file  /bin/getty            0755  applications/getty/getty
-file  /bin/login            0755  applications/login/login
-file  /bin/hello            0755  applications/hello/hello
+file  /bin/date             0755  applications/date/date
+file  /bin/echo             0755  applications/echo/echo
 file  /bin/fortune          0755  applications/fortune/fortune
-file  /bin/ps               0755  applications/ps/ps
-file  /bin/tty              0755  applications/tty/tty
-file  /bin/rm               0755  applications/rm/rm
-file  /bin/sync             0755  applications/sync/sync
-file  /bin/sethostname      0755  applications/sethostname/sethostname
-file  /bin/kill             0755  applications/kill/kill
+file  /bin/getty            0755  applications/getty/getty
 file  /bin/grep             0755  applications/grep/grep
+file  /bin/h                0755  applications/hello/hello
+file  /bin/halt             0755  applications/halt/halt
+file  /bin/hello            0755  applications/hello/hello
 file  /bin/id               0755  applications/id/id
+file  /bin/kill             0755  applications/kill/kill
 file  /bin/last             0755  applications/last/last
+file  /bin/login            0755  applications/login/login
+file  /bin/ls               0755  applications/ls/ls
+file  /bin/ps               0755  applications/ps/ps
+file  /bin/pwd              0755  applications/pwd/pwd
+file  /bin/rm               0755  applications/rm/rm
+file  /bin/sethostname      0755  applications/sethostname/sethostname
+file  /bin/sh               0755  applications/sh/sh
+file  /bin/sync             0755  applications/sync/sync
+file  /bin/tty              0755  applications/tty/tty
 
-# /etc/init is an ELF binary, not a shell script.  The SPARC boot path execs
-# it; the x86 path currently does not, but ship it so both agree.
+# --- /etc (init binary + configuration recovered from the SPARC root disk) -
 file  /etc/init             0755  applications/init/init
-
-# --- historical note -------------------------------------------------------
-# Recovered verbatim from the 2005 image before it was deleted.  It is the
-# author's own explanation of why the x86 port was abandoned, and it belongs
-# on the disk it was found on.
+file  /etc/hostname         0644  port/image/rootfs/etc/hostname
+file  /etc/motd             0644  port/image/rootfs/etc/motd
+file  /etc/passwd           0644  port/image/rootfs/etc/passwd
+file  /etc/rc               0755  port/image/rootfs/etc/rc
+file  /etc/shadow           0600  port/image/rootfs/etc/shadow
+file  /etc/shelp.txt        0644  port/image/rootfs/etc/shelp.txt
+file  /etc/termcap          0644  port/image/rootfs/etc/termcap
+file  /etc/ttytab           0644  port/image/rootfs/etc/ttytab
+file  /etc/utmp             0644  port/image/rootfs/etc/utmp
 file  /etc/x86.txt          0644  port/image/x86.txt
 
-# --- device nodes ----------------------------------------------------------
-# These have to carry the right device numbers.  Getting them wrong is not
-# cosmetic: sys_open() looks up chrdevs[MAJOR(dev)] and fails with ENODEV if
-# nothing is registered there.  init/main.c opens /dev/tty1 as fd 0 and dups
-# it to 1 and 2, and does not check the result -- so a bad node means the
-# first guest process starts with *no* open file descriptors, every write(1)
-# it makes returns -EBADF, and a shell that is working perfectly well looks
-# like a shell that produces no output.  That is exactly what happened when
-# these were briefly created as major 0 minor 0.
-#
-# 4 is TTY_MAJOR, registered by tty_init() in drivers/char/tty_io.c.  The
-# numbers below match the 2005 image byte for byte (verified against git tag
-# v2005-cvs with debugfs before that image was deleted): /dev/tty1 is 4:1,
-# the first virtual console, and /dev/console is 4:0.
+# --- /usr (wtmp accounting + the 434-entry fortunes database) --------------
+file  /usr/adm/wtmp         0644  port/image/rootfs/usr/adm/wtmp
+file  /usr/lib/fortunes     0644  port/image/rootfs/usr/lib/fortunes
+
+# --- /dev (character major 4 = TTY_MAJOR; both minor 1 as on SPARC) --------
+# /etc/ttytab spawns getty on "console", so /etc/init opens /dev/console for
+# stdin/stdout/stderr.  On the SPARC disk both /dev/console and /dev/tty1 are
+# device 4,1 (the first virtual console).
 node  /dev/tty1             0666  c  4  1
-node  /dev/console          0666  c  4  0
+node  /dev/console          0666  c  4  1

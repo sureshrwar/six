@@ -5,6 +5,16 @@
 #include <linux/times.h>
 
 /*
+ * All three are static and defined below their first use; see the note in
+ * var.c.  These also draw "static declaration follows non-static
+ * declaration", because the implicit declaration GCC invents has external
+ * linkage.
+ */
+_PROTOTYPE(static int brkcontin, (char *cp, int val ));
+_PROTOTYPE(static void rdexp, (char **wp, void (*f)(), int key ));
+_PROTOTYPE(static void badid, (char *s ));
+
+/*
  * built-in commands: doX
  */
 

@@ -152,6 +152,20 @@ guest_link = $(GUEST_LD) $(GUEST_LDFLAGS) -o $(1) $(GUEST_CRT) $(2) $(GUEST_LIBC
 %.o: %.c
 	$(GUEST_CC) $(GUEST_CFLAGS) -MMD -MF $(dir $@).$(notdir $@).d -c -o $@ $<
 
+#
+# Assembly.  Capital .S so the preprocessor runs -- setjmp_i386.S uses
+# #define for its jmp_buf offsets, and having them symbolic is worth the
+# extra pass.
+#
+# This is the first assembly in the tree that is actually compiled: the SIX
+# kernel has none at all (every trap, context switch and "instruction" is a
+# libc call), and the SPARC guest's setjmp.s was only ever built by the
+# Solaris Makefiles.  Same flags as C so that -m32 and the include path
+# carry over.
+#
+%.o: %.S
+	$(GUEST_CC) $(GUEST_CFLAGS) -MMD -MF $(dir $@).$(notdir $@).d -c -o $@ $<
+
 # ---------------------------------------------------------------------------
 # Header dependencies
 #
@@ -172,3 +186,20 @@ guest_link = $(GUEST_LD) $(GUEST_LDFLAGS) -o $(1) $(GUEST_CRT) $(2) $(GUEST_LIBC
 # where those dependencies belong.
 # ---------------------------------------------------------------------------
 -include $(wildcard .*.o.d)
+
+#
+# Undo the side effect of that include.
+#
+# A .d file is a Makefile fragment full of explicit targets ("io.o: io.c
+# sh.h ..."), and GNU make takes the first explicit target it parses as the
+# default goal.  Because this file is included at the *top* of every guest
+# Makefile, the first target make saw was whichever .o happened to sort
+# first -- so "make -C applications/sh" quietly built interp.o and stopped,
+# and "make -C library/libc" never reached libc.a.  The symptom is
+# particularly nasty because make exits 0.
+#
+# Assigning an empty value tells make to fall back to "the first target
+# defined from here on", which is the one the including Makefile actually
+# wanted.
+#
+.DEFAULT_GOAL :=

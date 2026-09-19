@@ -872,18 +872,27 @@ static int init(void * unused)
         if (!execute_command) {
 #if (SIX)
                 /*
-                 * The return value was being discarded, so a guest that
-                 * failed to start looked exactly like a guest that started
-                 * and printed nothing.  sys_execve() only returns at all
-                 * when it has failed.
+                 * Both architectures start /etc/init now.
+                 *
+                 * x86 used to exec /bin/sh directly, because for most of
+                 * this port's life /bin/sh was interp.c -- a while loop
+                 * that execve()s whatever you type -- and there was no
+                 * working init, getty or login to hand.  The real Bourne
+                 * shell builds on x86 now, so the SPARC boot sequence
+                 * works here too:
+                 *
+                 *     /etc/init  reads /etc/ttytab
+                 *                forks "sh /etc/rc"
+                 *                spawns getty on each listed line
+                 *     getty  ->  login  ->  /bin/sh
+                 *
+                 * The return value is reported: sys_execve() only returns
+                 * at all when it has failed, and a silent failure here is
+                 * indistinguishable from a system that booted and printed
+                 * nothing.
                  */
-#if (__i386__)
-                int ret = sys_execve("/bin/sh", argv_init, envp_init);
-                printk("init: exec of /bin/sh returned %d\n", ret);
-#else
                 int ret = sys_execve("/etc/init", argv_init, envp_init);
                 printk("init: exec of /etc/init returned %d\n", ret);
-#endif
 #else
                 execve("/etc/init", argv_init, envp_init);
 #endif

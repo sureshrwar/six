@@ -1,6 +1,15 @@
 #include "sh.h"
 #include "var.h"
 
+/*
+ * findeq() returns char * and is defined at the bottom of this file, below
+ * its first use.  GCC 2.x accepted that; a modern compiler synthesises an
+ * implicit "int findeq()" at the point of use and then rejects the real
+ * definition as a conflicting type.  Declaring it up here is the whole fix.
+ * Same class of change as the forward declarations already in sh.h.
+ */
+_PROTOTYPE(static char *findeq, (char *cp ));
+
 
 /*
  * Find the given name in the dictionary

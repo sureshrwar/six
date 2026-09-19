@@ -1,0 +1,18 @@
+
+
+Available commands :
+
+
+ls (l)
+sync (s)
+mkdir <name>
+cp <source> <dest>
+mknod <filename> <major> <minor>
+cd <dirname>
+pwd
+rm <filename>
+help
+
+
+
+

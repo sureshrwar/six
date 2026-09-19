@@ -33,6 +33,17 @@ ARCH	=	$(shell uname -m)
 ifeq ($(ARCH),sparc)
 OBJS	+=	rem.o urem.o div.o udiv.o mul.o umul.o setjmp.o
 SYSOBJS	+=	../sys/sparc.o
+else
+#
+# setjmp/longjmp.  sh(1) cannot be built without them -- every error unwind,
+# every break/continue, and the parser's failure path goes through one.
+#
+# The x86 version is deliberately *not* called setjmp.S: library/libc still
+# contains the SPARC setjmp.s, and with both a "%.o: %.S" and a "%.o: %.s"
+# rule in scope make would have two ways to produce setjmp.o and would pick
+# by rule order rather than by architecture.  Distinct names, no ambiguity.
+#
+OBJS	+=	setjmp_i386.o
 endif
 
 TARGET	=	./lib/libc.a

@@ -1,0 +1,10 @@
+# /etc/rc
+
+echo executing /etc/rc.
+
+#set the hostname
+
+sethostname `cat /etc/hostname`
+
+
+
