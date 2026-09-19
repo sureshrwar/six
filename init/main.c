@@ -495,7 +495,7 @@ add_root()
 
 void wait_for_key()
 {
-	printf("Hit ENTER to continue :");
+	printf("Hit ENTER to continue (pid %d) : ", getpid());
 	fflush(stdout);
 	getchar();
 }
@@ -596,12 +596,19 @@ void grow_ram()
 
 void main(int argc, char *argv[])
 {
-	if (argc == 2 && !strcmp(argv[1], "single"))
-        	single = 1;
+	int i, wait_flag = 0;
+
+	for (i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "single"))
+			single = 1;
+		else if (!strcmp(argv[i], "-w"))
+			wait_flag = 1;
+	}
 	/* We are opening some files for recording debug info, the pid etc */
 	setup_files();
-	/* Now wait for a keypress */
-	wait_for_key();
+	/* Wait for a keypress before booting only if -w was given */
+	if (wait_flag)
+		wait_for_key();
 	/* ensure that we have a root disk */
 	check_root();
 	/* build the signal masks for locked and unlocked conditions and store them */
