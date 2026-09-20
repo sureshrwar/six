@@ -1,8 +1,10 @@
 /*
- * sixanim.c - Animated 3D rotating boot logo for SIX
+ * sixanim.c - Animated in-place rotating boot logo for SIX
  *
- * Rotates the letters S I X through 3 dimensions and brings
- * them to rest with the glowing SIX emblem and [ SYSTEM READY ].
+ * Rotates the letters S I X through 3 dimensions strictly in-place using
+ * ANSI cursor repositioning (\033[5A and \r\033[K).
+ * Pre-allocates the vertical bounding box once so zero intermediate
+ * frames pollute the terminal's scrollback buffer.
  */
 
 #include <stdio.h>
@@ -53,7 +55,6 @@ static const char *frames[NUM_FRAMES][FRAME_ROWS] = {
 	}
 };
 
-static int term_rows = 24;
 static int term_cols = 80;
 static int cursor_hidden = 0;
 
@@ -83,16 +84,12 @@ static void msleep(int ms)
 static void get_term_size(void)
 {
 	struct winsize ws;
-	if (ioctl(1, TIOCGWINSZ, &ws) == 0 && ws.ws_row > 0) {
-		term_rows = ws.ws_row;
+	if (ioctl(1, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0) {
 		term_cols = ws.ws_col;
 	} else {
-		char *lines = getenv("LINES");
 		char *cols = getenv("COLUMNS");
-		if (lines) term_rows = atoi(lines);
 		if (cols) term_cols = atoi(cols);
 	}
-	if (term_rows < 8) term_rows = 8;
 	if (term_cols < 30) term_cols = 30;
 }
 
@@ -109,11 +106,12 @@ int main(int argc, char **argv)
 	int is_tty = isatty(1);
 
 	if (!is_tty) {
-		/* Non-interactive: just print front face */
+		/* Non-interactive fallback: static front face */
+		putchar('\n');
 		for (i = 0; i < FRAME_ROWS; i++) {
 			printf("%s\n", frames[0][i]);
 		}
-		printf("\n   [ SYSTEM READY ]\n");
+		printf("\n   [ SYSTEM READY ]\n\n");
 		return 0;
 	}
 
@@ -123,28 +121,38 @@ int main(int argc, char **argv)
 	get_term_size();
 
 	int pad_x = (term_cols - ART_WIDTH) / 2;
-	int pad_y = (term_rows - (FRAME_ROWS + 3)) / 2;
 	if (pad_x < 0) pad_x = 0;
-	if (pad_y < 0) pad_y = 0;
 
-	/* Hide cursor */
+	/*
+	 * Reserve vertical space for the animation (5 rows + 2 status rows)
+	 * upfront so the terminal never scrolls during the animation cycle.
+	 */
+	for (i = 0; i < FRAME_ROWS + 2; i++)
+		putchar('\n');
+	printf("\033[%dA", FRAME_ROWS + 2);
+	fflush(stdout);
+
+	/* Hide cursor during animation */
 	printf("\033[?25l");
 	cursor_hidden = 1;
 
-	/* Spin 3 full revolutions (12 steps) */
+	/* Spin 3 full revolutions (12 steps) strictly in place */
 	for (step = 0; step < 12; step++) {
 		int f = step % 4;
-		printf("\033[H\033[2J"); /* Clear screen */
-		for (i = 0; i < pad_y; i++)
-			putchar('\n');
 
-		/* Subtle color shift as it turns */
+		if (step > 0) {
+			/* Move cursor back up FRAME_ROWS lines to rewrite in-place */
+			printf("\033[%dA", FRAME_ROWS);
+		}
+
+		/* Subtle color shifts as the glyphs rotate */
 		if (f == 0) printf("\033[1;36m");       /* Bright cyan front */
 		else if (f == 1) printf("\033[1;34m");  /* Blue angle */
 		else if (f == 2) printf("\033[1;35m");  /* Magenta edge */
 		else printf("\033[1;34m");              /* Blue other angle */
 
 		for (i = 0; i < FRAME_ROWS; i++) {
+			printf("\r\033[K");
 			print_padding(pad_x);
 			printf("%s\n", frames[f][i]);
 		}
@@ -153,20 +161,18 @@ int main(int argc, char **argv)
 		msleep(90);
 	}
 
-	/* Final resting face */
-	printf("\033[H\033[2J");
-	for (i = 0; i < pad_y; i++)
-		putchar('\n');
-
+	/* Rest on the final front face (in-place) */
+	printf("\033[%dA", FRAME_ROWS);
 	printf("\033[1;36m");
 	for (i = 0; i < FRAME_ROWS; i++) {
+		printf("\r\033[K");
 		print_padding(pad_x);
 		printf("%s\n", frames[0][i]);
 	}
-	printf("\033[0m\n\n");
+	printf("\033[0m\n");
 
 	print_padding(pad_x + 2);
-	printf("\033[1;32m[ SYSTEM READY ]\033[0m\n\n");
+	printf("\r\033[K\033[1;32m[ SYSTEM READY ]\033[0m\n\n");
 	fflush(stdout);
 
 	cleanup();
