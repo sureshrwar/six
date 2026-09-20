@@ -37,6 +37,7 @@ dir   /usr/include/sys      0755
 dir   /usr/include/linux    0755
 dir   /usr/include/asm      0755
 dir   /var                  0755
+dir   /var/games            0777
 dir   /var/mail             0777
 dir   /var/spool            0755
 dir   /var/spool/mail       0777
@@ -83,6 +84,7 @@ file  /bin/ps               0755  applications/ps/ps
 file  /bin/pwd              0755  applications/pwd/pwd
 file  /bin/rm               0755  applications/rm/rm
 file  /bin/rmdir            0755  applications/rmdir/rmdir
+file  /bin/robots           0755  applications/robots/robots
 file  /bin/rogue            0755  applications/rogue/rogue
 file  /bin/sethostname      0755  applications/sethostname/sethostname
 sym   /bin/hostname         -     sethostname

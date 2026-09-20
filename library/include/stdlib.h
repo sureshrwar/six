@@ -59,6 +59,7 @@ extern float strtof(const char *nptr, char **endptr);
 extern long double strtold(const char *nptr, char **endptr);
 extern int rand(void);
 extern void srand(unsigned int seed);
+extern unsigned int arc4random_uniform(unsigned int upper_bound);
 extern void qsort(void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *));
 
 /* --- environment ---------------------------------------------------------

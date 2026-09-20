@@ -82,7 +82,8 @@ SUBDIRS	=	start \
 		tar \
 		sixanim \
 		telnetd \
-		awk
+		awk \
+		robots
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

@@ -57,3 +57,14 @@ unsigned secs;
 
   return(secs - (current_secs - remaining_secs));
 }
+
+#include <linux/time.h>
+extern int select(int n, void *r, void *w, void *e, struct timeval *tv);
+
+int usleep(unsigned long usec)
+{
+	struct timeval tv;
+	tv.tv_sec = usec / 1000000;
+	tv.tv_usec = usec % 1000000;
+	return select(0, NULL, NULL, NULL, &tv);
+}

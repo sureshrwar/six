@@ -103,10 +103,18 @@ int refresh(void);
 int wrefresh(WINDOW *win);
 int clear(void);
 int wclear(WINDOW *win);
+int erase(void);
 int clrtoeol(void);
 int wclrtoeol(WINDOW *win);
 int clrtobot(void);
 int wclrtobot(WINDOW *win);
+
+/* Character inspection and window options */
+int inch(void);
+int winch(WINDOW *win);
+int mvinch(int y, int x);
+int mvwinch(WINDOW *win, int y, int x);
+int leaveok(WINDOW *win, bool bf);
 
 /* Attribute control */
 int standout(void);

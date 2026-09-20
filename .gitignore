@@ -107,6 +107,7 @@ applications/*/tar
 applications/*/sixanim
 applications/*/telnetd
 applications/*/awk
+applications/*/robots
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h

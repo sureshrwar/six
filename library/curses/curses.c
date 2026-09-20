@@ -14,12 +14,14 @@ WINDOW *curscr = &static_stdscr;
 int LINES = 24;
 int COLS = 80;
 
+static char screen_cells[64][256];
 static struct termios orig_termios;
 static int term_inited = 0;
 
 WINDOW *initscr(void)
 {
 	struct winsize ws;
+	memset(screen_cells, ' ', sizeof(screen_cells));
 
 	if (ioctl(0, TIOCGWINSZ, &ws) == 0 && ws.ws_row > 0 && ws.ws_col > 0) {
 		LINES = ws.ws_row;
@@ -186,6 +188,11 @@ int wmove(WINDOW *win, int y, int x)
 
 int addch(char ch)
 {
+	int y = stdscr->_cury;
+	int x = stdscr->_curx;
+	if (y >= 0 && y < 64 && x >= 0 && x < 256)
+		screen_cells[y][x] = ch;
+
 	if (ch == '\n') {
 		stdscr->_curx = 0;
 		if (stdscr->_cury + 1 < LINES)
@@ -214,6 +221,11 @@ int addch(char ch)
 int waddch(WINDOW *win, char ch)
 {
 	if (!win) return ERR;
+	int y = win->_begy + win->_cury;
+	int x = win->_begx + win->_curx;
+	if (y >= 0 && y < 64 && x >= 0 && x < 256)
+		screen_cells[y][x] = ch;
+
 	printf("\033[%d;%dH", win->_begy + win->_cury + 1, win->_begx + win->_curx + 1);
 	putchar(ch);
 	win->_curx++;
@@ -299,12 +311,51 @@ int wrefresh(WINDOW *win)
 
 int clear(void)
 {
+	memset(screen_cells, ' ', sizeof(screen_cells));
 	printf("\033[2J\033[H");
 	if (stdscr) {
 		stdscr->_cury = 0;
 		stdscr->_curx = 0;
 	}
 	return OK;
+}
+
+int erase(void)
+{
+	return clear();
+}
+
+int leaveok(WINDOW *win, bool bf)
+{
+	return OK;
+}
+
+int winch(WINDOW *win)
+{
+	int y, x;
+	if (!win) return ' ';
+	y = win->_begy + win->_cury;
+	x = win->_begx + win->_curx;
+	if (y < 0 || y >= 64 || x < 0 || x >= 256)
+		return ' ';
+	return (unsigned char)screen_cells[y][x];
+}
+
+int inch(void)
+{
+	return winch(stdscr);
+}
+
+int mvinch(int y, int x)
+{
+	move(y, x);
+	return inch();
+}
+
+int mvwinch(WINDOW *win, int y, int x)
+{
+	wmove(win, y, x);
+	return winch(win);
 }
 
 int wclear(WINDOW *win)

@@ -37,3 +37,8 @@ int tcsetattr(int fd, ...)
 
 	return ioctl(fd, cmd, tp);
 }
+
+int tcflush(int fd, int queue_selector)
+{
+	return ioctl(fd, TCFLSH, queue_selector);
+}

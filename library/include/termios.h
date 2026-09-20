@@ -5,6 +5,7 @@
 
 int tcgetattr(int fd, struct termios *termios_p);
 int tcsetattr(int fd, int optional_actions, const struct termios *termios_p);
+int tcflush(int fd, int queue_selector);
 
 speed_t cfgetospeed(const struct termios *termios_p);
 speed_t cfgetispeed(const struct termios *termios_p);

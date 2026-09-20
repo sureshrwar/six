@@ -9,6 +9,10 @@
 #define __pure
 #endif
 
+#ifndef __unused
+#define __unused
+#endif
+
 #ifndef __P
 #define __P(x) x
 #endif
