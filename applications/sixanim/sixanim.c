@@ -3,6 +3,7 @@
  *
  * Rotates the letters S I X through 3 dimensions strictly in-place using
  * ANSI cursor repositioning (\033[5A and \r\033[K).
+ * Left-aligned by default to match standard UNIX boot logging.
  * Pre-allocates the vertical bounding box once so zero intermediate
  * frames pollute the terminal's scrollback buffer.
  */
@@ -105,23 +106,29 @@ int main(int argc, char **argv)
 	int i, step;
 	int is_tty = isatty(1);
 
+	get_term_size();
+
+	/* Left-aligned by default; support -c for centered if requested */
+	int pad_x = 0;
+	if (argc > 1 && strcmp(argv[1], "-c") == 0) {
+		pad_x = (term_cols - ART_WIDTH) / 2;
+		if (pad_x < 0) pad_x = 0;
+	}
+
 	if (!is_tty) {
 		/* Non-interactive fallback: static front face */
 		putchar('\n');
 		for (i = 0; i < FRAME_ROWS; i++) {
+			if (pad_x > 0) print_padding(pad_x);
 			printf("%s\n", frames[0][i]);
 		}
-		printf("\n   [ SYSTEM READY ]\n\n");
+		if (pad_x > 0) print_padding(pad_x + 2);
+		printf("[ SYSTEM READY ]\n\n");
 		return 0;
 	}
 
 	signal(SIGINT, sig_handler);
 	signal(SIGTERM, sig_handler);
-
-	get_term_size();
-
-	int pad_x = (term_cols - ART_WIDTH) / 2;
-	if (pad_x < 0) pad_x = 0;
 
 	/*
 	 * Reserve vertical space for the animation (5 rows + 2 status rows)
@@ -153,7 +160,7 @@ int main(int argc, char **argv)
 
 		for (i = 0; i < FRAME_ROWS; i++) {
 			printf("\r\033[K");
-			print_padding(pad_x);
+			if (pad_x > 0) print_padding(pad_x);
 			printf("%s\n", frames[f][i]);
 		}
 		printf("\033[0m");
@@ -166,13 +173,14 @@ int main(int argc, char **argv)
 	printf("\033[1;36m");
 	for (i = 0; i < FRAME_ROWS; i++) {
 		printf("\r\033[K");
-		print_padding(pad_x);
+		if (pad_x > 0) print_padding(pad_x);
 		printf("%s\n", frames[0][i]);
 	}
 	printf("\033[0m\n");
 
-	print_padding(pad_x + 2);
-	printf("\r\033[K\033[1;32m[ SYSTEM READY ]\033[0m\n\n");
+	printf("\r\033[K");
+	if (pad_x > 0) print_padding(pad_x + 2);
+	printf("\033[1;32m[ SYSTEM READY ]\033[0m\n\n");
 	fflush(stdout);
 
 	cleanup();
