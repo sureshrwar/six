@@ -176,7 +176,7 @@ static char *http_fetch(const char *url, int *out_len)
 		return NULL;
 	}
 
-	sprintf(req, "GET %s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\nUser-Agent: Lynx/2.8.4 (SIX-Linux-2.0.11)\r\nAccept: text/html, text/plain, */*\r\n\r\n", path, host);
+	sprintf(req, "GET %s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\nUser-Agent: SIX/1.0 (Linux 2.0.11)\r\nAccept: text/html, text/plain, */*\r\n\r\n", path, host);
 	write(sfd, req, strlen(req));
 
 	buf = malloc(buf_size);
