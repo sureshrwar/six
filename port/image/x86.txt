@@ -1,5 +1,6 @@
 
 
+2003:
 Ok, I just have had enough of x86. So far I have been porting
 this stuff back and forth across Intel and x86 - but don't
 have any more patience or energy. To make matters worse, the
@@ -20,6 +21,7 @@ an "exit". Then it dies, and you are left alone with our init
 task and its idle loop. It can't be, it can't end like this,
 but it just did.
 
-
+2026:
+Chill the fuck out.
 
 
