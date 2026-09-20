@@ -73,6 +73,14 @@ applications/*/basic
 applications/*/eliza
 applications/*/cowsay
 applications/*/sl
+applications/*/cp
+applications/*/mv
+applications/*/mkdir
+applications/*/rmdir
+applications/*/touch
+applications/*/df
+applications/*/wc
+applications/*/head
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h

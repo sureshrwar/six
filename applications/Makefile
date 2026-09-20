@@ -48,7 +48,15 @@ SUBDIRS	=	start \
 		basic \
 		eliza \
 		cowsay \
-		sl
+		sl \
+		cp \
+		mv \
+		mkdir \
+		rmdir \
+		touch \
+		df \
+		wc \
+		head
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

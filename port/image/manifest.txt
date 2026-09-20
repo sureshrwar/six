@@ -37,7 +37,9 @@ file  /bin/cal              0755  applications/cal/cal
 file  /bin/cat              0755  applications/cat/cat
 file  /bin/clear            0755  applications/clear/clear
 file  /bin/cowsay           0755  applications/cowsay/cowsay
+file  /bin/cp               0755  applications/cp/cp
 file  /bin/date             0755  applications/date/date
+file  /bin/df               0755  applications/df/df
 file  /bin/dhrystone        0755  applications/dhrystone/dhrystone
 file  /bin/echo             0755  applications/echo/echo
 file  /bin/eliza            0755  applications/eliza/eliza
@@ -47,6 +49,7 @@ file  /bin/gomoku           0755  applications/gomoku/gomoku
 file  /bin/grep             0755  applications/grep/grep
 file  /bin/h                0755  applications/hello/hello
 file  /bin/halt             0755  applications/halt/halt
+file  /bin/head             0755  applications/head/head
 file  /bin/hello            0755  applications/hello/hello
 file  /bin/id               0755  applications/id/id
 file  /bin/kill             0755  applications/kill/kill
@@ -55,18 +58,23 @@ file  /bin/life             0755  applications/life/life
 file  /bin/login            0755  applications/login/login
 file  /bin/ls               0755  applications/ls/ls
 file  /bin/matrix           0755  applications/matrix/matrix
+file  /bin/mkdir            0755  applications/mkdir/mkdir
+file  /bin/mv               0755  applications/mv/mv
 file  /bin/ps               0755  applications/ps/ps
 file  /bin/pwd              0755  applications/pwd/pwd
 file  /bin/rm               0755  applications/rm/rm
+file  /bin/rmdir            0755  applications/rmdir/rmdir
 file  /bin/rogue            0755  applications/rogue/rogue
 file  /bin/sethostname      0755  applications/sethostname/sethostname
 file  /bin/sh               0755  applications/sh/sh
 file  /bin/sl               0755  applications/sl/sl
 file  /bin/sync             0755  applications/sync/sync
 file  /bin/tetris           0755  applications/tetris/tetris
+file  /bin/touch            0755  applications/touch/touch
 file  /bin/ttt              0755  applications/ttt/ttt
 file  /bin/tty              0755  applications/tty/tty
 file  /bin/vi               0755  applications/vi/vi
+file  /bin/wc               0755  applications/wc/wc
 
 # --- /etc (init binary + configuration recovered from the SPARC root disk) -
 file  /etc/init             0755  applications/init/init
