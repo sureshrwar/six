@@ -429,22 +429,10 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 						}
 						if (conn->state == CONN_CLOSING)
 							break;
-						if (got_data) {
-							/* After receiving initial response (e.g. echo of Enter),
-							 * wait up to 50ms for server to execute command and return output */
-							int more_tries = 0;
-							while (more_tries < 50) {
-								if (six_host_net_poll_readable(conn->host_fd))
-									break;
-								six_host_idle_sleep();
-								more_tries++;
-							}
-							if (!six_host_net_poll_readable(conn->host_fd))
-								break;
-						} else {
-							six_host_idle_sleep();
-							tries++;
-						}
+						if (got_data)
+							break;
+						six_host_idle_sleep();
+						tries++;
 					}
 
 					if (!got_data) {
@@ -457,8 +445,41 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 							do_bottom_half();
 					}
 				} else if (th->ack) {
-					/* Pure ACK: no payload.  Do not poll or inject data here;
-					 * six_eth_poll() safely injects data in the idle loop. */
+					/* Pure ACK: once the initial 3-way handshake is past (our_seq > 100001),
+					 * stream any pending data immediately so large pages (e.g. Wikipedia)
+					 * do not stall waiting for 10 HZ timer ticks. */
+					if (conn->our_seq > 100001) {
+						__u32 unacked = conn->our_seq - conn->guest_ack;
+						__u32 win = (conn->guest_win > 0) ? conn->guest_win : 16384;
+						while (unacked < win && six_host_net_poll_readable(conn->host_fd)) {
+							int to_read = sizeof(rbuf);
+							if (to_read > win - unacked)
+								to_read = win - unacked;
+							int r = six_host_net_recv(conn->host_fd, rbuf, to_read);
+							if (r > 0) {
+								inject_tcp(dev, conn->dest_ip, conn->guest_ip,
+									   conn->dest_port, conn->guest_port,
+									   conn->our_seq, conn->guest_seq,
+									   0x18 /* ACK|PSH */, rbuf, r);
+								conn->our_seq += r;
+								unacked += r;
+								if (bh_mask & bh_active)
+									do_bottom_half();
+							} else if (r == 0) {
+								inject_tcp(dev, conn->dest_ip, conn->guest_ip,
+									   conn->dest_port, conn->guest_port,
+									   conn->our_seq++, conn->guest_seq,
+									   0x11 /* FIN|ACK */, NULL, 0);
+								conn->state = CONN_CLOSING;
+								six_host_net_close(conn->host_fd);
+								if (bh_mask & bh_active)
+									do_bottom_half();
+								break;
+							} else {
+								break;
+							}
+						}
+					}
 				}
 				if (th->fin) {
 					conn->guest_seq = ntohl(th->seq) + 1;
