@@ -363,7 +363,10 @@ static void parse_options(char *line)
 #if (SIX)
 void idle()
 {
-	/*	do nothing	*/
+#ifdef CONFIG_NET
+	extern void six_eth_poll(void);
+	six_eth_poll();
+#endif
 }
 #endif
 

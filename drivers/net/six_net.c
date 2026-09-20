@@ -423,12 +423,28 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 								if (bh_mask & bh_active)
 									do_bottom_half();
 								break;
+							} else {
+								break;
 							}
 						}
-						if (got_data || conn->state == CONN_CLOSING)
+						if (conn->state == CONN_CLOSING)
 							break;
-						six_host_idle_sleep();
-						tries++;
+						if (got_data) {
+							/* After receiving initial response (e.g. echo of Enter),
+							 * wait up to 50ms for server to execute command and return output */
+							int more_tries = 0;
+							while (more_tries < 50) {
+								if (six_host_net_poll_readable(conn->host_fd))
+									break;
+								six_host_idle_sleep();
+								more_tries++;
+							}
+							if (!six_host_net_poll_readable(conn->host_fd))
+								break;
+						} else {
+							six_host_idle_sleep();
+							tries++;
+						}
 					}
 
 					if (!got_data) {
