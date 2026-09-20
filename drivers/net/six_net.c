@@ -434,34 +434,47 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 					}
 				} else if (th->ack) {
 					/* Guest ACK: stream next packet if guest window allows */
-					__u32 unacked = conn->our_seq - conn->guest_ack;
-					__u32 win = (conn->guest_win > 0) ? conn->guest_win : 16384;
-					int got = 0;
-					while (unacked + 1400 <= win && six_host_net_poll_readable(conn->host_fd)) {
-						int r = six_host_net_recv(conn->host_fd, rbuf, sizeof(rbuf));
-						if (r > 0) {
-							inject_tcp(dev, conn->dest_ip, conn->guest_ip,
-								   conn->dest_port, conn->guest_port,
-								   conn->our_seq, conn->guest_seq,
-								   0x18 /* ACK|PSH */, rbuf, r);
-							conn->our_seq += r;
-							unacked += r;
-							got = 1;
-						} else if (r == 0) {
-							inject_tcp(dev, conn->dest_ip, conn->guest_ip,
-								   conn->dest_port, conn->guest_port,
-								   conn->our_seq++, conn->guest_seq,
-								   0x11 /* FIN|ACK */, NULL, 0);
-							conn->state = CONN_CLOSING;
-							six_host_net_close(conn->host_fd);
-							got = 1;
+					int tries = 0;
+					int max_tries = (conn->our_seq <= 100005) ? 200 : 1;
+					while (tries < max_tries) {
+						__u32 unacked = conn->our_seq - conn->guest_ack;
+						__u32 win = (conn->guest_win > 0) ? conn->guest_win : 16384;
+						int got = 0;
+						while (unacked + 1400 <= win && six_host_net_poll_readable(conn->host_fd)) {
+							int r = six_host_net_recv(conn->host_fd, rbuf, sizeof(rbuf));
+							if (r > 0) {
+								inject_tcp(dev, conn->dest_ip, conn->guest_ip,
+									   conn->dest_port, conn->guest_port,
+									   conn->our_seq, conn->guest_seq,
+									   0x18 /* ACK|PSH */, rbuf, r);
+								conn->our_seq += r;
+								unacked += r;
+								got = 1;
+								if (bh_mask & bh_active)
+									do_bottom_half();
+							} else if (r == 0) {
+								inject_tcp(dev, conn->dest_ip, conn->guest_ip,
+									   conn->dest_port, conn->guest_port,
+									   conn->our_seq++, conn->guest_seq,
+									   0x11 /* FIN|ACK */, NULL, 0);
+								conn->state = CONN_CLOSING;
+								six_host_net_close(conn->host_fd);
+								if (bh_mask & bh_active)
+									do_bottom_half();
+								break;
+							} else {
+								break;
+							}
+						}
+						if (got || conn->state == CONN_CLOSING)
 							break;
+						if (max_tries > 1) {
+							six_host_idle_sleep();
+							tries++;
 						} else {
 							break;
 						}
 					}
-					if (got && (bh_mask & bh_active))
-						do_bottom_half();
 				}
 				if (th->fin) {
 					conn->guest_seq = ntohl(th->seq) + 1;

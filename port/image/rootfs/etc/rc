@@ -21,7 +21,10 @@ echo
 echo
 banner -c# SIX
 echo
-echo Escape character is '^]'.
+sleep 1
+echo Escape character is '^\\'.
+
+sleep 1
 
 
 

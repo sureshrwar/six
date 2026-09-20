@@ -82,12 +82,18 @@ static void handle_client(int cfd, struct sockaddr_in *caddr)
 	char req[512];
 	char method[16], path[128], proto[16];
 	char header[256];
-	int n = read(cfd, req, sizeof(req) - 1);
+	int n = 0;
+	while (n < sizeof(req) - 1) {
+		int r = read(cfd, req + n, sizeof(req) - 1 - n);
+		if (r <= 0) break;
+		n += r;
+		req[n] = '\0';
+		if (strstr(req, "\r\n\r\n") || strstr(req, "\n\n")) break;
+	}
 	if (n <= 0) {
 		close(cfd);
 		return;
 	}
-	req[n] = '\0';
 
 	method[0] = path[0] = proto[0] = '\0';
 	/* Parse GET /path HTTP/1.0 */

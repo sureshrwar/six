@@ -112,7 +112,7 @@ do-it-all:	include/asm Version six $(SIX_IMAGE)
 	@echo "      ./six"
 	@echo ""
 	@echo "  Login as 'root' (no password)."
-	@echo "  When you're done, run 'halt' or press Ctrl+] to return to the 2020s."
+	@echo "  When you're done, run 'halt' or press Ctrl+\\ to return to the 2020s."
 	@echo "======================================================================"
 	@echo ""
 

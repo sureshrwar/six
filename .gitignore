@@ -80,6 +80,12 @@ applications/*/touch
 applications/*/df
 applications/*/wc
 applications/*/head
+applications/*/nettest
+applications/*/httpd
+applications/*/lynx
+applications/*/ifconfig
+applications/*/sleep
+applications/*/telnet
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h

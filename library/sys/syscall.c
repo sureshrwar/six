@@ -118,17 +118,6 @@ int syscall(int num, long one, long two, long three)
 #else
 	long ret;
 
-	/*
-	 * SPARC needs none of this.  %g2..%g5 are real registers, they are
-	 * saved into the ucontext by the host on signal delivery, and this
-	 * is the path that actually worked in 2005.  Left exactly as it
-	 * was.
-	 *
-	 * The long commentary that used to live here, walking through all
-	 * seven stages from the stub to put_ret() and back, has moved to
-	 * include/asm-six/sixcall.h so that both halves of the protocol are
-	 * described in one place.
-	 */
 	__asm__("mov %1, %%g2"   :  "=r" (ret)  : "r" (num));
 	__asm__("mov %1, %%g3"   :  "=r" (ret)  : "r" (one));
 	__asm__("mov %1, %%g4"   :  "=r" (ret)  : "r" (two));
@@ -140,5 +129,39 @@ int syscall(int num, long one, long two, long three)
 	__asm__("mov %%g2, %0" : "=r" (ret));
 
 	return ret;
+#endif
+}
+
+int syscall5(int num, long one, long two, long three, long four, long five)
+{
+#if (__i386__)
+	struct six_guest_call args;
+	int pid;
+
+	args.nr = (unsigned long) num;
+	args.a1 = (unsigned long) one;
+	args.a2 = (unsigned long) two;
+	args.a3 = (unsigned long) three;
+	args.a4 = (unsigned long) four;
+	args.a5 = (unsigned long) five;
+	args.a6 = 0;
+	args.ret = 0;
+
+	__asm__ __volatile__ ("int $0x80"
+			      : "=a" (pid)
+			      : "0"  (20)               /* __NR_getpid */
+			      : "memory");
+
+	__asm__ __volatile__ ("int $0x80"
+			      :
+			      : "a" (37),               /* __NR_kill    */
+				"b" (pid),
+				"c" (SIX_TRAPSIG),
+				"S" (&args)
+			      : "memory");
+
+	return (int) args.ret;
+#else
+	return -1;
 #endif
 }

@@ -60,7 +60,8 @@ SUBDIRS	=	start \
 		httpd \
 		lynx \
 		ifconfig \
-		sleep
+		sleep \
+		telnet
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

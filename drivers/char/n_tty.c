@@ -644,8 +644,23 @@ static void n_tty_set_termios(struct tty_struct *tty, struct termios * old)
 static int normal_select(struct tty_struct * tty, struct inode * inode,
                          struct file * file, int sel_type, select_table *wait)
 {
-
-
+	switch (sel_type) {
+	case SEL_IN:
+		if (input_available_p(tty, TIME_CHAR(tty) ? 0 : MIN_CHAR(tty)))
+			return 1;
+		select_wait(&tty->read_wait, wait);
+		return 0;
+	case SEL_OUT:
+		if (n_tty_chars_in_buffer(tty) < WAKEUP_CHARS)
+			return 1;
+		select_wait(&tty->write_wait, wait);
+		return 0;
+	case SEL_EX:
+		if (tty->packet && tty->link->ctrl_status)
+			return 1;
+		return 0;
+	}
+	return 0;
 }
 
 static inline void isig(int sig, struct tty_struct *tty, int flush)

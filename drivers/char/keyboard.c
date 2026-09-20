@@ -313,7 +313,7 @@ static void handle_scancode(unsigned char scancode)
 	if (tty && (scancode == '\010' || scancode == '\177'))
 		scancode = ERASE_CHAR(tty);
 	put_queue(scancode);
-	if (scancode == 0x1d) /* Ctrl+]: immediate host exit (telnet escape) */
+	if (scancode == 0x1c) /* Ctrl+\: immediate host exit (SIGQUIT) */
 	{
 		reset_sun_tty();
 		exit(0);

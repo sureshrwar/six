@@ -861,6 +861,17 @@ void six_select(struct pt_regs *u)
 	put_ret(u, (long)ret);
 }
 
+void six_newselect(struct pt_regs *u)
+{
+	int n = (int)u->g3;
+	fd_set *inp = (fd_set *)u->g5;
+	fd_set *outp = (fd_set *)u->g4;
+	fd_set *exp = (fd_set *)u->g7;
+	struct timeval *tvp = (struct timeval *)u->g8;
+	int ret = sys_select(n, inp, outp, exp, tvp);
+	put_ret(u, (long)ret);
+}
+
 void six_umount(struct pt_regs *u)
 {
 	int ret;
@@ -1698,7 +1709,7 @@ void (* sys_call_table[])(struct pt_regs *) = {
 		six_setfsgid,
 		six_llseek,
 		six_getdents,	//141
-		enosyscall,		// some newselect() thingie
+		six_newselect,	//142
 		six_flock,
 		six_msync,
 		six_readv,
