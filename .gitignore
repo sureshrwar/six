@@ -86,6 +86,7 @@ applications/*/lynx
 applications/*/ifconfig
 applications/*/sleep
 applications/*/telnet
+applications/*/telehack
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h

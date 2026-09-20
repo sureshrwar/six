@@ -61,7 +61,8 @@ SUBDIRS	=	start \
 		lynx \
 		ifconfig \
 		sleep \
-		telnet
+		telnet \
+		telehack
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
