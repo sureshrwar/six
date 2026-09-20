@@ -45,7 +45,8 @@ SUBDIRS	=	start \
 		tetris \
 		matrix \
 		rogue \
-		basic
+		basic \
+		eliza
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
