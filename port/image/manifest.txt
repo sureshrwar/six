@@ -52,6 +52,7 @@ file  /bin/head             0755  applications/head/head
 file  /bin/httpd            0755  applications/httpd/httpd
 file  /bin/id               0755  applications/id/id
 file  /bin/ifconfig         0755  applications/ifconfig/ifconfig
+file  /bin/irc              0755  applications/irc/irc
 file  /bin/kill             0755  applications/kill/kill
 file  /bin/last             0755  applications/last/last
 file  /bin/life             0755  applications/life/life

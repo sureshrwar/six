@@ -45,10 +45,11 @@ extern void free(void *ptr);
 extern char *sbrk(int increment);
 extern int brk(void *end_data_segment);
 
-/* --- conversion ---------------------------------------------------------- */
 extern int atoi(const char *s);
 extern long strtol(const char *s, char **endptr, int base);
 extern unsigned long strtoul(const char *s, char **endptr, int base);
+extern int rand(void);
+extern void srand(unsigned int seed);
 
 /* --- environment ---------------------------------------------------------
  * There is no putenv() or setenv(); the guest's environment is whatever

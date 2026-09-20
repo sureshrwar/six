@@ -34,21 +34,6 @@
 
 static struct termios _gm_orig_tio;
 static int _gm_tio_saved = 0;
-static unsigned long _gm_rand_next = 1;
-
-static void srand(unsigned int seed)
-{
-	time_t now = 0;
-	time(&now);
-	_gm_rand_next = (seed ^ (unsigned int)now) ? (seed ^ (unsigned int)now) : 1;
-}
-
-static int rand(void)
-{
-	_gm_rand_next = _gm_rand_next * 1103515245UL + 12345UL;
-	return (int)((_gm_rand_next >> 16) & 0x7fff);
-}
-
 static void initscr(void)
 {
 	struct termios t;

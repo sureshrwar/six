@@ -91,6 +91,7 @@ applications/*/telehack
 applications/*/testdir
 applications/*/testcurses
 applications/*/starwars
+applications/*/irc
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h
