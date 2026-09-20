@@ -69,7 +69,8 @@ SUBDIRS	=	start \
 		starwars \
 		irc \
 		tcc \
-		trek
+		trek \
+		gopher
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
