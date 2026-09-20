@@ -37,6 +37,7 @@
 #else
 #include <string.h>
 #include <termios.h>
+#include <sys/ioctl.h>
 #endif
 #include <pwd.h>
 #include <ctype.h>
@@ -905,10 +906,9 @@ void cleanup(sig)
 int sig;
 {
     if (!dumb) {
-	resetty();
-	tputs_x(tgoto(CS, -1, -1));
-	tputs_x(tgoto(CM, 0, LI - 1));
+	printf("\033[r\033[?1049l\033[?25h\033[0m\n");
 	fflush(stdout);
+	resetty();
     }
     if (sig != SIGINT && sig != SIGTERM && sig != SIGHUP)
 	fprintf(stderr, "\nirc: terminated by signal %d\n", sig);
@@ -929,15 +929,14 @@ void redraw()
     if (!dumb) {
 	if (noinput) {
 	    raw();
-#ifdef CURSES
-	    nonl();
-	    noecho();
-#endif
 	}
 	wasdate = 0;
-	tputs_x(tgoto(CS, LI - 3, 0));
+	/* Set scroll region to lines 1 .. LI - 3 */
+	printf("\033[1;%dr", LI - 3);
+	fflush(stdout);
 	updatestatus();
-	tputs_x(tgoto(CM, LI - 3, 0));
+	tputs_x(tgoto(CM, curx % CO, LI - 1));
+	fflush(stdout);
     }
     noinput = 0;
 }
@@ -1174,6 +1173,14 @@ For details please see the file COPYING.\n", RELEASE);
 	CO = DEFAULT_COLUMNS;
     if (LI == -1)
 	LI = DEFAULT_LINES;
+
+    /* Detect actual terminal geometry from terminal device */
+    struct winsize ws;
+    if (ioctl(my_tty, TIOCGWINSZ, &ws) == 0 && ws.ws_row > 0 && ws.ws_col > 0) {
+	LI = ws.ws_row;
+	CO = ws.ws_col;
+    }
+
     if (envli != NULL && envco != NULL) {
 	/* if both LINES and COLUMNS env variables set, use them instead */
 	int rows = atoi(envli), cols = atoi(envco);
@@ -1197,15 +1204,13 @@ For details please see the file COPYING.\n", RELEASE);
 	if (!CE) CE = "\033[K";
 	if (!SO || !*SO) SO = "\033[7m";
 	if (!SE || !*SE) SE = "\033[0m";
-	if (!dumb) {
-	    DC = tgs("dc");
-	    savetty();
-	    raw();
-#ifdef CURSES
-	    nonl();
-	    noecho();
-#endif
-	}
+	DC = tgs("dc");
+
+	/* Switch to alternate screen buffer, clear screen, home cursor */
+	printf("\033[?1049h\033[r\033[2J\033[H");
+	fflush(stdout);
+	savetty();
+	raw();
     }
     redraw();
     signal(SIGINT, cleanup);
@@ -1213,6 +1218,7 @@ For details please see the file COPYING.\n", RELEASE);
     signal(SIGTERM, cleanup);
     signal(SIGSEGV, cleanup);
     signal(SIGTTIN, stopin);
+    signal(SIGWINCH, redraw);
     for (i = 0; i < HISTLEN; i++)
 	hist[i] = (char *) calloc(512, sizeof(char));
     linein = hist[hline = 0];
