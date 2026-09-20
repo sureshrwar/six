@@ -46,7 +46,9 @@ SUBDIRS	=	start \
 		matrix \
 		rogue \
 		basic \
-		eliza
+		eliza \
+		cowsay \
+		sl
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

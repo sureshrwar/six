@@ -71,6 +71,8 @@ applications/*/matrix
 applications/*/rogue
 applications/*/basic
 applications/*/eliza
+applications/*/cowsay
+applications/*/sl
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h

@@ -36,6 +36,7 @@ file  /bin/basic            0755  applications/basic/basic
 file  /bin/cal              0755  applications/cal/cal
 file  /bin/cat              0755  applications/cat/cat
 file  /bin/clear            0755  applications/clear/clear
+file  /bin/cowsay           0755  applications/cowsay/cowsay
 file  /bin/date             0755  applications/date/date
 file  /bin/dhrystone        0755  applications/dhrystone/dhrystone
 file  /bin/echo             0755  applications/echo/echo
@@ -60,6 +61,7 @@ file  /bin/rm               0755  applications/rm/rm
 file  /bin/rogue            0755  applications/rogue/rogue
 file  /bin/sethostname      0755  applications/sethostname/sethostname
 file  /bin/sh               0755  applications/sh/sh
+file  /bin/sl               0755  applications/sl/sl
 file  /bin/sync             0755  applications/sync/sync
 file  /bin/tetris           0755  applications/tetris/tetris
 file  /bin/ttt              0755  applications/ttt/ttt
