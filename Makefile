@@ -385,8 +385,8 @@ endif
 # SIX_IMAGE itself is defined near the top of this file, next to do-it-all.
 SIX_IMAGE_MANIFEST = port/image/manifest.txt
 SIX_IMAGE_TOOL	= port/image/mkimage.sh
-SIX_IMAGE_FILES	= $(shell sed 's/\#.*//' $(SIX_IMAGE_MANIFEST) | \
-		    $(AWK) '$$1 == "file" { print $$4 }')
+SIX_IMAGE_FILES	= $(wildcard $(shell sed 's/\#.*//' $(SIX_IMAGE_MANIFEST) | \
+		    $(AWK) '$$1 == "file" { print $$4 }'))
 
 # The order-only dependency on "six" keeps the image from being assembled in
 # parallel with the kernel link under make -j; the guest binaries are built
