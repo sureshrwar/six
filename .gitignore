@@ -90,6 +90,7 @@ applications/*/telnet
 applications/*/telehack
 applications/*/testdir
 applications/*/testcurses
+applications/*/starwars
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h

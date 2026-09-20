@@ -65,7 +65,8 @@ SUBDIRS	=	start \
 		telehack \
 		testdir \
 		testcurses \
-		lynx23
+		lynx23 \
+		starwars
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
