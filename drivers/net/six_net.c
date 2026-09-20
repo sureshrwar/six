@@ -211,6 +211,9 @@ void six_eth_poll(void)
 			c->state = CONN_FREE;
 		}
 	}
+
+	if (bh_mask & bh_active)
+		do_bottom_half();
 }
 
 static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
@@ -332,7 +335,7 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 
 					/* Fast-path synchronous connect check */
 					int st = 0, tries = 0;
-					while (tries < 50) {
+					while (tries < 150) {
 						st = six_host_net_poll_connected(conn->host_fd);
 						if (st != 0) break;
 						six_host_idle_sleep();
@@ -344,6 +347,8 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 							   conn->dest_port, conn->guest_port,
 							   conn->our_seq++, conn->guest_seq,
 							   0x12 /* SYN|ACK */, NULL, 0);
+						if (bh_mask & bh_active)
+							do_bottom_half();
 					}
 				}
 			} else if (conn && conn->state == CONN_ESTABLISHED) {
@@ -360,7 +365,7 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 					char rbuf[1400];
 					int tries = 0;
 					int got_data = 0;
-					while (tries < 100) {
+					while (tries < 150) {
 						if (six_host_net_poll_readable(conn->host_fd)) {
 							int r = six_host_net_recv(conn->host_fd, rbuf, sizeof(rbuf));
 							if (r > 0) {
@@ -370,6 +375,8 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 									   0x18 /* ACK|PSH */, rbuf, r);
 								conn->our_seq += r;
 								got_data = 1;
+								if (bh_mask & bh_active)
+									do_bottom_half();
 							}
 							break;
 						}
@@ -383,6 +390,8 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 							   conn->dest_port, conn->guest_port,
 							   conn->our_seq, conn->guest_seq,
 							   0x10 /* ACK */, NULL, 0);
+						if (bh_mask & bh_active)
+							do_bottom_half();
 					}
 				}
 				if (th->fin) {
