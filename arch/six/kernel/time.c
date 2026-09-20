@@ -244,6 +244,13 @@ static inline void timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 {
         do_timer(regs);
 
+#ifdef CONFIG_NET
+        {
+                extern void six_eth_poll(void);
+                six_eth_poll();
+        }
+#endif
+
         /*
          * If we have an externally synchronized Linux clock, then update
          * CMOS clock accordingly every ~11 minutes. Set_rtc_mmss() has to be

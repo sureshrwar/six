@@ -53,10 +53,21 @@ void six_host_raise_trap(void);
 void six_host_get_winsize(int *rows, int *cols);
 int  six_host_tty_open_raw(void);
 void six_host_tty_restore(int fd);
+void six_host_idle_sleep(void);
 
 /* Command-line option parsing via host getopt_long(). */
 void six_host_parse_args(int argc, char *argv[],
 			 int *single_out, int *wait_out,
 			 const char **disk_out);
+
+/* Host unprivileged socket bridge operations */
+int  six_host_net_socket(int type);
+int  six_host_net_connect(int fd, unsigned int ip, unsigned short port);
+int  six_host_net_poll_connected(int fd);
+int  six_host_net_poll_readable(int fd);
+int  six_host_net_send(int fd, const void *buf, int len);
+int  six_host_net_recv(int fd, void *buf, int len);
+int  six_host_net_dns_query(const void *req, int req_len, void *resp, int max_resp_len);
+void six_host_net_close(int fd);
 
 #endif /* _SIX_HOST_H */

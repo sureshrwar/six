@@ -6,6 +6,9 @@ echo Executing /etc/rc.
 
 sethostname `cat /etc/hostname`
 
+# Start HTTP server
+httpd &
+
 echo
 echo
 banner -c# SIX

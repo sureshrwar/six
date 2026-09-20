@@ -38,6 +38,7 @@ endif
 
 ifeq ($(CONFIG_NET),y)
 L_OBJS += Space.o net_init.o loopback.o
+O_OBJS += Space.o net_init.o loopback.o six_net.o
 endif
 
 ifeq ($(CONFIG_SEEQ8005),y)

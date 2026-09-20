@@ -80,25 +80,31 @@ s,
 #include <asm/system.h>
 #include <asm/segment.h>
 
-/* Forward declarations hoisted for modern GCC -- these statics are
- * called earlier in this file than they are defined.  Older gcc
- * accepted the resulting implicit declaration; modern gcc does not.
- */
+static int sock_lseek(struct inode *inode, struct file *file, off_t offset,
+		      int whence);
+static int sock_read(struct inode *inode, struct file *file, char *buf,
+		     int size);
+static int sock_write(struct inode *inode, struct file *file, const char *buf,
+		      int size);
+static void sock_close(struct inode *inode, struct file *file);
+static int sock_select(struct inode *inode, struct file *file, int which, select_table *seltable);
+static int sock_ioctl(struct inode *inode, struct file *file,
+		      unsigned int cmd, unsigned long arg);
 static int sock_fasync(struct inode *inode, struct file *filp, int on);
 
 
 static struct file_operations socket_file_ops = {
-        NULL, //sock_lseek,
-        NULL, //sock_read,
-        NULL, //sock_write,
+        sock_lseek,
+        sock_read,
+        sock_write,
         NULL,                   /* readdir */
-        NULL, //sock_select,
-        NULL, //sock_ioctl,
+        sock_select,
+        sock_ioctl,
         NULL,                   /* mmap */
         NULL,                   /* no special open code... */
-        NULL, //sock_close,
+        sock_close,
         NULL,                   /* no fsync */
-        NULL, //sock_fasync
+        sock_fasync
 };
 
 

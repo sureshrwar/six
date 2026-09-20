@@ -35,6 +35,11 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <poll.h>
+#include <errno.h>
 
 #include "host.h"
 
@@ -321,4 +326,123 @@ void six_host_parse_args(int argc, char *argv[],
 			six_usage(argv[0], stderr, 2);
 		}
 	}
+}
+
+/* Host network bridge operations (unprivileged user-mode sockets) */
+
+int six_host_net_socket(int type)
+{
+	int fd = socket(AF_INET, type, 0);
+	if (fd >= 0) {
+		int flags = fcntl(fd, F_GETFL, 0);
+		fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+	}
+	return fd;
+}
+
+int six_host_net_connect(int fd, unsigned int ip, unsigned short port)
+{
+	struct sockaddr_in sin;
+	memset(&sin, 0, sizeof(sin));
+	sin.sin_family = AF_INET;
+	sin.sin_addr.s_addr = ip;
+	sin.sin_port = htons(port);
+	int ret = connect(fd, (struct sockaddr *)&sin, sizeof(sin));
+	if (ret < 0 && (errno == EINPROGRESS || errno == EALREADY))
+		return 0; /* In progress */
+	return ret;
+}
+
+int six_host_net_poll_connected(int fd)
+{
+	struct pollfd pfd;
+	pfd.fd = fd;
+	pfd.events = POLLOUT;
+	pfd.revents = 0;
+	int ret = poll(&pfd, 1, 0);
+	if (ret > 0) {
+		if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))
+			return -1;
+		if (pfd.revents & POLLOUT) {
+			int err = 0;
+			socklen_t len = sizeof(err);
+			getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len);
+			return (err == 0) ? 1 : -1;
+		}
+	}
+	return 0;
+}
+
+int six_host_net_poll_readable(int fd)
+{
+	struct pollfd pfd;
+	pfd.fd = fd;
+	pfd.events = POLLIN;
+	pfd.revents = 0;
+	int ret = poll(&pfd, 1, 0);
+	if (ret > 0) {
+		if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))
+			return -1;
+		if (pfd.revents & POLLIN)
+			return 1;
+	}
+	return 0;
+}
+
+int six_host_net_send(int fd, const void *buf, int len)
+{
+	int ret = send(fd, buf, len, MSG_DONTWAIT);
+	if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+		return 0;
+	return ret;
+}
+
+int six_host_net_recv(int fd, void *buf, int len)
+{
+	int ret = recv(fd, buf, len, MSG_DONTWAIT);
+	if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+		return 0;
+	return ret;
+}
+
+int six_host_net_dns_query(const void *req, int req_len, void *resp, int max_resp_len)
+{
+	int s = socket(AF_INET, SOCK_DGRAM, 0);
+	if (s < 0) return -1;
+
+	struct sockaddr_in dns_addr;
+	memset(&dns_addr, 0, sizeof(dns_addr));
+	dns_addr.sin_family = AF_INET;
+	dns_addr.sin_port = htons(53);
+	dns_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+	if (sendto(s, req, req_len, 0, (struct sockaddr *)&dns_addr, sizeof(dns_addr)) < 0) {
+		dns_addr.sin_addr.s_addr = inet_addr("8.8.8.8");
+		if (sendto(s, req, req_len, 0, (struct sockaddr *)&dns_addr, sizeof(dns_addr)) < 0) {
+			close(s);
+			return -1;
+		}
+	}
+
+	struct pollfd pfd;
+	pfd.fd = s;
+	pfd.events = POLLIN;
+	pfd.revents = 0;
+	int r = -1;
+	if (poll(&pfd, 1, 2000) > 0 && (pfd.revents & POLLIN)) {
+		r = recv(s, resp, max_resp_len, 0);
+	}
+	close(s);
+	return r;
+}
+
+void six_host_net_close(int fd)
+{
+	if (fd >= 0)
+		close(fd);
+}
+
+void six_host_idle_sleep(void)
+{
+	usleep(2000);
 }

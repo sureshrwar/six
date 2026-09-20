@@ -48,6 +48,14 @@ asmlinkage int sys_idle(void)
         /* endless idle loop with no priority at all */
         current->counter = -100;
         for (;;) {
+#ifdef CONFIG_NET
+                {
+                        extern void six_eth_poll(void);
+                        six_eth_poll();
+                }
+#endif
+                six_host_sti();
+                six_host_idle_sleep();
                 schedule();
         }
 }

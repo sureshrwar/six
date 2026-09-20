@@ -55,7 +55,11 @@ SUBDIRS	=	start \
 		touch \
 		df \
 		wc \
-		head
+		head \
+		nettest \
+		httpd \
+		lynx \
+		ifconfig
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

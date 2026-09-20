@@ -229,7 +229,8 @@ char *argv[];
 				exit(1);
 			}
 		} while (n < 2);
-		name[n - 1] = 0;
+		while (n > 0 && (name[n - 1] == '\r' || name[n - 1] == '\n' || name[n - 1] == ' '))
+			name[--n] = 0;
 
 	}
 

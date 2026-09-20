@@ -460,13 +460,13 @@ void device_setup(void)
 #endif
         blk_dev_init();
         sti();  
+#ifdef CONFIG_INET
+        net_dev_init();
+#endif
 #if (!SIX)
 #ifdef CONFIG_SCSI
         scsi_dev_init();
 #endif          
-#ifdef CONFIG_INET
-        net_dev_init();
-#endif
         console_map_init();
 
         for (p = gendisk_head ; p ; p=p->next) {

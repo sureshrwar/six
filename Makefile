@@ -11,6 +11,7 @@ else
 # solaris stuff..
 ARCH = six
 
+CONFIG_NET = y
 CONFIG_INET = y
 CONFIG_BINFMT_ELF = y
 CONFIG_EXT2_FS = y

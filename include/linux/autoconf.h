@@ -17,7 +17,8 @@
  * General setup
  */
 #undef  CONFIG_MATH_EMULATION
-#undef  CONFIG_NET
+#define CONFIG_NET 1
+#define CONFIG_INET 1
 #undef  CONFIG_MAX_16M
 #undef  CONFIG_PCI
 #undef  CONFIG_SYSVIPC

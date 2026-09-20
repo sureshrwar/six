@@ -170,8 +170,10 @@ void do_getty(char *name, size_t len, char **args)
 			}
 			ch = ' ';
 			continue;
+		    case '\r':
 		    case '\n':
 			*np = '\0';
+			ch = '\n';
 			break;
 		    default:
 			if (np < name + len) *np++ = ch;
