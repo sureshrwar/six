@@ -1,30 +1,30 @@
 # /etc/rc
 
-sleep 1
+sleep 0.25
 echo Executing /etc/rc.
 
-sleep 1
+sleep 0.25
 
 #set the hostname
 echo Setting hostname to `cat /etc/hostname`
 sethostname `cat /etc/hostname`
 
-sleep 1
+sleep 0.25
 
 # Start HTTP server
 echo Starting a local HTTP server.
 httpd &
 
-sleep 1
+sleep 0.25
 
 echo
 echo
 banner -c# SIX
 echo
-sleep 1
+sleep 0.25
 echo Escape character is '^\\'.
 
-sleep 1
+sleep 0.25
 
 
 
