@@ -96,6 +96,16 @@ applications/*/tcc
 applications/*/trek
 applications/*/gopher
 applications/*/mail
+applications/*/more
+applications/*/sort
+applications/*/uniq
+applications/*/tr
+applications/*/tail
+applications/*/find
+applications/*/sed
+applications/*/tar
+applications/*/sixanim
+applications/*/telnetd
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h

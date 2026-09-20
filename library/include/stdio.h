@@ -81,6 +81,7 @@ int fflush(FILE *stream);
 char *fgets(char *s, int size, FILE *stream);
 int fputs(const char *s, FILE *stream);
 int puts(const char *s);
+void perror(const char *s);
 
 #endif
 

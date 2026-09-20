@@ -19,6 +19,7 @@ char _ifmt[] = "0pcCd?bB-?l?s???";
 #define nil 0
 
 #include <stdio.h>
+#include <string.h>
 #include <linux/types.h>
 #include <linux/limits.h>
 #include <stat.h>
@@ -128,7 +129,7 @@ int present(int f)
 void report(char *f)
 /* Like perror(3), but in the style: "ls: junk: No such file or directory. */
 {
-	fprintf(stderr, "%s: %s: %s\n", arg0, f, perror(errno));
+	fprintf(stderr, "%s: %s: %s\n", arg0, f, strerror(errno));
 	ex= 1;
 }
 

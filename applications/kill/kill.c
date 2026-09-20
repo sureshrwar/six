@@ -5,6 +5,7 @@
 #include <linux/signal.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 
 int main(argc, argv)
@@ -31,7 +32,7 @@ char **argv;
 	if (end == *argv || *end != 0 || (pid_t) l != l) usage();
 	proc = l;
 	if (kill(proc, signal) < 0) {
-		fprintf(stderr, "kill: %d: %s\n", proc, perror("kill: "));
+		fprintf(stderr, "kill: %d: %s\n", proc, strerror(errno));
 		ex = 1;
 	}
   }

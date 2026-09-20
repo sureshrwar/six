@@ -22,6 +22,7 @@ size_t strlen(const char *s);
 char *strtok(char *str, const char *delim);
 size_t strcspn(const char *s, const char *reject);
 char *strdup(const char *s);
+char *strerror(int errnum);
 
 void *memcpy(void *dest, const void *src, size_t n);
 void *memset(void *s, int c, size_t n);

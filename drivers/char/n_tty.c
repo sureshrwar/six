@@ -648,10 +648,14 @@ static int normal_select(struct tty_struct * tty, struct inode * inode,
 	case SEL_IN:
 		if (input_available_p(tty, TIME_CHAR(tty) ? 0 : MIN_CHAR(tty)))
 			return 1;
+		if (test_bit(TTY_OTHER_CLOSED, &tty->flags) || tty_hung_up_p(file))
+			return 1;
 		select_wait(&tty->read_wait, wait);
 		return 0;
 	case SEL_OUT:
 		if (n_tty_chars_in_buffer(tty) < WAKEUP_CHARS)
+			return 1;
+		if (test_bit(TTY_OTHER_CLOSED, &tty->flags) || tty_hung_up_p(file))
 			return 1;
 		select_wait(&tty->write_wait, wait);
 		return 0;

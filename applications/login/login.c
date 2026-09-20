@@ -43,68 +43,41 @@ int uid;			/* user id */
   struct utmp entry;
   register int fd= -1;
   int lineno;
-  int err = 0;
-  char *what;
+  char *tname;
 
-  /* First, read the current UTMP entry. we need some of its
-   * parameters! (like PID, ID etc...).
-   */
-  what= "ttyslot()";
-  lineno= ttyslot();
-  if (lineno == 0) err= errno;	/* ttyslot failed */
-
-  if (err == 0 && (fd = open(what = PATH_UTMP, O_RDONLY)) < 0) {
-  	if (errno == ENOENT) return;
-  	err= errno;
-  }
-  if (err == 0 && lseek(fd, (off_t) lineno * sizeof(entry), SEEK_SET) < 0)
-  	err= errno;
-  if (err == 0 && read(fd, (char *) &entry, sizeof(entry)) != sizeof(entry))
-  	err= errno;
-  if (fd >= 0) close(fd);
-
-  /* Enter new fields. */
+  memset(&entry, 0, sizeof(entry));
   strncpy(entry.ut_user, user, sizeof(entry.ut_user));
   if (hostname) strncpy(entry.ut_host, hostname, sizeof(entry.ut_host));
-
-  if (entry.ut_pid == 0) entry.ut_pid = getpid();
-
-  entry.ut_type = USER_PROCESS;		/* we are past login... */
+  tname = ttyname(0);
+  if (tname && strncmp(tname, "/dev/", 5) == 0)
+    strncpy(entry.ut_line, tname + 5, sizeof(entry.ut_line));
+  entry.ut_pid = getpid();
+  entry.ut_type = USER_PROCESS;
   time(&entry.ut_time);
 
   /* Write a WTMP record. */
-  if (err == 0) {
-  	if ((fd = open(what = PATH_WTMP, O_WRONLY|O_APPEND)) < 0) {
-  		if (errno != ENOENT) err= errno;
-	} else {
-		if (write(fd, (char *) &entry, sizeof(entry)) < 0) err= errno;
+  if ((fd = open(PATH_WTMP, O_WRONLY|O_APPEND)) >= 0) {
+	write(fd, (char *) &entry, sizeof(entry));
+	close(fd);
+  }
+
+  /* Rewrite the UTMP entry if a tty slot is defined */
+  lineno = ttyslot();
+  if (lineno > 0) {
+	if ((fd = open(PATH_UTMP, O_WRONLY)) >= 0) {
+		if (lseek(fd, (off_t) lineno * sizeof(entry), SEEK_SET) >= 0) {
+			write(fd, (char *) &entry, sizeof(entry));
+		}
 		close(fd);
 	}
   }
 
-  /* Rewrite the UTMP entry. */
-  if (err == 0 && (fd = open(what = PATH_UTMP, O_WRONLY)) < 0)
-	err= errno;
-  if (err == 0 && lseek(fd, (off_t) lineno * sizeof(entry), SEEK_SET) < 0)
-	err= errno;
-  if (err == 0 && write(fd, (char *) &entry, sizeof(entry)) < 0)
-	err= errno;
-  if (fd >= 0) close(fd);
-
   /* Write the LASTLOG entry. */
-  if (err == 0 && (fd = open(what = PATH_LASTLOG, O_WRONLY)) < 0) {
-	if (errno == ENOENT) return;
-	err= errno;
-  }
-  if (err == 0 && lseek(fd, (off_t) uid * sizeof(entry), SEEK_SET) < 0)
-	err= errno;
-  if (err == 0 && write(fd, (char *) &entry, sizeof(entry)) < 0)
-	err= errno;
-  if (fd >= 0) close(fd);
-
-  if (err != 0) {
-  	fprintf(stderr, "login: %s: %s\n", what, perror(""));
-  	return;
+  if ((fd = open(PATH_LASTLOG, O_WRONLY)) >= 0) {
+	if (lseek(fd, (off_t) uid * sizeof(entry), SEEK_SET) >= 0) {
+		write(fd, (char *) &entry, sizeof(entry));
+	}
+	close(fd);
   }
 }
 
@@ -223,9 +196,7 @@ char *argv[];
 			if (n < 0)
 			{
 				if (errno != EINTR)
-					fprintf(stderr,
-						"login: read failed: %s\n",
-							perror(""));
+					perror("login: read failed");
 				exit(1);
 			}
 		} while (n < 2);
@@ -359,6 +330,9 @@ char *argv[];
 	if ((ttyp = getttynam(tty_name + 5)) != NULL) {
 		strcpy(term, "TERM=");
 		strcat(term, ttyp->ty_type);
+		add2env(env, term, 0);
+	} else {
+		strcpy(term, "TERM=vt100");
 		add2env(env, term, 0);
 	}
 

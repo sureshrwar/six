@@ -75,17 +75,25 @@ const char *sys_errlist[] = {
 
 const int sys_nerr = sizeof(sys_errlist) / sizeof(sys_errlist[0]);
 
-void    
+char *
+strerror(int errnum)
+{
+	if (errnum < 0 || errnum >= sys_nerr)
+		return (char *)unknown;
+	return (char *)sys_errlist[errnum];
+}
+
+char *
 perror(const char *s)
 {       
-        char *p;
-	p = sys_errlist[errno];
-        if (s && *s) {
-                write(2, s, strlen(s));
-                write(2, ": ", 2);
-        }
-        write(2, p, strlen(p));
-        write(2, "\n", 1);
+	char *p = strerror(errno);
+	if (s && *s) {
+		write(2, s, strlen(s));
+		write(2, ": ", 2);
+	}
+	write(2, p, strlen(p));
+	write(2, "\n", 1);
+	return p;
 }
 
 
