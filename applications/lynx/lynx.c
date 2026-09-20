@@ -16,6 +16,8 @@
 #include <linux/termios.h>
 #include <stat.h>
 #include <linux/fcntl.h>
+#include <linux/types.h>
+#include <linux/time.h>
 
 extern int close(int fd);
 extern int read(int fd, void *buf, size_t count);
@@ -24,6 +26,7 @@ extern int tcgetattr(int fd, struct termios *termios_p);
 extern int tcsetattr(int fd, int optional_actions, const struct termios *termios_p);
 extern int ioctl(int fd, int request, ...);
 extern int open(const char *pathname, int flags, ...);
+extern int select(int n, fd_set *inp, fd_set *outp, fd_set *exp, struct timeval *tvp);
 
 #define MAX_LINES 2000
 #define MAX_LINE_LEN 128
@@ -173,7 +176,7 @@ static char *http_fetch(const char *url, int *out_len)
 		return NULL;
 	}
 
-	sprintf(req, "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: Lynx/2.8.4 (SIX-Linux-2.0.11)\r\nAccept: text/html, text/plain, */*\r\n\r\n", path, host);
+	sprintf(req, "GET %s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\nUser-Agent: Lynx/2.8.4 (SIX-Linux-2.0.11)\r\nAccept: text/html, text/plain, */*\r\n\r\n", path, host);
 	write(sfd, req, strlen(req));
 
 	buf = malloc(buf_size);
@@ -184,7 +187,28 @@ static char *http_fetch(const char *url, int *out_len)
 
 	int content_len = -1;
 	int header_len = 0;
-	while ((r = read(sfd, buf + total, buf_size - total - 1)) > 0) {
+	for (;;) {
+		struct timeval tv;
+		tv.tv_sec = (total == 0) ? 5 : 2;
+		tv.tv_usec = 0;
+		fd_set rfds;
+		FD_ZERO(&rfds);
+		FD_SET(sfd, &rfds);
+
+		if (select(sfd + 1, &rfds, NULL, NULL, &tv) <= 0) {
+			/* Timeout - break if we received headers, else fail */
+			if (total > 0 && strstr(buf, "\r\n\r\n")) break;
+			if (total == 0) {
+				close(sfd);
+				free(buf);
+				return NULL;
+			}
+			break;
+		}
+
+		r = read(sfd, buf + total, buf_size - total - 1);
+		if (r <= 0)
+			break;
 		total += r;
 		buf[total] = '\0';
 		if (content_len < 0) {
@@ -277,6 +301,8 @@ static void render_html(const char *html)
 	char tag_buf[128];
 	int tag_idx = 0;
 	int in_pre = 0;
+	int in_style = 0;
+	int in_script = 0;
 	int in_title = 0;
 	char title_buf[128];
 	int title_idx = 0;
@@ -339,6 +365,14 @@ static void render_html(const char *html)
 				} else if (strcasecmp(tag_buf, "/pre") == 0) {
 					in_pre = 0;
 					if (cur_col > 0) { add_line(cur_line); cur_col = 0; cur_line[0] = '\0'; }
+				} else if (strncasecmp(tag_buf, "style", 5) == 0) {
+					in_style = 1;
+				} else if (strncasecmp(tag_buf, "/style", 6) == 0) {
+					in_style = 0;
+				} else if (strncasecmp(tag_buf, "script", 6) == 0) {
+					in_script = 1;
+				} else if (strncasecmp(tag_buf, "/script", 7) == 0) {
+					in_script = 0;
 				} else if (strncasecmp(tag_buf, "a ", 2) == 0) {
 					char *h = strstr(tag_buf, "href=");
 					if (h) {
@@ -373,6 +407,11 @@ static void render_html(const char *html)
 			}
 			if (tag_idx < sizeof(tag_buf) - 1)
 				tag_buf[tag_idx++] = *p;
+			p++;
+			continue;
+		}
+
+		if (in_style || in_script) {
 			p++;
 			continue;
 		}

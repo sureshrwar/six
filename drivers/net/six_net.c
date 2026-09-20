@@ -342,7 +342,7 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 
 					/* Fast-path synchronous connect check */
 					int st = 0, tries = 0;
-					while (tries < 150) {
+					while (tries < 1000) {
 						st = six_host_net_poll_connected(conn->host_fd);
 						if (st != 0) break;
 						six_host_idle_sleep();
@@ -372,7 +372,7 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 					char rbuf[1400];
 					int tries = 0;
 					int got_data = 0;
-					while (tries < 150) {
+					while (tries < 1000) {
 						while (six_host_net_poll_readable(conn->host_fd)) {
 							int r = six_host_net_recv(conn->host_fd, rbuf, sizeof(rbuf));
 							if (r > 0) {
