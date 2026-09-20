@@ -434,6 +434,35 @@ static void add_line(const char *line)
 	}
 }
 
+static void add_html_blank_line(void)
+{
+	if (total_lines > 0 && doc_lines[total_lines - 1][0] != '\0') {
+		add_line("");
+	}
+}
+
+static void flush_html_line(char *cur_line, int *cur_col)
+{
+	if (*cur_col > 0) {
+		int i, has_content = 0;
+		for (i = 0; i < *cur_col; i++) {
+			if (cur_line[i] != ' ' && cur_line[i] != '\t') {
+				has_content = 1;
+				break;
+			}
+		}
+		if (has_content) {
+			while (*cur_col > 0 && cur_line[*cur_col - 1] == ' ') {
+				(*cur_col)--;
+			}
+			cur_line[*cur_col] = '\0';
+			add_line(cur_line);
+		}
+		*cur_col = 0;
+		cur_line[0] = '\0';
+	}
+}
+
 static void render_html(const char *html)
 {
 	const char *p = html;
@@ -500,35 +529,62 @@ static void render_html(const char *html)
 					strncpy(doc_title, title_buf, sizeof(doc_title) - 1);
 				} else if (lynx_strncasecmp(tag_buf, "h1", 2) == 0 ||
 					   lynx_strncasecmp(tag_buf, "h2", 2) == 0 ||
-					   lynx_strncasecmp(tag_buf, "h3", 2) == 0) {
-					if (cur_col > 0) { add_line(cur_line); cur_col = 0; cur_line[0] = '\0'; }
-					add_line("");
-				} else if (lynx_strncasecmp(tag_buf, "/h1", 3) == 0 ||
+					   lynx_strncasecmp(tag_buf, "h3", 2) == 0 ||
+					   lynx_strncasecmp(tag_buf, "/h1", 3) == 0 ||
 					   lynx_strncasecmp(tag_buf, "/h2", 3) == 0 ||
 					   lynx_strncasecmp(tag_buf, "/h3", 3) == 0) {
-					if (cur_col > 0) { add_line(cur_line); cur_col = 0; cur_line[0] = '\0'; }
-					add_line("");
-				} else if (lynx_strcasecmp(tag_buf, "p") == 0 || lynx_strcasecmp(tag_buf, "/p") == 0 ||
-					   lynx_strncasecmp(tag_buf, "div", 3) == 0 || lynx_strncasecmp(tag_buf, "/div", 4) == 0) {
-					if (cur_col > 0) { add_line(cur_line); cur_col = 0; cur_line[0] = '\0'; }
-					add_line("");
-				} else if (lynx_strcasecmp(tag_buf, "br") == 0) {
-					add_line(cur_line);
-					cur_col = 0;
-					cur_line[0] = '\0';
-				} else if (lynx_strcasecmp(tag_buf, "hr") == 0) {
-					if (cur_col > 0) { add_line(cur_line); cur_col = 0; cur_line[0] = '\0'; }
+					flush_html_line(cur_line, &cur_col);
+					add_html_blank_line();
+				} else if (lynx_strcasecmp(tag_buf, "p") == 0 ||
+					   lynx_strncasecmp(tag_buf, "p ", 2) == 0 ||
+					   lynx_strcasecmp(tag_buf, "/p") == 0) {
+					flush_html_line(cur_line, &cur_col);
+					add_html_blank_line();
+				} else if (lynx_strncasecmp(tag_buf, "div", 3) == 0 ||
+					   lynx_strncasecmp(tag_buf, "/div", 4) == 0 ||
+					   lynx_strncasecmp(tag_buf, "tr", 2) == 0 ||
+					   lynx_strncasecmp(tag_buf, "/tr", 3) == 0) {
+					flush_html_line(cur_line, &cur_col);
+				} else if (lynx_strncasecmp(tag_buf, "br", 2) == 0) {
+					flush_html_line(cur_line, &cur_col);
+				} else if (lynx_strncasecmp(tag_buf, "hr", 2) == 0) {
+					flush_html_line(cur_line, &cur_col);
 					add_line("--------------------------------------------------------------------------------");
-				} else if (lynx_strcasecmp(tag_buf, "li") == 0) {
-					if (cur_col > 0) { add_line(cur_line); cur_col = 0; cur_line[0] = '\0'; }
+				} else if (lynx_strncasecmp(tag_buf, "li", 2) == 0) {
+					flush_html_line(cur_line, &cur_col);
 					strcpy(cur_line, "  * ");
 					cur_col = 4;
+				} else if (lynx_strncasecmp(tag_buf, "input", 5) == 0) {
+					if (!strstr(tag_buf, "type=\"hidden\"") && !strstr(tag_buf, "type=hidden")) {
+						char *v = strstr(tag_buf, "value=");
+						if (v) {
+							char val[64];
+							int vi = 0;
+							char qchar = 0;
+							v += 6;
+							if (*v == '"' || *v == '\'') qchar = *v++;
+							while (*v && (qchar ? (*v != qchar) : (*v != ' ' && *v != '>')) && vi < 55) {
+								val[vi++] = *v++;
+							}
+							val[vi] = '\0';
+							if (vi > 0 && cur_col + vi + 5 < MAX_LINE_LEN - 1) {
+								sprintf(cur_line + cur_col, " [ %s ] ", val);
+								cur_col += vi + 5;
+							}
+						} else if (strstr(tag_buf, "type=\"text\"") || strstr(tag_buf, "type=text") ||
+							   strstr(tag_buf, "name=\"q\"") || strstr(tag_buf, "name=q")) {
+							if (cur_col + 27 < MAX_LINE_LEN - 1) {
+								strcpy(cur_line + cur_col, " [________________________] ");
+								cur_col += 28;
+							}
+						}
+					}
 				} else if (lynx_strcasecmp(tag_buf, "pre") == 0) {
 					in_pre = 1;
-					if (cur_col > 0) { add_line(cur_line); cur_col = 0; cur_line[0] = '\0'; }
+					flush_html_line(cur_line, &cur_col);
 				} else if (lynx_strcasecmp(tag_buf, "/pre") == 0) {
 					in_pre = 0;
-					if (cur_col > 0) { add_line(cur_line); cur_col = 0; cur_line[0] = '\0'; }
+					flush_html_line(cur_line, &cur_col);
 				} else if (lynx_strncasecmp(tag_buf, "style", 5) == 0) {
 					in_style = 1;
 				} else if (lynx_strncasecmp(tag_buf, "script", 6) == 0) {
@@ -625,13 +681,10 @@ static void render_html(const char *html)
 		}
 
 		if (cur_col >= 75 && cur_line[cur_col - 1] == ' ') {
-			add_line(cur_line);
-			cur_col = 0;
-			cur_line[0] = '\0';
+			flush_html_line(cur_line, &cur_col);
 		}
 	}
-	if (cur_col > 0)
-		add_line(cur_line);
+	flush_html_line(cur_line, &cur_col);
 
 	if (doc_title[0] == '\0')
 		strcpy(doc_title, "SIX Lynx");
@@ -777,7 +830,7 @@ static void draw_screen(int top_line, int cur_link, int rows, int cols)
 		printf(" [%d/%d] %-36.36s Enter:Follow g:URL /:Find \\:Src s:Save a:Bkmk q:Quit",
 		       cur_link + 1, total_links, links[cur_link].url);
 	} else {
-		printf(" Down/Up:Scroll  Enter:Follow  g:URL  /:Find  n:Next  \\:Src  s:Save  a:Bkmk  q:Quit");
+		printf(" Down/Up:Scroll  Tab:Link  Enter:Follow  g:URL  /:Find  \\:Src  s:Save  q:Quit");
 	}
 	for (i = 75; i < cols; i++) putchar(' ');
 	printf("\033[0m");
@@ -885,10 +938,38 @@ static void save_page_to_file(const char *filename)
 	sprintf(status_msg, "[Saved %d lines to %s]", total_lines, filename);
 }
 
+static int lynx_getline(char *buf, int max_len)
+{
+	int pos = 0;
+	char ch;
+
+	while (pos < max_len - 1) {
+		if (read(0, &ch, 1) <= 0) break;
+		if (ch == '\r' || ch == '\n') {
+			break;
+		} else if (ch == '\b' || ch == 127) {
+			if (pos > 0) {
+				pos--;
+				printf("\b \b");
+				fflush(stdout);
+			}
+		} else if (ch == 3 || ch == 27) {
+			buf[0] = '\0';
+			return 0;
+		} else if (ch >= 32 && ch <= 126) {
+			buf[pos++] = ch;
+			putchar(ch);
+			fflush(stdout);
+		}
+	}
+	buf[pos] = '\0';
+	return pos;
+}
+
 static void interactive_browse(const char *initial_url)
 {
 	int top_line = 0;
-	int cur_link = 0;
+	int cur_link = -1;
 	int rows, cols;
 	char url[MAX_URL_LEN];
 
@@ -914,7 +995,7 @@ load_new_url:
 		render_html(raw_doc);
 
 		top_line = 0;
-		cur_link = (total_links > 0) ? 0 : -1;
+		cur_link = -1;
 	}
 
 	enable_raw_mode();
@@ -936,9 +1017,11 @@ load_new_url:
 				if (seq[0] == '[') {
 					if (seq[1] == 'A') { /* Up */
 						if (cur_link > 0) cur_link--;
+						else if (cur_link == 0) cur_link = -1;
 						else if (top_line > 0) top_line--;
 					} else if (seq[1] == 'B') { /* Down */
-						if (cur_link < total_links - 1) cur_link++;
+						if (cur_link < 0 && total_links > 0) cur_link = 0;
+						else if (cur_link < total_links - 1) cur_link++;
 						else if (top_line + (rows - 2) < total_lines) top_line++;
 					} else if (seq[1] == '5' && read(0, &seq[2], 1) > 0) { /* PgUp */
 						top_line -= (rows - 2);
@@ -949,11 +1032,19 @@ load_new_url:
 					}
 				}
 			}
+		} else if (ch == '\t') {
+			/* Tab key: cycle through links */
+			if (total_links > 0) {
+				if (cur_link < 0 || cur_link >= total_links - 1) cur_link = 0;
+				else cur_link++;
+			}
 		} else if (ch == 'j') {
-			if (cur_link < total_links - 1) cur_link++;
+			if (cur_link < 0 && total_links > 0) cur_link = 0;
+			else if (cur_link < total_links - 1) cur_link++;
 			else if (top_line + (rows - 2) < total_lines) top_line++;
 		} else if (ch == 'k') {
 			if (cur_link > 0) cur_link--;
+			else if (cur_link == 0) cur_link = -1;
 			else if (top_line > 0) top_line--;
 		} else if (ch == ' ' || ch == 'f') {
 			if (top_line + (rows - 2) < total_lines)
@@ -962,8 +1053,6 @@ load_new_url:
 			if (history_count > 0) {
 				history_count--;
 				strncpy(url, history_stack[history_count], sizeof(url) - 1);
-				disable_raw_mode();
-				printf("\033[?25h");
 				goto load_new_url;
 			} else {
 				top_line -= (rows - 2);
@@ -975,8 +1064,6 @@ load_new_url:
 					strncpy(history_stack[history_count++], current_url, MAX_URL_LEN - 1);
 				}
 				strncpy(url, links[cur_link].url, sizeof(url) - 1);
-				disable_raw_mode();
-				printf("\033[?25h");
 				goto load_new_url;
 			}
 		} else if (ch >= '1' && ch <= '9') {
@@ -986,51 +1073,31 @@ load_new_url:
 					strncpy(history_stack[history_count++], current_url, MAX_URL_LEN - 1);
 				}
 				strncpy(url, links[lidx].url, sizeof(url) - 1);
-				disable_raw_mode();
-				printf("\033[?25h");
 				goto load_new_url;
 			}
 		} else if (ch == 'g' || ch == 'G') {
-			char newurl[MAX_URL_LEN];
-			disable_raw_mode();
+			static char prompt_url[MAX_URL_LEN];
 			printf("\033[?25h\033[%d;1H\033[KURL to open: ", rows);
 			fflush(stdout);
-			if (fgets(newurl, sizeof(newurl), stdin)) {
-				char *nl = strchr(newurl, '\n');
-				if (nl) *nl = '\0';
-				nl = strchr(newurl, '\r');
-				if (nl) *nl = '\0';
-				if (strlen(newurl) > 0) {
-					if (history_count < MAX_HIST) {
-						strncpy(history_stack[history_count++], current_url, MAX_URL_LEN - 1);
-					}
-					strncpy(url, newurl, sizeof(url) - 1);
-					goto load_new_url;
+			if (lynx_getline(prompt_url, sizeof(prompt_url)) > 0) {
+				if (history_count < MAX_HIST) {
+					strncpy(history_stack[history_count++], current_url, MAX_URL_LEN - 1);
 				}
+				strncpy(url, prompt_url, sizeof(url) - 1);
+				goto load_new_url;
 			}
-			enable_raw_mode();
 			printf("\033[?25l");
 		} else if (ch == 'r' || ch == 'R') {
-			disable_raw_mode();
-			printf("\033[?25h");
 			goto load_new_url;
 		} else if (ch == '/') {
 			/* In-page search */
-			char query[64];
-			disable_raw_mode();
+			static char prompt_search[64];
 			printf("\033[?25h\033[%d;1H\033[KSearch [/]: ", rows);
 			fflush(stdout);
-			if (fgets(query, sizeof(query), stdin)) {
-				char *nl = strchr(query, '\n');
-				if (nl) *nl = '\0';
-				nl = strchr(query, '\r');
-				if (nl) *nl = '\0';
-				if (strlen(query) > 0) {
-					strncpy(last_search, query, sizeof(last_search) - 1);
-					do_search(&top_line, &cur_link);
-				}
+			if (lynx_getline(prompt_search, sizeof(prompt_search)) > 0) {
+				strncpy(last_search, prompt_search, sizeof(last_search) - 1);
+				do_search(&top_line, &cur_link);
 			}
-			enable_raw_mode();
 			printf("\033[?25l");
 		} else if (ch == 'n' || ch == 'N') {
 			/* Next search match */
@@ -1044,24 +1111,16 @@ load_new_url:
 			view_source_mode = !view_source_mode;
 			render_current();
 			top_line = 0;
-			cur_link = (total_links > 0) ? 0 : -1;
+			cur_link = -1;
 			sprintf(status_msg, view_source_mode ? "[Source View mode enabled]" : "[Rendered HTML mode enabled]");
 		} else if (ch == 's' || ch == 'S') {
 			/* Save page to file */
-			char save_name[128];
-			disable_raw_mode();
+			static char prompt_file[128];
 			printf("\033[?25h\033[%d;1H\033[KSave to file: ", rows);
 			fflush(stdout);
-			if (fgets(save_name, sizeof(save_name), stdin)) {
-				char *nl = strchr(save_name, '\n');
-				if (nl) *nl = '\0';
-				nl = strchr(save_name, '\r');
-				if (nl) *nl = '\0';
-				if (strlen(save_name) > 0) {
-					save_page_to_file(save_name);
-				}
+			if (lynx_getline(prompt_file, sizeof(prompt_file)) > 0) {
+				save_page_to_file(prompt_file);
 			}
-			enable_raw_mode();
 			printf("\033[?25l");
 		} else if (ch == 'a' || ch == 'A') {
 			/* Bookmark current page */
@@ -1078,8 +1137,6 @@ load_new_url:
 				strncpy(history_stack[history_count++], current_url, MAX_URL_LEN - 1);
 			}
 			strncpy(url, burl, sizeof(url) - 1);
-			disable_raw_mode();
-			printf("\033[?25h");
 			goto load_new_url;
 		} else if (ch == 'h' || ch == 'H' || ch == '?') {
 			show_help();
