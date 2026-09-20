@@ -43,6 +43,7 @@ dir   /var/spool/mail       0777
 
 # --- /bin (all 23 programs from the SPARC root disk + vi & advent) ----------
 file  /bin/advent           0755  applications/advent/advent
+file  /bin/awk              0755  applications/awk/awk
 file  /bin/banner           0755  applications/banner/banner
 file  /bin/basic            0755  applications/basic/basic
 file  /bin/cal              0755  applications/cal/cal

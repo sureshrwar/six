@@ -29,5 +29,6 @@ double atan2(double y, double x);
 double log(double x);
 double exp(double x);
 double pow(double x, double y);
+double modf(double x, double *iptr);
 
 #endif /* _LIBRARY_MATH_H */

@@ -85,3 +85,8 @@ long double strtold(const char *nptr, char **endptr)
 {
 	return (long double)strtod(nptr, endptr);
 }
+
+double atof(const char *nptr)
+{
+	return strtod(nptr, NULL);
+}

@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 extern char **envlist;
-char **environ = 0;
+extern char **environ;
 
 int execle(const char *path, const char *arg0, ...)
 {

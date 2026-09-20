@@ -148,3 +148,13 @@ double pow(double x, double y)
 	}
 	return 0.0;
 }
+
+double modf(double x, double *iptr)
+{
+	double i = floor(fabs(x));
+	if (x < 0.0)
+		i = -i;
+	if (iptr)
+		*iptr = i;
+	return x - i;
+}

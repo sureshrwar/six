@@ -27,6 +27,9 @@
 
 #define EXIT_SUCCESS	0
 #define EXIT_FAILURE	1
+#define RAND_MAX	32767
+
+extern double atof(const char *nptr);
 
 /* --- process termination -------------------------------------------------
  * exit() is library/sys/exit.c and runs the stdio cleanup; _exit() is the

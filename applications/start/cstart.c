@@ -1,9 +1,10 @@
 char **envlist = 0;
+char **environ = 0;
 extern void main(int, char **, char **);
 
 void cstart(int argc, char *argv[], char *envp[])
 {
-	envlist = envp;
+	environ = envlist = envp;
 	main(argc, argv, envp);
 	exit(0);
 }
