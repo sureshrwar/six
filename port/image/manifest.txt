@@ -47,10 +47,8 @@ file  /bin/fortune          0755  applications/fortune/fortune
 file  /bin/getty            0755  applications/getty/getty
 file  /bin/gomoku           0755  applications/gomoku/gomoku
 file  /bin/grep             0755  applications/grep/grep
-file  /bin/h                0755  applications/hello/hello
 file  /bin/halt             0755  applications/halt/halt
 file  /bin/head             0755  applications/head/head
-file  /bin/hello            0755  applications/hello/hello
 file  /bin/id               0755  applications/id/id
 file  /bin/kill             0755  applications/kill/kill
 file  /bin/last             0755  applications/last/last

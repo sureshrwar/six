@@ -46,7 +46,6 @@ applications/*/fortune
 applications/*/getty
 applications/*/grep
 applications/*/halt
-applications/*/hello
 applications/*/id
 applications/*/init
 applications/*/kill
@@ -88,7 +87,6 @@ applications/advent/*.dat
 
 # Staging tree used while assembling the disk image
 port/image/.stage/
-applications/*/h
 library/*/lib/*.a
 
 # Records the value of SIX_TRACE_GUEST_SYSCALLS so make can notice changes.

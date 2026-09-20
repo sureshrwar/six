@@ -417,6 +417,189 @@ char *newstr;
 	*lenp = nlen;
 }
 
+#include <linux/dirent.h>
+#include <stat.h>
+
+#define TAB_MAX_MATCHES 32
+
+static char tab_matches[TAB_MAX_MATCHES][32];
+static int  tab_is_dir[TAB_MAX_MATCHES];
+static char tab_word[128];
+static char tab_dir[128];
+static char tab_prefix[32];
+static char tab_dbuf[512];
+static char tab_full_check[256];
+
+static void
+sh_tab_complete(outbuf, lenp)
+char *outbuf;
+int *lenp;
+{
+	int wstart = *lenp;
+	int match_count = 0;
+	int is_command = 0;
+	int wlen, plen;
+	char *slash;
+	int fd, n;
+	int m_idx, c_idx, common_len;
+
+	while (wstart > 0 && outbuf[wstart - 1] != ' ' && outbuf[wstart - 1] != '\t' &&
+	       outbuf[wstart - 1] != '|' && outbuf[wstart - 1] != ';' &&
+	       outbuf[wstart - 1] != '&')
+		wstart--;
+
+	wlen = *lenp - wstart;
+	if (wlen <= 0 || wlen >= (int)sizeof(tab_word)) {
+		write(1, "\a", 1);
+		return;
+	}
+	memcpy(tab_word, &outbuf[wstart], wlen);
+	tab_word[wlen] = '\0';
+
+	slash = strrchr(tab_word, '/');
+	if (slash) {
+		int dir_len = (int)(slash - tab_word);
+		if (dir_len == 0) {
+			strcpy(tab_dir, "/");
+		} else {
+			memcpy(tab_dir, tab_word, dir_len);
+			tab_dir[dir_len] = '\0';
+		}
+		strncpy(tab_prefix, slash + 1, sizeof(tab_prefix) - 1);
+		tab_prefix[sizeof(tab_prefix) - 1] = '\0';
+	} else {
+		if (wstart == 0) {
+			is_command = 1;
+			strcpy(tab_dir, "/bin");
+			strncpy(tab_prefix, tab_word, sizeof(tab_prefix) - 1);
+			tab_prefix[sizeof(tab_prefix) - 1] = '\0';
+		} else {
+			strcpy(tab_dir, ".");
+			strncpy(tab_prefix, tab_word, sizeof(tab_prefix) - 1);
+			tab_prefix[sizeof(tab_prefix) - 1] = '\0';
+		}
+	}
+
+	plen = strlen(tab_prefix);
+	fd = open(tab_dir, 0);
+	if (fd < 0) {
+		write(1, "\a", 1);
+		return;
+	}
+
+	while ((n = getdents(fd, (struct dirent *)tab_dbuf, sizeof(tab_dbuf))) > 0) {
+		int cur = 0;
+		while (cur < n) {
+			struct dirent *de = (struct dirent *)(tab_dbuf + cur);
+			cur += de->d_reclen;
+			if (de->d_ino == 0) continue;
+			if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0)
+				continue;
+			if (plen == 0 || strncmp(de->d_name, tab_prefix, plen) == 0) {
+				if (match_count < TAB_MAX_MATCHES) {
+					struct stat st;
+					strncpy(tab_matches[match_count], de->d_name, 31);
+					tab_matches[match_count][31] = '\0';
+					if (strcmp(tab_dir, "/") == 0)
+						sprintf(tab_full_check, "/%s", de->d_name);
+					else
+						sprintf(tab_full_check, "%s/%s", tab_dir, de->d_name);
+					tab_is_dir[match_count] = (stat(tab_full_check, &st) == 0 && S_ISDIR(st.st_mode));
+					match_count++;
+				}
+			}
+		}
+	}
+	close(fd);
+
+	if (match_count == 0 && is_command) {
+		strcpy(tab_dir, ".");
+		fd = open(tab_dir, 0);
+		if (fd >= 0) {
+			while ((n = getdents(fd, (struct dirent *)tab_dbuf, sizeof(tab_dbuf))) > 0) {
+				int cur = 0;
+				while (cur < n) {
+					struct dirent *de = (struct dirent *)(tab_dbuf + cur);
+					cur += de->d_reclen;
+					if (de->d_ino == 0) continue;
+					if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0)
+						continue;
+					if (plen == 0 || strncmp(de->d_name, tab_prefix, plen) == 0) {
+						if (match_count < TAB_MAX_MATCHES) {
+							struct stat st;
+							strncpy(tab_matches[match_count], de->d_name, 31);
+							tab_matches[match_count][31] = '\0';
+							tab_is_dir[match_count] = (stat(de->d_name, &st) == 0 && S_ISDIR(st.st_mode));
+							match_count++;
+						}
+					}
+				}
+			}
+			close(fd);
+		}
+	}
+
+	if (match_count == 0) {
+		write(1, "\a", 1);
+		return;
+	}
+
+	if (match_count == 1) {
+		const char *m = tab_matches[0];
+		int mlen = strlen(m);
+		char suffix = tab_is_dir[0] ? '/' : ' ';
+		if (mlen > plen) {
+			const char *append = m + plen;
+			int app_len = mlen - plen;
+			if (*lenp + app_len + 1 < HIST_LINE_MAX - 2) {
+				memcpy(&outbuf[*lenp], append, app_len);
+				*lenp += app_len;
+				write(1, append, app_len);
+			}
+		}
+		if (*lenp < HIST_LINE_MAX - 2) {
+			outbuf[(*lenp)++] = suffix;
+			outbuf[*lenp] = '\0';
+			write(1, &suffix, 1);
+		}
+		return;
+	}
+
+	common_len = strlen(tab_matches[0]);
+	for (m_idx = 1; m_idx < match_count; m_idx++) {
+		for (c_idx = 0; c_idx < common_len; c_idx++) {
+			if (tab_matches[m_idx][c_idx] != tab_matches[0][c_idx]) {
+				common_len = c_idx;
+				break;
+			}
+		}
+	}
+
+	if (common_len > plen) {
+		const char *append = tab_matches[0] + plen;
+		int app_len = common_len - plen;
+		if (*lenp + app_len < HIST_LINE_MAX - 2) {
+			memcpy(&outbuf[*lenp], append, app_len);
+			*lenp += app_len;
+			outbuf[*lenp] = '\0';
+			write(1, append, app_len);
+		}
+		return;
+	}
+
+	write(1, "\n", 1);
+	for (m_idx = 0; m_idx < match_count; m_idx++) {
+		write(1, tab_matches[m_idx], strlen(tab_matches[m_idx]));
+		if (tab_is_dir[m_idx])
+			write(1, "/", 1);
+		write(1, "  ", 2);
+	}
+	write(1, "\n", 1);
+
+	prs(prompt->value ? prompt->value : "bash# ");
+	write(1, outbuf, *lenp);
+}
+
 static int
 sh_readline(outbuf)
 char *outbuf;
@@ -448,6 +631,10 @@ char *outbuf;
 				continue;
 			sh_restore_tty();
 			return 0;
+		}
+		if (ch == '\t') {
+			sh_tab_complete(outbuf, &len);
+			continue;
 		}
 		if (ch == '\r' || ch == '\n') {
 			write(1, "\n", 1);

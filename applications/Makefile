@@ -16,7 +16,6 @@ SUBDIRS	=	start \
 		getty \
 		login \
 		sh \
-		hello \
 		fortune \
 		clear \
 		ps \

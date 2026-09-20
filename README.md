@@ -37,7 +37,7 @@ sudo apt-get install build-essential gcc-multilib e2fsprogs fakeroot
 ```
 
 ### Build Everything
-A single `make` builds the `./six` kernel, the 32-bit guest `libc.a`, all 46 guest userland programs under `applications/`, and assembles the root `ext2` disk image (`disk/x86/root` via `port/image/mkimage.sh`):
+A single `make` builds the `./six` kernel, the 32-bit guest `libc.a`, all 45 guest userland programs under `applications/`, and assembles the root `ext2` disk image (`disk/x86/root` via `port/image/mkimage.sh`):
 
 ```bash
 make
@@ -48,7 +48,7 @@ make
 ./six
 ```
 * Log in at `[black] login:` as **`root`** (no password).
-* Included guest utilities in `/bin`: `advent` (*Colossal Cave Adventure*), `banner`, `basic` (interactive Dartmouth/Tiny BASIC interpreter), `cal`, `cat`, `clear`, `cowsay` (configurable ASCII cow and `cowthink`), `cp` (copy files), `date`, `df` (report filesystem disk space), `dhrystone` (Dhrystone 1.1 benchmark), `echo`, `eliza` (classic 1966 Rogerian psychotherapist chatbot), `fortune`, `getty`, `gomoku` (Five-in-a-Row), `grep`, `halt`, `head` (output first lines of files), `hello`, `id`, `init` (`/etc/init`), `kill`, `last`, `life` (Conway's Game of Life), `login`, `ls`, `matrix` (Matrix digital rain screensaver), `mkdir` (make directories), `mv` (move / rename files), `ps`, `pwd`, `rm`, `rmdir` (remove empty directories), `rogue` (classic BSD-style dungeon crawler), `sethostname`, `sh` (Minix Bourne shell with `~/.bash_history` and Up/Down arrow recall), `sl` (animated steam locomotive), `sync`, `tetris` (colored ANSI Tetris), `touch` (create empty files / update timestamp), `ttt` (Tic-Tac-Toe), `tty`, `vi` (`elvis`), `wc` (count lines, words, bytes).
+* Included guest utilities in `/bin`: `advent` (*Colossal Cave Adventure*), `banner`, `basic` (interactive Dartmouth/Tiny BASIC interpreter), `cal`, `cat`, `clear`, `cowsay` (configurable ASCII cow and `cowthink`), `cp` (copy files), `date`, `df` (report filesystem disk space), `dhrystone` (Dhrystone 1.1 benchmark), `echo`, `eliza` (classic 1966 Rogerian psychotherapist chatbot), `fortune`, `getty`, `gomoku` (Five-in-a-Row), `grep`, `halt`, `head` (output first lines of files), `id`, `init` (`/etc/init`), `kill`, `last`, `life` (Conway's Game of Life), `login`, `ls`, `matrix` (Matrix digital rain screensaver), `mkdir` (make directories), `mv` (move / rename files), `ps`, `pwd`, `rm`, `rmdir` (remove empty directories), `rogue` (classic BSD-style dungeon crawler), `sethostname`, `sh` (Minix Bourne shell with `~/.bash_history` and Up/Down arrow recall), `sl` (animated steam locomotive), `sync`, `tetris` (colored ANSI Tetris), `touch` (create empty files / update timestamp), `ttt` (Tic-Tac-Toe), `tty`, `vi` (`elvis`), `wc` (count lines, words, bytes).
 * Run **`halt`** at the shell prompt to flush buffers, mark the `ext2` superblock clean, restore the host terminal, and exit — or press **`Ctrl+]`** at any time for an immediate exit.
 
 ### Command-Line Options
