@@ -6,7 +6,8 @@
 #
 
 SUBDIRS	=	sys \
-		libc
+		libc \
+		curses
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

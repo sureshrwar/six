@@ -144,10 +144,12 @@ GUEST_LDFLAGS = -m elf_i386 -static --build-id=none -z noexecstack \
 		-Ttext-segment $(SIX_BIND_POINT) -e cstart
 
 GUEST_LIBC     = $(SIX_GUEST_TOP)/library/libc/lib/libc.a
+GUEST_LIBCURSES= $(SIX_GUEST_TOP)/library/curses/lib/libcurses.a
 GUEST_CRT      = $(SIX_GUEST_TOP)/applications/start/cstart.o
 
 # The standard recipe for a guest program: $(call guest_link,name,objects)
 guest_link = $(GUEST_LD) $(GUEST_LDFLAGS) -o $(1) $(GUEST_CRT) $(2) $(GUEST_LIBC)
+guest_link_curses = $(GUEST_LD) $(GUEST_LDFLAGS) -o $(1) $(GUEST_CRT) $(2) $(GUEST_LIBCURSES) $(GUEST_LIBC)
 
 %.o: %.c
 	$(GUEST_CC) $(GUEST_CFLAGS) -MMD -MF $(dir $@).$(notdir $@).d -c -o $@ $<
