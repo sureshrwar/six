@@ -89,7 +89,7 @@ readc()
 			if (multiline)
 			    return e.iop->prev = 0;
 			if (talking && e.iop == iostack+1)
-			    prs(prompt->value);
+			    prs_prompt();
 		    }
 		}
 	if (e.iop >= iostack)
@@ -596,7 +596,7 @@ int *lenp;
 	}
 	write(1, "\n", 1);
 
-	prs(prompt->value ? prompt->value : "bash# ");
+	prs_prompt();
 	write(1, outbuf, *lenp);
 }
 
@@ -850,6 +850,119 @@ register char *s;
 {
 	if (*s)
 		write(2, s, strlen(s));
+}
+
+void
+prs_prompt(void)
+{
+	static char pbuf[512];
+	char user[64];
+	char host[64];
+	char cwd[256];
+	char display_dir[256];
+	struct var *u, *h, *p;
+	const char *fmt;
+	char *out;
+	char *limit;
+	const char *src;
+
+	p = lookup("PS1");
+	if (p && p->value && p->value != null && p->value[0]) {
+		fmt = p->value;
+	} else {
+		fmt = "\\u@\\h:\\w\\$ ";
+	}
+
+	if (!strchr(fmt, '\\')) {
+		prs((char *)fmt);
+		return;
+	}
+
+	/* Username */
+	u = lookup("USER");
+	if (u && u->value && u->value != null && u->value[0]) {
+		strncpy(user, u->value, sizeof(user) - 1);
+		user[sizeof(user) - 1] = '\0';
+	} else if (geteuid() == 0) {
+		strcpy(user, "root");
+	} else {
+		snprintf(user, sizeof(user), "user%d", (int)getuid());
+	}
+
+	/* Hostname */
+	if (gethostname(host, sizeof(host)) < 0 || !host[0]) {
+		strcpy(host, "black");
+	}
+
+	/* Working directory */
+	if (!getcwd(cwd, sizeof(cwd))) {
+		strcpy(cwd, "?");
+	}
+
+	/* Abbreviate $HOME as ~ */
+	h = lookup("HOME");
+	if (h && h->value && h->value != null && h->value[0]) {
+		const char *home = h->value;
+		int hlen = strlen(home);
+		if (strcmp(home, "/") == 0) {
+			if (strcmp(cwd, "/") == 0)
+				strcpy(display_dir, "~");
+			else
+				strncpy(display_dir, cwd, sizeof(display_dir) - 1);
+		} else if (strcmp(cwd, home) == 0) {
+			strcpy(display_dir, "~");
+		} else if (strncmp(cwd, home, hlen) == 0 && cwd[hlen] == '/') {
+			snprintf(display_dir, sizeof(display_dir), "~%s", cwd + hlen);
+		} else {
+			strncpy(display_dir, cwd, sizeof(display_dir) - 1);
+		}
+	} else {
+		strncpy(display_dir, cwd, sizeof(display_dir) - 1);
+	}
+	display_dir[sizeof(display_dir) - 1] = '\0';
+
+	out = pbuf;
+	limit = pbuf + sizeof(pbuf) - 2;
+	src = fmt;
+
+	while (*src && out < limit) {
+		if (*src == '\\') {
+			src++;
+			if (*src == 'u') {
+				const char *up = user;
+				while (*up && out < limit) *out++ = *up++;
+				src++;
+			} else if (*src == 'h') {
+				const char *hp = host;
+				while (*hp && out < limit) *out++ = *hp++;
+				src++;
+			} else if (*src == 'w') {
+				const char *wp = display_dir;
+				while (*wp && out < limit) *out++ = *wp++;
+				src++;
+			} else if (*src == 'W') {
+				const char *base = strrchr(display_dir, '/');
+				base = base ? base + 1 : display_dir;
+				while (*base && out < limit) *out++ = *base++;
+				src++;
+			} else if (*src == '$') {
+				*out++ = (geteuid() == 0) ? '#' : '$';
+				src++;
+			} else if (*src == 'n') {
+				*out++ = '\n';
+				src++;
+			} else if (*src == 'e') {
+				*out++ = '\033';
+				src++;
+			} else if (*src) {
+				*out++ = *src++;
+			}
+		} else {
+			*out++ = *src++;
+		}
+	}
+	*out = '\0';
+	prs(pbuf);
 }
 
 void

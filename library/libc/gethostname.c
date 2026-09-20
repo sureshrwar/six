@@ -1,25 +1,23 @@
 #include <unistd.h>
 #include <string.h>
-#include <fcntl.h>
+#include <errno.h>
+#include <linux/utsname.h>
+
+extern int uname(struct new_utsname *name);
 
 int gethostname(char *name, size_t len)
 {
-	int fd, n;
-	if (!name || len == 0)
+	struct new_utsname u;
+	if (!name || len == 0) {
+		errno = EINVAL;
 		return -1;
-
-	fd = open("/etc/hostname", O_RDONLY);
-	if (fd >= 0) {
-		n = read(fd, name, len - 1);
-		close(fd);
-		if (n > 0) {
-			while (n > 0 && (name[n - 1] == '\n' || name[n - 1] == '\r' || name[n - 1] == ' '))
-				n--;
-			name[n] = '\0';
-			return 0;
-		}
 	}
-	strncpy(name, "six", len);
+	if (uname(&u) == 0 && u.nodename[0] != '\0') {
+		strncpy(name, u.nodename, len - 1);
+		name[len - 1] = '\0';
+		return 0;
+	}
+	strncpy(name, "black", len - 1);
 	name[len - 1] = '\0';
 	return 0;
 }

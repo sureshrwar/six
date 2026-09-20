@@ -609,6 +609,12 @@ void main(int argc, char *argv[])
 	six_host_parse_args(argc, argv, &single, &wait_flag, &disk_arg);
 	six_host_tls_bridge_init();
 
+	/* Initialize guest hostname from host CLI (-H) or environment (SIX_HOSTNAME) or default */
+	if (six_host_hostname && six_host_hostname[0]) {
+		strncpy(system_utsname.nodename, six_host_hostname, sizeof(system_utsname.nodename) - 1);
+		system_utsname.nodename[sizeof(system_utsname.nodename) - 1] = '\0';
+	}
+
 	/* We are opening some files for recording debug info, the pid etc */
 	setup_files();
 	/* Wait for a keypress before booting only if -w/--wait was given */

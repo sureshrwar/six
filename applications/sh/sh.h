@@ -9,9 +9,11 @@
 #include <linux/types.h>
 #include <linux/limits.h>
 #include <stat.h>
+#include <string.h>
+#include <unistd.h>
 
-#define DEFAULT_PROMPT  "bash$ "
-#define ROOT_PROMPT     "bash# "
+#define DEFAULT_PROMPT  "\\u@\\h:\\w\\$ "
+#define ROOT_PROMPT     "\\u@\\h:\\w\\$ "
 
 #define _PROTOTYPE(function, params)    function params
 #define _ARGS(params)                   params
@@ -225,5 +227,6 @@ _PROTOTYPE(void leave , (void)); /* abort shell (or fail in subshell) */
 _PROTOTYPE(void fail , (void));  /* fail but return to process next command */
 _PROTOTYPE(void warn , (char *s ));      
 _PROTOTYPE(void sig , (int i ));         /* default signal handler */
+_PROTOTYPE(void prs_prompt , (void));
 
 #endif // _SH_H

@@ -5,9 +5,8 @@ echo Executing /etc/rc.
 
 sleep 0.25
 
-#set the hostname
-echo Setting hostname to `cat /etc/hostname`
-sethostname `cat /etc/hostname`
+# Hostname is initialized by kernel (-H flag, SIX_HOSTNAME env, or default 'black')
+echo Setting hostname to `hostname`
 
 sleep 0.25
 
@@ -22,6 +21,3 @@ sleep 0.25
 echo Escape character is '^\\'.
 
 sleep 0.25
-
-
-

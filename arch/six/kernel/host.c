@@ -270,26 +270,33 @@ static void six_usage(const char *prog, FILE *fp, int code)
 		"Usage: %s [-w|--wait] [-s|--single] [-d|--disk <path>] [single]\n"
 		"\n"
 		"Options:\n"
-		"  -w, --wait         Pause before boot and print host PID for gdb attach\n"
-		"  -s, --single       Boot into built-in single-user shell (go>)\n"
-		"  -d, --disk <path>  Root filesystem image (overrides $DISKFILE)\n"
-		"  -h, --help         Show this help message and exit\n"
+		"  -w, --wait            Pause before boot and print host PID for gdb attach\n"
+		"  -s, --single          Boot into built-in single-user shell (go>)\n"
+		"  -d, --disk <path>     Root filesystem image (overrides $DISKFILE)\n"
+		"  -H, --hostname <name> Guest hostname (overrides SIX_HOSTNAME and 'black')\n"
+		"  -h, --help            Show this help message and exit\n"
+		"\n"
+		"Environment:\n"
+		"  SIX_HOSTNAME          Guest hostname (default: black)\n"
 		"\n"
 		"Run 'halt' in the guest for a clean shutdown, or press Ctrl+\\ to quit immediately.\n",
 		prog ? prog : "./six");
 	exit(code);
 }
 
+const char *six_host_hostname = "black";
+
 void six_host_parse_args(int argc, char *argv[],
 			 int *single_out, int *wait_out,
 			 const char **disk_out)
 {
 	static const struct option long_opts[] = {
-		{ "wait",   no_argument,       0, 'w' },
-		{ "single", no_argument,       0, 's' },
-		{ "disk",   required_argument, 0, 'd' },
-		{ "help",   no_argument,       0, 'h' },
-		{ 0,        0,                 0,  0  }
+		{ "wait",     no_argument,       0, 'w' },
+		{ "single",   no_argument,       0, 's' },
+		{ "disk",     required_argument, 0, 'd' },
+		{ "hostname", required_argument, 0, 'H' },
+		{ "help",     no_argument,       0, 'h' },
+		{ 0,          0,                 0,  0  }
 	};
 	int c;
 
@@ -297,7 +304,12 @@ void six_host_parse_args(int argc, char *argv[],
 	*wait_out   = 0;
 	*disk_out   = 0;
 
-	while ((c = getopt_long(argc, argv, "wsd:h", long_opts, 0)) != -1) {
+	/* Environment variable fallback */
+	const char *env_host = getenv("SIX_HOSTNAME");
+	if (env_host && env_host[0])
+		six_host_hostname = env_host;
+
+	while ((c = getopt_long(argc, argv, "wsd:H:h", long_opts, 0)) != -1) {
 		switch (c) {
 		case 'w':
 			*wait_out = 1;
@@ -307,6 +319,9 @@ void six_host_parse_args(int argc, char *argv[],
 			break;
 		case 'd':
 			*disk_out = optarg;
+			break;
+		case 'H':
+			six_host_hostname = optarg;
 			break;
 		case 'h':
 			six_usage(argv[0], stdout, 0);

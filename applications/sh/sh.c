@@ -166,7 +166,7 @@ register char **argv;
 
         for (;;) {
                 if (talking && e.iop <= iostack)
-                        prs(prompt->value);
+                        prs_prompt();
                 onecommand();
         }
 }

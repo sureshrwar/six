@@ -56,6 +56,7 @@ void six_host_tty_restore(int fd);
 void six_host_idle_sleep(void);
 
 /* Command-line option parsing via host getopt_long(). */
+extern const char *six_host_hostname;
 void six_host_parse_args(int argc, char *argv[],
 			 int *single_out, int *wait_out,
 			 const char **disk_out);
