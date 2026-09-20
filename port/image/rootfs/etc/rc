@@ -17,10 +17,7 @@ httpd &
 
 sleep 0.25
 
-echo
-echo
-banner -c# SIX
-echo
+sixanim
 sleep 0.25
 echo Escape character is '^\\'.
 

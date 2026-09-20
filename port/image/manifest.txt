@@ -110,6 +110,8 @@ file  /bin/tail             0755  applications/tail/tail
 file  /bin/find             0755  applications/find/find
 file  /bin/sed              0755  applications/sed/sed
 file  /bin/tar              0755  applications/tar/tar
+file  /bin/sixanim          0755  applications/sixanim/sixanim
+sym   /bin/splash           -     sixanim
 
 # --- /etc (init binary + configuration recovered from the SPARC root disk) -
 file  /etc/init             0755  applications/init/init

@@ -79,7 +79,8 @@ SUBDIRS	=	start \
 		tail \
 		find \
 		sed \
-		tar
+		tar \
+		sixanim
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
