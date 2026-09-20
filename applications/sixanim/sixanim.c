@@ -123,6 +123,7 @@ int main(int argc, char **argv)
 			printf("%s\n", frames[0][i]);
 		}
 		if (pad_x > 0) print_padding(pad_x + 2);
+		printf("[ R.I.P HELLRAISER ]\n\n");
 		printf("[ SYSTEM READY ]\n\n");
 		return 0;
 	}
@@ -180,6 +181,7 @@ int main(int argc, char **argv)
 
 	printf("\r\033[K");
 	if (pad_x > 0) print_padding(pad_x + 2);
+	printf("\033[1;32m[ R.I.P. HELLRAISER ]\033[0m\n\n");
 	printf("\033[1;32m[ SYSTEM READY ]\033[0m\n\n");
 	fflush(stdout);
 
