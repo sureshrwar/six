@@ -1074,24 +1074,54 @@ static void interactive_browse(const char *initial_url)
 load_new_url:
 	{
 		int len;
+		char *new_doc;
 
 		printf("\033[H\033[2JGetting %s...\r\n", url);
 		fflush(stdout);
 
-		strncpy(current_url, url, sizeof(current_url) - 1);
-		raw_doc = http_fetch(url, &len);
-		if (!raw_doc) {
-			printf("\r\nFailed to load %s. Press any key to continue.\r\n", url);
-			read(0, &rows, 1);
-			return;
+		new_doc = http_fetch(url, &len);
+		if (!new_doc) {
+			if (total_lines > 0) {
+				char failed_url[MAX_URL_LEN];
+				strncpy(failed_url, url, sizeof(failed_url) - 1);
+				failed_url[MAX_URL_LEN - 1] = '\0';
+				if (history_count > 0) {
+					history_count--;
+					strncpy(url, history_stack[history_count], sizeof(url) - 1);
+					strncpy(current_url, url, sizeof(current_url) - 1);
+				}
+				sprintf(status_msg, "[Alert: Unable to connect to %s]", failed_url);
+			} else {
+				static const char *fallback_err =
+					"<html><head><title>Connection Failed</title></head><body>"
+					"<h1>Alert!: Unable to connect to remote host</h1><hr>\n"
+					"<p>Lynx could not connect to the requested address.</p>\n"
+					"<p>The host may be down, unreachable, or DNS resolution failed.</p><hr>\n"
+					"<h3>Available Sites:</h3>\n"
+					"<p><a href=\"http://wiby.me/\">Wiby Search Engine</a></p>\n"
+					"<p><a href=\"https://en.wikipedia.org/wiki/Main_Page\">Wikipedia</a></p>\n"
+					"<p><a href=\"http://127.0.0.1:80/index.html\">SIX Local Homepage &amp; Documentation</a></p>\n"
+					"<hr><p>Press 'g' to open a URL, 'v' for bookmarks, or 'q' to quit.</p>\n"
+					"</body></html>";
+				raw_doc = (char *)fallback_err;
+				raw_doc_len = strlen(fallback_err);
+				view_source_mode = 0;
+				render_html(raw_doc);
+				top_line = 0;
+				cur_link = -1;
+				sprintf(status_msg, "[Alert: Unable to connect to %s]", url);
+			}
+		} else {
+			strncpy(current_url, url, sizeof(current_url) - 1);
+			raw_doc = new_doc;
+			raw_doc_len = len;
+
+			view_source_mode = 0;
+			render_html(raw_doc);
+
+			top_line = 0;
+			cur_link = -1;
 		}
-		raw_doc_len = len;
-
-		view_source_mode = 0;
-		render_html(raw_doc);
-
-		top_line = 0;
-		cur_link = -1;
 	}
 
 	enable_raw_mode();
