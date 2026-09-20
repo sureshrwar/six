@@ -34,7 +34,7 @@ extern int select(int n, fd_set *inp, fd_set *outp, fd_set *exp, struct timeval 
 #define MAX_LINKS 256
 #define MAX_URL_LEN 512
 #define MAX_HIST 32
-#define HTTP_BUF_SIZE 262144
+#define HTTP_BUF_SIZE 524288
 
 struct link_entry {
 	int line;
@@ -449,7 +449,7 @@ static void flush_html_line(char *cur_line, int *cur_col)
 	if (*cur_col > 0) {
 		int i, has_content = 0;
 		for (i = 0; i < *cur_col; i++) {
-			if (cur_line[i] != ' ' && cur_line[i] != '\t') {
+			if (cur_line[i] != ' ' && cur_line[i] != '\t' && cur_line[i] != '*') {
 				has_content = 1;
 				break;
 			}
@@ -578,7 +578,9 @@ static void render_html(const char *html)
 					strcpy(cur_line, "  * ");
 					cur_col = 4;
 				} else if (lynx_strncasecmp(tag_buf, "input", 5) == 0) {
-					int is_hidden = (strstr(tag_buf, "type=\"hidden\"") || strstr(tag_buf, "type='hidden'") || strstr(tag_buf, "type=hidden"));
+					int is_hidden = (strstr(tag_buf, "type=\"hidden\"") || strstr(tag_buf, "type='hidden'") || strstr(tag_buf, "type=hidden") ||
+							 strstr(tag_buf, "type=\"checkbox\"") || strstr(tag_buf, "type='checkbox'") || strstr(tag_buf, "type=checkbox") ||
+							 strstr(tag_buf, "type=\"radio\"") || strstr(tag_buf, "type='radio'") || strstr(tag_buf, "type=radio"));
 					int is_submit = (strstr(tag_buf, "type=\"submit\"") || strstr(tag_buf, "type='submit'") || strstr(tag_buf, "type=submit") ||
 							 strstr(tag_buf, "type=\"button\"") || strstr(tag_buf, "type='button'") || strstr(tag_buf, "type=button"));
 					if (!is_hidden) {
@@ -1312,7 +1314,7 @@ load_new_url:
 
 int main(int argc, char **argv)
 {
-	const char *url = "http://127.0.0.1:80/index.html";
+	const char *url = "https://en.wikipedia.org/wiki/Main_Page";
 	int dump = 0;
 	int i;
 
