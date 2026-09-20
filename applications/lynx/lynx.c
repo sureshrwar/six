@@ -243,7 +243,7 @@ static char *http_fetch_internal(const char *url, int *out_len, int depth)
 	char path[MAX_URL_LEN];
 	struct sockaddr_in saddr;
 	int sfd;
-	char req[1024];
+	static char req[1024];
 	char *buf = http_buf;
 	int buf_size = sizeof(http_buf);
 	int total = 0;
@@ -294,12 +294,12 @@ static char *http_fetch_internal(const char *url, int *out_len, int depth)
 		}
 
 		/* Send CONNECT request */
-		char creq[256];
+		static char creq[256];
 		sprintf(creq, "CONNECT %s:%d HTTP/1.0\r\nHost: %s:%d\r\n\r\n", host, port, host, port);
 		write(sfd, creq, strlen(creq));
 
 		/* Read CONNECT response */
-		char cresp[512];
+		static char cresp[512];
 		int cresplen = 0;
 		while (cresplen < sizeof(cresp) - 1) {
 			r = read(sfd, cresp + cresplen, 1);
@@ -391,8 +391,8 @@ static char *http_fetch_internal(const char *url, int *out_len, int depth)
 		char *loc = strstr(buf, "Location:");
 		if (!loc) loc = strstr(buf, "location:");
 		if (loc) {
-			char redirect_url[MAX_URL_LEN];
-			char resolved_url[MAX_URL_LEN];
+			static char redirect_url[MAX_URL_LEN];
+			static char resolved_url[MAX_URL_LEN];
 			int i = 0;
 			loc += 9;
 			while (*loc == ' ') loc++;

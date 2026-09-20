@@ -90,7 +90,7 @@ static int dns_query(const char *name, struct in_addr *out_ip)
 {
 	int s;
 	struct sockaddr_in saddr;
-	unsigned char packet[512];
+	static unsigned char packet[512];
 	int pos = 12;
 	const char *src = name;
 	struct timeval tv;

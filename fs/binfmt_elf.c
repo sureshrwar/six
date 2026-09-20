@@ -1019,10 +1019,12 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 		return 0;
 	}
 
-	retval = do_mmap(0, STACK_BASE - DEFAULT_STACK_SIZE, DEFAULT_STACK_SIZE,
+#define USER_STACK_SIZE (64 * PAGE_SIZE) /* 256KB stack for guest user processes */
+
+	retval = do_mmap(0, STACK_BASE - USER_STACK_SIZE, USER_STACK_SIZE,
 	   	 PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_FIXED, 0);
 
-	if (retval != (STACK_BASE - DEFAULT_STACK_SIZE))
+	if (retval != (STACK_BASE - USER_STACK_SIZE))
 	{
 		printf("ERROR: load_binary: stack mmap failed (%d)\n", retval);
 		return 0;
@@ -1030,7 +1032,7 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	/*
 	 * Wipe the slate clean!
 	 */
-	memset(STACK_BASE - DEFAULT_STACK_SIZE, 0, DEFAULT_STACK_SIZE);
+	memset(STACK_BASE - USER_STACK_SIZE, 0, USER_STACK_SIZE);
 
 	current->mm->start_code = tbase; 
 	current->mm->end_code =  tbase + tsize;
@@ -1041,29 +1043,19 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	}
 	current->mm->start_brk = tbase + total;
 	current->mm->brk = current->mm->start_brk;
-	current->mm->start_stack = STACK_BASE - DEFAULT_STACK_SIZE;
+	current->mm->start_stack = STACK_BASE - USER_STACK_SIZE;
 
 	current->_sigreturn = 0;
 	current->one = current->two = current->three = 0;
 
-	regs->uc_sp_size = DEFAULT_STACK_SIZE - 8;
+	regs->uc_sp_size = USER_STACK_SIZE - 8;
 #if (!__i386__)
 	/*
 	 * Leave space for a double word. (thanks to smx guys)
 	 */
 	regs->uc_sp = STACK_BASE - 8;
 #else
-	/*
-	 * Im clueless abt this one; for some strange reason, makecontext()
-	 * on x86 behaves wierd - you need to point ss_sp to the beginning of
-	 * the stack area. Unlike the sparc scenario, where you have to point
-	 * it to the end, from where it will grown down, before calling 
-	 * makecontext(). Have you ever noticed how easy it is to commit
-	 * silly changes once you add proper comments? :) its almost like
-	 * this - stupidity is not a bad thing, if you are aware of its
-	 * existence, approximate measure etc!
-	 */
-	regs->uc_sp = STACK_BASE - DEFAULT_STACK_SIZE;
+	regs->uc_sp = STACK_BASE - USER_STACK_SIZE;
 #endif
 
 
