@@ -999,7 +999,12 @@ static void ensure_bookmarks_exist(void)
 	if (fd < 0) {
 		fd = open(bpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		if (fd >= 0) {
-			const char *hdr = "<html><head><title>Lynx Bookmarks</title></head><body><h1>Lynx Bookmarks</h1><hr>\n<p>Press 'a' on any page to bookmark it.</p>\n";
+			const char *hdr = "<html><head><title>Lynx Bookmarks</title></head><body><h1>Lynx Bookmarks</h1><hr>\n"
+					  "<p>Press 'a' on any page to bookmark it.</p>\n"
+					  "<h3>Recommended Sites:</h3>\n"
+					  "<p><a href=\"http://wiby.me/\">Wiby Search Engine (Pure HTML / No JS)</a></p>\n"
+					  "<p><a href=\"https://en.wikipedia.org/wiki/Main_Page\">Wikipedia (Text Friendly)</a></p>\n"
+					  "<p><a href=\"http://127.0.0.1:80/index.html\">SIX Local Homepage & Documentation</a></p><hr>\n";
 			write(fd, hdr, strlen(hdr));
 			close(fd);
 		}
