@@ -92,6 +92,7 @@ file  /bin/touch            0755  applications/touch/touch
 file  /bin/ttt              0755  applications/ttt/ttt
 file  /bin/tty              0755  applications/tty/tty
 file  /bin/tcc              0755  applications/tcc/tcc
+file  /bin/trek             0755  applications/trek/trek
 file  /bin/vi               0755  applications/vi/vi
 file  /bin/wc               0755  applications/wc/wc
 

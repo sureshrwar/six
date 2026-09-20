@@ -403,7 +403,83 @@ static int _vformat(char *buf, FILE *fp, const char *fmt, va_list args)
                         flags |= SIGN;
                 case 'u':
                         break;
-                                
+                case 'f':
+                case 'F':
+                case 'g':
+                case 'G':
+                {
+                        double d = va_arg(args, double);
+                        char fbuf[64];
+                        char *p;
+                        int flen = 0, sign = 0;
+                        int prec = precision;
+                        int pad, pi;
+                        double r = 0.5;
+                        unsigned long long int_part;
+                        char int_buf[32];
+                        int int_len = 0;
+
+                        if (prec < 0) prec = 6;
+                        if (prec > 15) prec = 15;
+
+                        if (d < 0.0) {
+                                sign = 1;
+                                d = -d;
+                        }
+
+                        for (pi = 0; pi < prec; pi++) r *= 0.1;
+                        d += r;
+
+                        int_part = (unsigned long long)d;
+                        d -= (double)int_part;
+
+                        if (int_part == 0) {
+                                int_buf[int_len++] = '0';
+                        } else {
+                                while (int_part > 0) {
+                                        int_buf[int_len++] = '0' + (int_part % 10);
+                                        int_part /= 10;
+                                }
+                        }
+
+                        if (sign) fbuf[flen++] = '-';
+                        else if (flags & PLUS) fbuf[flen++] = '+';
+                        else if (flags & SPACE) fbuf[flen++] = ' ';
+
+                        while (int_len > 0)
+                                fbuf[flen++] = int_buf[--int_len];
+
+                        if (prec > 0 || (flags & SPECIAL)) {
+                                fbuf[flen++] = '.';
+                                for (pi = 0; pi < prec; pi++) {
+                                        int dig;
+                                        d *= 10.0;
+                                        dig = (int)d;
+                                        if (dig > 9) dig = 9;
+                                        fbuf[flen++] = '0' + dig;
+                                        d -= dig;
+                                }
+                        }
+                        fbuf[flen] = '\0';
+
+                        pad = field_width - flen;
+                        if (!(flags & LEFT)) {
+                                while (pad-- > 0) {
+                                        if (buf) *str++ = ' ';
+                                        else { fputc(' ', fp); count++; }
+                                }
+                        }
+                        for (p = fbuf; *p; p++) {
+                                if (buf) *str++ = *p;
+                                else { fputc(*p, fp); count++; }
+                        }
+                        while (pad-- > 0) {
+                                if (buf) *str++ = ' ';
+                                else { fputc(' ', fp); count++; }
+                        }
+                        continue;
+                }
+
                 default:        
                         if (*fmt != '%')
 			{
