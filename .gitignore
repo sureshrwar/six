@@ -95,6 +95,7 @@ applications/*/irc
 applications/*/tcc
 applications/*/trek
 applications/*/gopher
+applications/*/mail
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h

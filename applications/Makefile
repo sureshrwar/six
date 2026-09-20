@@ -70,7 +70,8 @@ SUBDIRS	=	start \
 		irc \
 		tcc \
 		trek \
-		gopher
+		gopher \
+		mail
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

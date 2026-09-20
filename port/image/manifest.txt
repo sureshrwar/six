@@ -36,6 +36,10 @@ dir   /usr/include/netinet  0755
 dir   /usr/include/sys      0755
 dir   /usr/include/linux    0755
 dir   /usr/include/asm      0755
+dir   /var                  0755
+dir   /var/mail             0777
+dir   /var/spool            0755
+dir   /var/spool/mail       0777
 
 # --- /bin (all 23 programs from the SPARC root disk + vi & advent) ----------
 file  /bin/advent           0755  applications/advent/advent
@@ -69,6 +73,7 @@ file  /bin/login            0755  applications/login/login
 file  /bin/ls               0755  applications/ls/ls
 file  /bin/lynx             0755  applications/lynx/lynx
 file  /bin/lynx23           0755  applications/lynx23/lynx23
+file  /bin/mail             0755  applications/mail/mail
 file  /bin/matrix           0755  applications/matrix/matrix
 file  /bin/mkdir            0755  applications/mkdir/mkdir
 file  /bin/mv               0755  applications/mv/mv
@@ -200,6 +205,9 @@ file  /usr/include/asm/termios.h       0644  include/asm-i386/termios.h
 file  /usr/include/asm/signal.h        0644  include/asm-i386/signal.h
 file  /usr/include/asm/ioctls.h        0644  include/asm-i386/ioctls.h
 file  /usr/include/asm/param.h         0644  include/asm-i386/param.h
+
+# --- /var/mail (seeded local mailbox) ---------------------------------------
+file  /var/mail/root                   0600  port/image/rootfs/var/mail/root
 
 # --- /dev (character major 4 = TTY_MAJOR; both minor 1 as on SPARC) --------
 # /etc/ttytab spawns getty on "console", so /etc/init opens /dev/console for

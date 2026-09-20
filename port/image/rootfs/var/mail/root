@@ -1,0 +1,43 @@
+From sysop@six.local Sun Sep 20 09:00:00 2026
+From: sysop@six.local
+To: root@six.local
+Date: Sun, 20 Sep 2026 09:00:00 +0000
+Subject: Welcome to SIX 1.0!
+
+Welcome to your user-mode UNIX workstation!
+
+Your system is fully equipped with:
+  * Native Tiny C Compiler (/bin/tcc) and full C development headers
+  * Full-screen text editors (/bin/vi and /bin/ed)
+  * Live Internet Gopher client (/bin/gopher)
+  * Live Internet Relay Chat client (/bin/irc)
+  * Classic tactical mainframe simulation (/bin/trek)
+  * ASCII streaming media (/bin/starwars)
+  * Classic games (/bin/advent, /bin/rogue, /bin/basic, /bin/tetris)
+  * Bourne shell with full pipeline and redirection support (/bin/sh)
+
+Type '?' in mail for interactive commands, or 'mail' to check messages.
+Have fun hacking in the early 2000s!
+
+-- The System Operator
+
+From starfleet@federation.org Sun Sep 20 09:15:00 2026
+From: starfleet@federation.org
+To: root@six.local
+Date: Sun, 20 Sep 2026 09:15:00 +0000
+Subject: Priority Orders: Klingon threat detected
+
+COMMAND CODE: 1701-ALPHA
+SECURITY LEVEL: CONFIDENTIAL
+
+To: Commanding Officer, USS Enterprise
+From: Starfleet Command, Sector 001
+
+A fleet of Klingon battlecruisers has crossed the Neutral Zone into
+Federation space. All starbases in the quadrant are on alert.
+
+You are instructed to proceed with all due haste.
+Report to tactical simulation via '/bin/trek' immediately.
+
+Good luck, Captain. Starfleet out.
+
