@@ -101,6 +101,15 @@ file  /bin/tcc              0755  applications/tcc/tcc
 file  /bin/trek             0755  applications/trek/trek
 file  /bin/vi               0755  applications/vi/vi
 file  /bin/wc               0755  applications/wc/wc
+file  /bin/more             0755  applications/more/more
+sym   /bin/less             -     more
+file  /bin/sort             0755  applications/sort/sort
+file  /bin/uniq             0755  applications/uniq/uniq
+file  /bin/tr               0755  applications/tr/tr
+file  /bin/tail             0755  applications/tail/tail
+file  /bin/find             0755  applications/find/find
+file  /bin/sed              0755  applications/sed/sed
+file  /bin/tar              0755  applications/tar/tar
 
 # --- /etc (init binary + configuration recovered from the SPARC root disk) -
 file  /etc/init             0755  applications/init/init

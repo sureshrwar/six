@@ -71,7 +71,15 @@ SUBDIRS	=	start \
 		tcc \
 		trek \
 		gopher \
-		mail
+		mail \
+		more \
+		sort \
+		uniq \
+		tr \
+		tail \
+		find \
+		sed \
+		tar
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
