@@ -16,6 +16,12 @@ httpd &
 
 sleep 0.25
 
+# Start Telnet daemon
+echo Starting Telnet daemon.
+telnetd &
+
+sleep 0.25
+
 sixanim
 sleep 0.25
 echo Escape character is '^\\'.

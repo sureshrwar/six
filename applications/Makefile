@@ -80,7 +80,8 @@ SUBDIRS	=	start \
 		find \
 		sed \
 		tar \
-		sixanim
+		sixanim \
+		telnetd
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

@@ -113,6 +113,7 @@ file  /bin/sed              0755  applications/sed/sed
 file  /bin/tar              0755  applications/tar/tar
 file  /bin/sixanim          0755  applications/sixanim/sixanim
 sym   /bin/splash           -     sixanim
+file  /bin/telnetd          0755  applications/telnetd/telnetd
 
 # --- /etc (init binary + configuration recovered from the SPARC root disk) -
 file  /etc/init             0755  applications/init/init
@@ -227,3 +228,11 @@ file  /var/mail/root                   0600  port/image/rootfs/var/mail/root
 # device 4,1 (the first virtual console).
 node  /dev/tty1             0666  c  4  1
 node  /dev/console          0666  c  4  1
+node  /dev/ptyp0            0666  c  2  0
+node  /dev/ttyp0            0666  c  3  0
+node  /dev/ptyp1            0666  c  2  1
+node  /dev/ttyp1            0666  c  3  1
+node  /dev/ptyp2            0666  c  2  2
+node  /dev/ttyp2            0666  c  3  2
+node  /dev/ptyp3            0666  c  2  3
+node  /dev/ttyp3            0666  c  3  3
