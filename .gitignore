@@ -108,6 +108,7 @@ applications/*/sixanim
 applications/*/telnetd
 applications/*/awk
 applications/*/robots
+applications/*/zork
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h

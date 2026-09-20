@@ -83,7 +83,8 @@ SUBDIRS	=	start \
 		sixanim \
 		telnetd \
 		awk \
-		robots
+		robots \
+		zork
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

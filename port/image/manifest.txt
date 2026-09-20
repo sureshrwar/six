@@ -28,6 +28,7 @@ dir   /usr                  0755
 dir   /usr/adm              0755
 dir   /usr/lib              0755
 dir   /usr/lib/advent       0755
+dir   /usr/lib/zork         0755
 dir   /usr/lib/tcc          0755
 dir   /usr/lib/tcc/include  0755
 dir   /usr/include          0755
@@ -117,6 +118,8 @@ file  /bin/tar              0755  applications/tar/tar
 file  /bin/sixanim          0755  applications/sixanim/sixanim
 sym   /bin/splash           -     sixanim
 file  /bin/telnetd          0755  applications/telnetd/telnetd
+file  /bin/zork             0755  applications/zork/zork
+sym   /bin/dungeon          -     zork
 
 # --- /etc (init binary + configuration recovered from the SPARC root disk) -
 file  /etc/init             0755  applications/init/init
@@ -141,6 +144,7 @@ file  /usr/lib/advent/advent1.dat 0644 applications/advent/advent1.dat
 file  /usr/lib/advent/advent2.dat 0644 applications/advent/advent2.dat
 file  /usr/lib/advent/advent3.dat 0644 applications/advent/advent3.dat
 file  /usr/lib/advent/advent4.dat 0644 applications/advent/advent4.dat
+file  /usr/lib/zork/dtextc.dat    0644 applications/zork/dtextc.dat
 file  /usr/lib/starwars.txt   0644  applications/starwars/starwars.txt
 
 # --- /usr/lib (development objects & libraries for in-guest compilation) ----
