@@ -237,10 +237,10 @@ void six_write(struct pt_regs *u)
 void six_open(struct pt_regs *u)
 {
         char *name;
-        long flags;
+        long flags, mode;
         int fd;
-        grab_args(u, (long *)&name, (long *)&flags, 0);
-        fd = sys_open(name, flags, 0);
+        grab_args(u, (long *)&name, &flags, &mode);
+        fd = sys_open(name, flags, mode);
         put_ret(u, (long)fd);
 }
 

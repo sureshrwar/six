@@ -19,6 +19,7 @@
  */
 
 #include <linux/types.h>
+#include <stddef.h>
 
 #ifndef NULL
 #define NULL	((void *) 0)
@@ -48,8 +49,14 @@ extern int brk(void *end_data_segment);
 extern int atoi(const char *s);
 extern long strtol(const char *s, char **endptr, int base);
 extern unsigned long strtoul(const char *s, char **endptr, int base);
+extern long long strtoll(const char *s, char **endptr, int base);
+extern unsigned long long strtoull(const char *s, char **endptr, int base);
+extern double strtod(const char *nptr, char **endptr);
+extern float strtof(const char *nptr, char **endptr);
+extern long double strtold(const char *nptr, char **endptr);
 extern int rand(void);
 extern void srand(unsigned int seed);
+extern void qsort(void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *));
 
 /* --- environment ---------------------------------------------------------
  * There is no putenv() or setenv(); the guest's environment is whatever

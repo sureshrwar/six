@@ -4,6 +4,9 @@
 #ifndef _LIBRARY_STDIO_H
 #define _LIBRARY_STDIO_H
 
+#include <stddef.h>
+#include <stdarg.h>
+
 typedef struct iobuf {
         int             count;
         int             fd;
@@ -60,6 +63,24 @@ extern FILE     *iotab[FOPEN_MAX];
 #define feof(p)         (((p)->flags & _IOEOF) != 0)
 #define ferror(p)       (((p)->flags & _IOERR) != 0)
 #define clearerr(p)     ((p)->flags &= ~(_IOERR|_IOEOF))
+
+int printf(const char *fmt, ...);
+int fprintf(FILE *stream, const char *fmt, ...);
+int sprintf(char *str, const char *fmt, ...);
+int snprintf(char *str, size_t size, const char *fmt, ...);
+int vsprintf(char *str, const char *fmt, va_list ap);
+int vfprintf(FILE *stream, const char *fmt, va_list ap);
+int vsnprintf(char *str, size_t size, const char *fmt, va_list ap);
+FILE *fopen(const char *path, const char *mode);
+int fclose(FILE *stream);
+size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream);
+size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream);
+int fseek(FILE *stream, long offset, int whence);
+long ftell(FILE *stream);
+int fflush(FILE *stream);
+char *fgets(char *s, int size, FILE *stream);
+int fputs(const char *s, FILE *stream);
+int puts(const char *s);
 
 #endif
 

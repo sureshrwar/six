@@ -2,6 +2,7 @@
 #include <syscall.h>
 #include <linux/errno.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdarg.h>
 
 int open(const char *name, int flags, ...)
@@ -12,7 +13,7 @@ int open(const char *name, int flags, ...)
 		errno = EINVAL;
 		return -1;
 	}
-	if (flags & 0100) { /* O_CREAT */
+	if (flags & O_CREAT) {
 		va_list ap;
 		va_start(ap, flags);
 		mode = va_arg(ap, int);

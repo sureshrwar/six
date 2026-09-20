@@ -67,7 +67,8 @@ SUBDIRS	=	start \
 		testcurses \
 		lynx23 \
 		starwars \
-		irc
+		irc \
+		tcc
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

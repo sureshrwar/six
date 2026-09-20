@@ -28,6 +28,14 @@ dir   /usr                  0755
 dir   /usr/adm              0755
 dir   /usr/lib              0755
 dir   /usr/lib/advent       0755
+dir   /usr/lib/tcc          0755
+dir   /usr/lib/tcc/include  0755
+dir   /usr/include          0755
+dir   /usr/include/arpa     0755
+dir   /usr/include/netinet  0755
+dir   /usr/include/sys      0755
+dir   /usr/include/linux    0755
+dir   /usr/include/asm      0755
 
 # --- /bin (all 23 programs from the SPARC root disk + vi & advent) ----------
 file  /bin/advent           0755  applications/advent/advent
@@ -83,6 +91,7 @@ file  /bin/tetris           0755  applications/tetris/tetris
 file  /bin/touch            0755  applications/touch/touch
 file  /bin/ttt              0755  applications/ttt/ttt
 file  /bin/tty              0755  applications/tty/tty
+file  /bin/tcc              0755  applications/tcc/tcc
 file  /bin/vi               0755  applications/vi/vi
 file  /bin/wc               0755  applications/wc/wc
 
@@ -90,6 +99,7 @@ file  /bin/wc               0755  applications/wc/wc
 file  /etc/init             0755  applications/init/init
 file  /etc/hostname         0644  port/image/rootfs/etc/hostname
 file  /etc/hosts            0644  port/image/rootfs/etc/hosts
+file  /etc/hello.c          0644  applications/tcc/test_hello.c
 file  /etc/lynx.cfg         0644  applications/lynx23/lynx.cfg
 file  /etc/motd             0644  port/image/rootfs/etc/motd
 file  /etc/passwd           0644  port/image/rootfs/etc/passwd
@@ -109,6 +119,85 @@ file  /usr/lib/advent/advent2.dat 0644 applications/advent/advent2.dat
 file  /usr/lib/advent/advent3.dat 0644 applications/advent/advent3.dat
 file  /usr/lib/advent/advent4.dat 0644 applications/advent/advent4.dat
 file  /usr/lib/starwars.txt   0644  applications/starwars/starwars.txt
+
+# --- /usr/lib (development objects & libraries for in-guest compilation) ----
+file  /usr/lib/cstart.o         0644  applications/start/cstart.o
+file  /usr/lib/libc.a           0644  library/libc/lib/libc.a
+file  /usr/lib/libcurses.a      0644  library/curses/lib/libcurses.a
+file  /usr/lib/tcc/include/stdarg.h   0644  applications/tcc/include/stdarg.h
+file  /usr/lib/tcc/include/stddef.h   0644  applications/tcc/include/stddef.h
+file  /usr/lib/tcc/include/stdbool.h  0644  applications/tcc/include/stdbool.h
+file  /usr/lib/tcc/include/float.h    0644  applications/tcc/include/float.h
+file  /usr/lib/tcc/include/varargs.h  0644  applications/tcc/include/varargs.h
+
+# --- /usr/include (C development headers) -----------------------------------
+file  /usr/include/assert.h     0644  library/include/assert.h
+file  /usr/include/ctype.h      0644  library/include/ctype.h
+file  /usr/include/curses.h     0644  library/include/curses.h
+file  /usr/include/dirent.h     0644  library/include/dirent.h
+file  /usr/include/errno.h      0644  library/include/errno.h
+file  /usr/include/fcntl.h      0644  library/include/fcntl.h
+file  /usr/include/grp.h        0644  library/include/grp.h
+file  /usr/include/inttypes.h   0644  library/include/inttypes.h
+file  /usr/include/math.h       0644  library/include/math.h
+file  /usr/include/netdb.h      0644  library/include/netdb.h
+file  /usr/include/pwd.h        0644  library/include/pwd.h
+file  /usr/include/regexp.h     0644  library/include/regexp.h
+file  /usr/include/sched.h      0644  library/include/sched.h
+file  /usr/include/setjmp.h     0644  library/include/setjmp.h
+file  /usr/include/signal.h     0644  library/include/signal.h
+file  /usr/include/stat.h       0644  library/include/stat.h
+file  /usr/include/stdint.h     0644  library/include/stdint.h
+file  /usr/include/stdio.h      0644  library/include/stdio.h
+file  /usr/include/stdlib.h     0644  library/include/stdlib.h
+file  /usr/include/string.h     0644  library/include/string.h
+file  /usr/include/syscall.h    0644  library/include/syscall.h
+file  /usr/include/termcap.h    0644  library/include/termcap.h
+file  /usr/include/termios.h    0644  library/include/termios.h
+file  /usr/include/time.h       0644  library/include/time.h
+file  /usr/include/ttyent.h     0644  library/include/ttyent.h
+file  /usr/include/unistd.h     0644  library/include/unistd.h
+file  /usr/include/utmp.h       0644  library/include/utmp.h
+
+file  /usr/include/arpa/inet.h  0644  library/include/arpa/inet.h
+
+file  /usr/include/netinet/in.h   0644  library/include/netinet/in.h
+
+file  /usr/include/sys/fcntl.h    0644  library/include/sys/fcntl.h
+file  /usr/include/sys/file.h     0644  library/include/sys/file.h
+file  /usr/include/sys/ioctl.h    0644  library/include/sys/ioctl.h
+file  /usr/include/sys/mman.h     0644  library/include/sys/mman.h
+file  /usr/include/sys/param.h    0644  library/include/sys/param.h
+file  /usr/include/sys/sixcall.h  0644  library/include/sys/sixcall.h
+file  /usr/include/sys/socket.h   0644  library/include/sys/socket.h
+file  /usr/include/sys/stat.h     0644  library/include/sys/stat.h
+file  /usr/include/sys/time.h     0644  library/include/sys/time.h
+file  /usr/include/sys/types.h    0644  library/include/sys/types.h
+file  /usr/include/sys/wait.h     0644  library/include/sys/wait.h
+
+file  /usr/include/linux/types.h       0644  include/linux/types.h
+file  /usr/include/linux/posix_types.h 0644  include/linux/posix_types.h
+file  /usr/include/linux/stat.h        0644  include/linux/stat.h
+file  /usr/include/linux/dirent.h      0644  include/linux/dirent.h
+file  /usr/include/linux/limits.h      0644  include/linux/limits.h
+file  /usr/include/linux/mman.h        0644  include/linux/mman.h
+file  /usr/include/linux/time.h        0644  include/linux/time.h
+file  /usr/include/linux/times.h       0644  include/linux/times.h
+file  /usr/include/linux/fcntl.h       0644  include/linux/fcntl.h
+file  /usr/include/linux/errno.h       0644  include/linux/errno.h
+file  /usr/include/linux/termios.h     0644  include/linux/termios.h
+file  /usr/include/linux/signal.h      0644  include/linux/signal.h
+
+file  /usr/include/asm/types.h         0644  include/asm-i386/types.h
+file  /usr/include/asm/posix_types.h   0644  include/asm-i386/posix_types.h
+file  /usr/include/asm/stat.h          0644  include/asm-i386/stat.h
+file  /usr/include/asm/fcntl.h         0644  include/asm-i386/fcntl.h
+file  /usr/include/asm/errno.h         0644  include/asm-i386/errno.h
+file  /usr/include/asm/termbits.h      0644  include/asm-i386/termbits.h
+file  /usr/include/asm/termios.h       0644  include/asm-i386/termios.h
+file  /usr/include/asm/signal.h        0644  include/asm-i386/signal.h
+file  /usr/include/asm/ioctls.h        0644  include/asm-i386/ioctls.h
+file  /usr/include/asm/param.h         0644  include/asm-i386/param.h
 
 # --- /dev (character major 4 = TTY_MAJOR; both minor 1 as on SPARC) --------
 # /etc/ttytab spawns getty on "console", so /etc/init opens /dev/console for

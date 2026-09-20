@@ -206,7 +206,7 @@ static char * number(char *str, FILE *fp, long num, int base, int size, int prec
 
 
 
-int vsprintf(char *buf, FILE *fp, const char *fmt, va_list args)
+static int _vformat(char *buf, FILE *fp, const char *fmt, va_list args)
 {
         int len;
         unsigned long num;
@@ -448,5 +448,15 @@ int vsprintf(char *buf, FILE *fp, const char *fmt, va_list args)
         	return str-buf;
 	else
 		return count;
+}
+
+int vsprintf(char *buf, const char *fmt, va_list args)
+{
+	return _vformat(buf, NULL, fmt, args);
+}
+
+int vfprintf(FILE *fp, const char *fmt, va_list args)
+{
+	return _vformat(NULL, fp, fmt, args);
 }
 

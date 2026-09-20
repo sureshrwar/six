@@ -174,7 +174,10 @@ while read -r type path mode a b c; do
 		mkdir -p "$(dirname "$dest")"
 		cp -f "$a" "$dest"         || rc=1
 		if [ "$(head -c 4 "$dest" | od -An -tx1 | tr -d ' ')" = "7f454c46" ]; then
-			strip --strip-unneeded "$dest" 2>/dev/null || true
+			case "$dest" in
+			*.o|*.a) ;;
+			*) strip --strip-unneeded "$dest" 2>/dev/null || true ;;
+			esac
 		fi
 		chmod "$mode" "$dest"      || rc=1
 		chown 0:0 "$dest"          || rc=1

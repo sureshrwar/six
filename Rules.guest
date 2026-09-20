@@ -57,6 +57,7 @@ GUEST_AR = ar
 # <sched.h> now (library/include/sched.h).
 # ---------------------------------------------------------------------------
 GUEST_GCCINC := $(shell $(GUEST_CC) -m32 -print-file-name=include)
+GUEST_LIBGCC := $(shell $(GUEST_CC) -m32 -print-libgcc-file-name)
 
 GUEST_INCLUDES = -nostdinc \
 		 -isystem $(GUEST_GCCINC) \
@@ -148,8 +149,8 @@ GUEST_LIBCURSES= $(SIX_GUEST_TOP)/library/curses/lib/libcurses.a
 GUEST_CRT      = $(SIX_GUEST_TOP)/applications/start/cstart.o
 
 # The standard recipe for a guest program: $(call guest_link,name,objects)
-guest_link = $(GUEST_LD) $(GUEST_LDFLAGS) -o $(1) $(GUEST_CRT) $(2) $(GUEST_LIBC)
-guest_link_curses = $(GUEST_LD) $(GUEST_LDFLAGS) -o $(1) $(GUEST_CRT) $(2) $(GUEST_LIBCURSES) $(GUEST_LIBC)
+guest_link = $(GUEST_LD) $(GUEST_LDFLAGS) -o $(1) $(GUEST_CRT) $(2) $(GUEST_LIBC) $(GUEST_LIBGCC)
+guest_link_curses = $(GUEST_LD) $(GUEST_LDFLAGS) -o $(1) $(GUEST_CRT) $(2) $(GUEST_LIBCURSES) $(GUEST_LIBC) $(GUEST_LIBGCC)
 
 %.o: %.c
 	$(GUEST_CC) $(GUEST_CFLAGS) -MMD -MF $(dir $@).$(notdir $@).d -c -o $@ $<
