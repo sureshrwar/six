@@ -190,7 +190,7 @@ void six_eth_poll(void)
 				c->state = CONN_FREE;
 			}
 		} else if (c->state == CONN_ESTABLISHED) {
-			if (six_host_net_poll_readable(c->host_fd)) {
+			while (six_host_net_poll_readable(c->host_fd)) {
 				int r = six_host_net_recv(c->host_fd, buf, sizeof(buf));
 				if (r > 0) {
 					inject_tcp(six_dev, c->dest_ip, c->guest_ip,
@@ -198,13 +198,18 @@ void six_eth_poll(void)
 						   c->our_seq, c->guest_seq,
 						   0x18 /* ACK|PSH */, buf, r);
 					c->our_seq += r;
+					if (bh_mask & bh_active)
+						do_bottom_half();
 				} else if (r == 0) {
 					inject_tcp(six_dev, c->dest_ip, c->guest_ip,
 						   c->dest_port, c->guest_port,
-						   c->our_seq, c->guest_seq,
+						   c->our_seq++, c->guest_seq,
 						   0x11 /* FIN|ACK */, NULL, 0);
 					c->state = CONN_CLOSING;
 					six_host_net_close(c->host_fd);
+					if (bh_mask & bh_active)
+						do_bottom_half();
+					break;
 				}
 			}
 		} else if (c->state == CONN_CLOSING) {
@@ -282,6 +287,8 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 						rskb->dev = dev;
 						rskb->ip_summed = CHECKSUM_UNNECESSARY;
 						netif_rx(rskb);
+						if (bh_mask & bh_active)
+							do_bottom_half();
 					}
 				}
 				dev_kfree_skb(skb, FREE_WRITE);
@@ -366,7 +373,7 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 					int tries = 0;
 					int got_data = 0;
 					while (tries < 150) {
-						if (six_host_net_poll_readable(conn->host_fd)) {
+						while (six_host_net_poll_readable(conn->host_fd)) {
 							int r = six_host_net_recv(conn->host_fd, rbuf, sizeof(rbuf));
 							if (r > 0) {
 								inject_tcp(dev, conn->dest_ip, conn->guest_ip,
@@ -377,9 +384,20 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 								got_data = 1;
 								if (bh_mask & bh_active)
 									do_bottom_half();
+							} else if (r == 0) {
+								inject_tcp(dev, conn->dest_ip, conn->guest_ip,
+									   conn->dest_port, conn->guest_port,
+									   conn->our_seq++, conn->guest_seq,
+									   0x11 /* FIN|ACK */, NULL, 0);
+								conn->state = CONN_CLOSING;
+								six_host_net_close(conn->host_fd);
+								if (bh_mask & bh_active)
+									do_bottom_half();
+								break;
 							}
-							break;
 						}
+						if (got_data || conn->state == CONN_CLOSING)
+							break;
 						six_host_idle_sleep();
 						tries++;
 					}
