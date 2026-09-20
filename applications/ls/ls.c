@@ -583,35 +583,36 @@ int dotflag(char *name)
 int adddir(struct file **aflist, char *name)
 /* Add directory entries of directory name to a file list. */
 {
-	int d, ret, cur=0;
+	int d, ret, cur;
 	struct dirent *e;
 	char buf[PATH_MAX], *tmp;
-
-	tmp = &buf[0];
 
 	if (access(name, 0) < 0) {
 		report(name);
 		return 0;
 	}
 
-	if ((d= open(name, 0)) == nil) {
+	if ((d = open(name, 0)) < 0) {
 		report(name);
 		return 0;
 	}
 	while (1) {
-		ret = getdents(d, (struct dirent *)tmp, 256);
-		if (!ret)
+		ret = getdents(d, (struct dirent *)buf, sizeof(buf));
+		if (ret <= 0)
 			break;
+		tmp = buf;
+		cur = 0;
 		while (cur < ret) {
 			e = (struct dirent *)tmp;
+			if (e->d_reclen == 0)
+				break;
 			if (e->d_ino != 0 && present(dotflag(e->d_name))) {
 				pushfile(aflist, newfile(e->d_name));
-				aflist= &(*aflist)->next;
+				aflist = &(*aflist)->next;
 			}
 			tmp += e->d_reclen;
 			cur += e->d_reclen;
 		}
-		cur = 0;
 	}
 	close(d);
 	return 1;
