@@ -59,7 +59,8 @@ SUBDIRS	=	start \
 		nettest \
 		httpd \
 		lynx \
-		ifconfig
+		ifconfig \
+		sleep
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

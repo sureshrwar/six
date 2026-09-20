@@ -1,13 +1,21 @@
 # /etc/rc
 
+sleep 1
 echo Executing /etc/rc.
 
-#set the hostname
+sleep 1
 
+#set the hostname
+echo Setting hostname to `cat /etc/hostname`
 sethostname `cat /etc/hostname`
 
+sleep 1
+
 # Start HTTP server
+echo Starting a local HTTP server.
 httpd &
+
+sleep 1
 
 echo
 echo
