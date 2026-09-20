@@ -185,7 +185,7 @@ SVGA_MODE=	-DSVGA_MODE=NORMAL_VGA
 SIX_TRACE_GUEST_SYSCALLS ?= 0
 export SIX_TRACE_GUEST_SYSCALLS
 
-SIX_STDFLAGS  = -std=gnu89 -fcommon -fno-strict-aliasing -fno-builtin -fno-pic
+SIX_STDFLAGS  = -std=gnu89 -fcommon -fno-strict-aliasing -fno-builtin -fno-pic -fno-stack-protector
 SIX_WARNFLAGS = -w
 
 CFLAGS = -g -O0 $(SIX_STDFLAGS) $(SIX_WARNFLAGS) \

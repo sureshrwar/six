@@ -1,8 +1,9 @@
 /*
  * Lynx - Minimalist Text-Mode Web Browser for SIX
  *
- * Supports HTTP/1.0 GET, HTML rendering, interactive navigation,
- * link following, history, and -dump mode.
+ * Supports HTTP/1.0 & HTTPS (via built-in TLS bridge), HTML rendering,
+ * interactive navigation, link following, history, redirects, in-page
+ * search, source viewing, page saving, bookmarks, and -dump mode.
  */
 
 #include <stdio.h>
@@ -28,11 +29,12 @@ extern int ioctl(int fd, int request, ...);
 extern int open(const char *pathname, int flags, ...);
 extern int select(int n, fd_set *inp, fd_set *outp, fd_set *exp, struct timeval *tvp);
 
-#define MAX_LINES 2000
+#define MAX_LINES 2500
 #define MAX_LINE_LEN 128
-#define MAX_LINKS 128
-#define MAX_URL_LEN 256
+#define MAX_LINKS 256
+#define MAX_URL_LEN 512
 #define MAX_HIST 32
+#define HTTP_BUF_SIZE 262144
 
 struct link_entry {
 	int line;
@@ -50,6 +52,14 @@ static char current_url[MAX_URL_LEN];
 
 static char history_stack[MAX_HIST][MAX_URL_LEN];
 static int history_count = 0;
+
+static char http_buf[HTTP_BUF_SIZE];
+static char *raw_doc = NULL;
+static int raw_doc_len = 0;
+static int view_source_mode = 0;
+
+static char last_search[64] = "";
+static char status_msg[128] = "";
 
 static struct termios orig_termios;
 static int raw_mode_set = 0;
@@ -88,16 +98,80 @@ static void get_screen_size(int *rows, int *cols)
 	}
 }
 
-static int parse_url(const char *url, char *host, int *port, char *path)
+static int lynx_tolower(int c)
+{
+	if (c >= 'A' && c <= 'Z')
+		return c + ('a' - 'A');
+	return c;
+}
+
+static int lynx_strcasecmp(const char *s1, const char *s2)
+{
+	while (*s1 && *s2) {
+		int c1 = lynx_tolower((unsigned char)*s1);
+		int c2 = lynx_tolower((unsigned char)*s2);
+		if (c1 != c2)
+			return c1 - c2;
+		s1++;
+		s2++;
+	}
+	return lynx_tolower((unsigned char)*s1) - lynx_tolower((unsigned char)*s2);
+}
+
+static int lynx_strncasecmp(const char *s1, const char *s2, size_t n)
+{
+	while (n && *s1 && *s2) {
+		int c1 = lynx_tolower((unsigned char)*s1);
+		int c2 = lynx_tolower((unsigned char)*s2);
+		if (c1 != c2)
+			return c1 - c2;
+		s1++;
+		s2++;
+		n--;
+	}
+	if (n == 0)
+		return 0;
+	return lynx_tolower((unsigned char)*s1) - lynx_tolower((unsigned char)*s2);
+}
+
+static char *lynx_strcasestr(const char *haystack, const char *needle)
+{
+	if (!needle || !*needle)
+		return (char *)haystack;
+	for (; *haystack; haystack++) {
+		if (lynx_tolower((unsigned char)*haystack) == lynx_tolower((unsigned char)*needle)) {
+			const char *h = haystack;
+			const char *n = needle;
+			while (*h && *n && lynx_tolower((unsigned char)*h) == lynx_tolower((unsigned char)*n)) {
+				h++;
+				n++;
+			}
+			if (!*n)
+				return (char *)haystack;
+		}
+	}
+	return NULL;
+}
+
+static int parse_url(const char *url, char *host, int *port, char *path, int *is_https)
 {
 	const char *p = url;
 	char *h = host;
 	char *pa = path;
 
-	if (strncmp(p, "http://", 7) == 0)
-		p += 7;
-
+	*is_https = 0;
 	*port = 80;
+
+	if (strncmp(p, "https://", 8) == 0) {
+		p += 8;
+		*is_https = 1;
+		*port = 443;
+	} else if (strncmp(p, "http://", 7) == 0) {
+		p += 7;
+		*is_https = 0;
+		*port = 80;
+	}
+
 	while (*p && *p != ':' && *p != '/') {
 		*h++ = *p++;
 	}
@@ -118,32 +192,75 @@ static int parse_url(const char *url, char *host, int *port, char *path)
 	return 0;
 }
 
+static void resolve_link(const char *base, const char *href, char *out, size_t out_sz)
+{
+	char host[128], path[MAX_URL_LEN];
+	int port, is_https;
+	const char *proto;
+	int def_port;
+
+	if (strncmp(href, "http://", 7) == 0 ||
+	    strncmp(href, "https://", 8) == 0 ||
+	    strncmp(href, "file://", 7) == 0) {
+		strncpy(out, href, out_sz - 1);
+		out[out_sz - 1] = '\0';
+		return;
+	}
+
+	parse_url(base, host, &port, path, &is_https);
+	proto = is_https ? "https" : "http";
+	def_port = is_https ? 443 : 80;
+
+	if (href[0] == '/') {
+		if (port == def_port)
+			sprintf(out, "%s://%s%s", proto, host, href);
+		else
+			sprintf(out, "%s://%s:%d%s", proto, host, port, href);
+	} else {
+		char *slash = strrchr(path, '/');
+		if (slash) *(slash + 1) = '\0';
+		else strcpy(path, "/");
+
+		if (port == def_port)
+			sprintf(out, "%s://%s%s%s", proto, host, path, href);
+		else
+			sprintf(out, "%s://%s:%d%s%s", proto, host, port, path, href);
+	}
+	out[out_sz - 1] = '\0';
+}
+
+static char *http_fetch_internal(const char *url, int *out_len, int depth);
+
 static char *http_fetch(const char *url, int *out_len)
 {
+	return http_fetch_internal(url, out_len, 0);
+}
+
+static char *http_fetch_internal(const char *url, int *out_len, int depth)
+{
 	char host[128];
-	int port;
+	int port, is_https;
 	char path[MAX_URL_LEN];
-	struct hostent *he;
 	struct sockaddr_in saddr;
 	int sfd;
-	char req[512];
-	char *buf;
-	int buf_size = 32768;
+	char req[1024];
+	char *buf = http_buf;
+	int buf_size = sizeof(http_buf);
 	int total = 0;
 	int r;
+
+	if (depth > 5) {
+		printf("lynx: too many redirects\n");
+		return NULL;
+	}
 
 	if (strncmp(url, "file://", 7) == 0 || url[0] == '/') {
 		const char *fpath = (strncmp(url, "file://", 7) == 0) ? url + 7 : url;
 		int fd = open(fpath, O_RDONLY);
 		if (fd < 0) return NULL;
-		buf = malloc(buf_size);
-		if (!buf) { close(fd); return NULL; }
 		while ((r = read(fd, buf + total, buf_size - total - 1)) > 0) {
 			total += r;
-			if (total >= buf_size - 1024) {
-				buf_size *= 2;
-				buf = realloc(buf, buf_size);
-			}
+			if (total >= buf_size - 1) break;
 		}
 		close(fd);
 		buf[total] = '\0';
@@ -151,56 +268,93 @@ static char *http_fetch(const char *url, int *out_len)
 		return buf;
 	}
 
-	parse_url(url, host, &port, path);
+	parse_url(url, host, &port, path, &is_https);
 
-	he = gethostbyname(host);
-	if (!he) {
-		printf("lynx: unable to resolve host '%s'\n", host);
-		return NULL;
+	if (is_https) {
+		/* Connect to TLS bridge at 10.0.2.2:18443 (guest) or 127.0.0.1:18443 (host) */
+		sfd = socket(AF_INET, SOCK_STREAM, 0);
+		if (sfd < 0) {
+			printf("lynx: socket() failed\n");
+			return NULL;
+		}
+		memset(&saddr, 0, sizeof(saddr));
+		saddr.sin_family = AF_INET;
+		saddr.sin_port = htons(18443);
+		saddr.sin_addr.s_addr = inet_addr("10.0.2.2");
+
+		if (connect(sfd, (struct sockaddr *)&saddr, sizeof(saddr)) < 0) {
+			close(sfd);
+			sfd = socket(AF_INET, SOCK_STREAM, 0);
+			saddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+			if (connect(sfd, (struct sockaddr *)&saddr, sizeof(saddr)) < 0) {
+				printf("lynx: connect to TLS bridge failed\n");
+				close(sfd);
+				return NULL;
+			}
+		}
+
+		/* Send CONNECT request */
+		char creq[256];
+		sprintf(creq, "CONNECT %s:%d HTTP/1.0\r\nHost: %s:%d\r\n\r\n", host, port, host, port);
+		write(sfd, creq, strlen(creq));
+
+		/* Read CONNECT response */
+		char cresp[512];
+		int cresplen = 0;
+		while (cresplen < sizeof(cresp) - 1) {
+			r = read(sfd, cresp + cresplen, 1);
+			if (r <= 0) break;
+			cresplen += r;
+			cresp[cresplen] = '\0';
+			if (strstr(cresp, "\r\n\r\n")) break;
+		}
+		if (!strstr(cresp, " 200 ")) {
+			printf("lynx: TLS handshake refused: %s\n", cresp);
+			close(sfd);
+			return NULL;
+		}
+	} else {
+		/* Standard HTTP: resolve host and connect */
+		struct hostent *he = gethostbyname(host);
+		if (!he) {
+			printf("lynx: unable to resolve host '%s'\n", host);
+			return NULL;
+		}
+		sfd = socket(AF_INET, SOCK_STREAM, 0);
+		if (sfd < 0) {
+			printf("lynx: socket() failed\n");
+			return NULL;
+		}
+		memset(&saddr, 0, sizeof(saddr));
+		saddr.sin_family = AF_INET;
+		saddr.sin_port = htons((unsigned short)port);
+		memcpy(&saddr.sin_addr, he->h_addr_list[0], he->h_length);
+
+		if (connect(sfd, (struct sockaddr *)&saddr, sizeof(saddr)) < 0) {
+			printf("lynx: connect to %s:%d failed\n", host, port);
+			close(sfd);
+			return NULL;
+		}
 	}
 
-	sfd = socket(AF_INET, SOCK_STREAM, 0);
-	if (sfd < 0) {
-		printf("lynx: socket() failed\n");
-		return NULL;
-	}
-
-	memset(&saddr, 0, sizeof(saddr));
-	saddr.sin_family = AF_INET;
-	saddr.sin_port = htons((unsigned short)port);
-	memcpy(&saddr.sin_addr, he->h_addr_list[0], he->h_length);
-
-	if (connect(sfd, (struct sockaddr *)&saddr, sizeof(saddr)) < 0) {
-		printf("lynx: connect to %s:%d failed\n", host, port);
-		close(sfd);
-		return NULL;
-	}
-
+	/* Send HTTP Request over the connection / TLS tunnel */
 	sprintf(req, "GET %s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\nUser-Agent: SIX/1.0 (Linux 2.0.11)\r\nAccept: text/html, text/plain, */*\r\n\r\n", path, host);
 	write(sfd, req, strlen(req));
-
-	buf = malloc(buf_size);
-	if (!buf) {
-		close(sfd);
-		return NULL;
-	}
 
 	int content_len = -1;
 	int header_len = 0;
 	for (;;) {
 		struct timeval tv;
-		tv.tv_sec = (total == 0) ? 5 : 2;
+		tv.tv_sec = (total == 0) ? 6 : 2;
 		tv.tv_usec = 0;
 		fd_set rfds;
 		FD_ZERO(&rfds);
 		FD_SET(sfd, &rfds);
 
 		if (select(sfd + 1, &rfds, NULL, NULL, &tv) <= 0) {
-			/* Timeout - break if we received headers, else fail */
 			if (total > 0 && strstr(buf, "\r\n\r\n")) break;
 			if (total == 0) {
 				close(sfd);
-				free(buf);
 				return NULL;
 			}
 			break;
@@ -226,61 +380,49 @@ static char *http_fetch(const char *url, int *out_len)
 		}
 		if (content_len >= 0 && total >= header_len + content_len)
 			break;
-		if (total >= buf_size - 1024) {
-			buf_size *= 2;
-			buf = realloc(buf, buf_size);
-		}
+		if (total >= buf_size - 1)
+			break;
 	}
 	close(sfd);
 	buf[total] = '\0';
 
-	/* Strip HTTP headers if present */
+	/* Check for HTTP Redirects (301, 302, 303, 307, 308) */
+	if (strncmp(buf, "HTTP/1.", 7) == 0 && (buf[9] == '3')) {
+		char *loc = strstr(buf, "Location:");
+		if (!loc) loc = strstr(buf, "location:");
+		if (loc) {
+			char redirect_url[MAX_URL_LEN];
+			char resolved_url[MAX_URL_LEN];
+			int i = 0;
+			loc += 9;
+			while (*loc == ' ') loc++;
+			while (*loc && *loc != '\r' && *loc != '\n' && i < MAX_URL_LEN - 1) {
+				redirect_url[i++] = *loc++;
+			}
+			redirect_url[i] = '\0';
+			resolve_link(url, redirect_url, resolved_url, sizeof(resolved_url));
+			strncpy(current_url, resolved_url, sizeof(current_url) - 1);
+			return http_fetch_internal(resolved_url, out_len, depth + 1);
+		}
+	}
+
+	/* Strip HTTP response headers */
 	{
 		char *body = strstr(buf, "\r\n\r\n");
 		if (body) {
+			int blen, bi;
 			body += 4;
-			int blen = total - (body - buf);
-			char *newbuf = malloc(blen + 1);
-			memcpy(newbuf, body, blen);
-			newbuf[blen] = '\0';
-			free(buf);
+			blen = total - (body - buf);
+			for (bi = 0; bi < blen; bi++)
+				buf[bi] = body[bi];
+			buf[blen] = '\0';
 			*out_len = blen;
-			return newbuf;
+			return buf;
 		}
 	}
+
 	*out_len = total;
 	return buf;
-}
-
-static void resolve_link(const char *base, const char *href, char *out, size_t out_sz)
-{
-	char host[128], path[MAX_URL_LEN];
-	int port;
-
-	if (strncmp(href, "http://", 7) == 0 || strncmp(href, "file://", 7) == 0) {
-		strncpy(out, href, out_sz - 1);
-		out[out_sz - 1] = '\0';
-		return;
-	}
-
-	parse_url(base, host, &port, path);
-
-	if (href[0] == '/') {
-		if (port == 80)
-			sprintf(out, "http://%s%s", host, href);
-		else
-			sprintf(out, "http://%s:%d%s", host, port, href);
-	} else {
-		char *slash = strrchr(path, '/');
-		if (slash) *(slash + 1) = '\0';
-		else strcpy(path, "/");
-
-		if (port == 80)
-			sprintf(out, "http://%s%s%s", host, path, href);
-		else
-			sprintf(out, "http://%s:%d%s%s", host, port, path, href);
-	}
-	out[out_sz - 1] = '\0';
 }
 
 static void add_line(const char *line)
@@ -316,6 +458,28 @@ static void render_html(const char *html)
 	cur_href[0] = '\0';
 
 	while (*p) {
+		if (in_script) {
+			if (*p == '<' && lynx_strncasecmp(p, "</script", 8) == 0) {
+				in_script = 0;
+				while (*p && *p != '>') p++;
+				if (*p == '>') p++;
+			} else {
+				p++;
+			}
+			continue;
+		}
+
+		if (in_style) {
+			if (*p == '<' && lynx_strncasecmp(p, "</style", 7) == 0) {
+				in_style = 0;
+				while (*p && *p != '>') p++;
+				if (*p == '>') p++;
+			} else {
+				p++;
+			}
+			continue;
+		}
+
 		if (*p == '<') {
 			in_tag = 1;
 			tag_idx = 0;
@@ -327,68 +491,66 @@ static void render_html(const char *html)
 				in_tag = 0;
 				tag_buf[tag_idx] = '\0';
 
-				/* Process tag */
-				if (strcasecmp(tag_buf, "title") == 0) {
+				if (lynx_strcasecmp(tag_buf, "title") == 0) {
 					in_title = 1;
 					title_idx = 0;
-				} else if (strcasecmp(tag_buf, "/title") == 0) {
+				} else if (lynx_strcasecmp(tag_buf, "/title") == 0) {
 					in_title = 0;
 					title_buf[title_idx] = '\0';
 					strncpy(doc_title, title_buf, sizeof(doc_title) - 1);
-				} else if (strncasecmp(tag_buf, "h1", 2) == 0 ||
-					   strncasecmp(tag_buf, "h2", 2) == 0 ||
-					   strncasecmp(tag_buf, "h3", 2) == 0) {
+				} else if (lynx_strncasecmp(tag_buf, "h1", 2) == 0 ||
+					   lynx_strncasecmp(tag_buf, "h2", 2) == 0 ||
+					   lynx_strncasecmp(tag_buf, "h3", 2) == 0) {
 					if (cur_col > 0) { add_line(cur_line); cur_col = 0; cur_line[0] = '\0'; }
 					add_line("");
-				} else if (strncasecmp(tag_buf, "/h1", 3) == 0 ||
-					   strncasecmp(tag_buf, "/h2", 3) == 0 ||
-					   strncasecmp(tag_buf, "/h3", 3) == 0) {
+				} else if (lynx_strncasecmp(tag_buf, "/h1", 3) == 0 ||
+					   lynx_strncasecmp(tag_buf, "/h2", 3) == 0 ||
+					   lynx_strncasecmp(tag_buf, "/h3", 3) == 0) {
 					if (cur_col > 0) { add_line(cur_line); cur_col = 0; cur_line[0] = '\0'; }
 					add_line("");
-				} else if (strcasecmp(tag_buf, "p") == 0 || strcasecmp(tag_buf, "/p") == 0) {
+				} else if (lynx_strcasecmp(tag_buf, "p") == 0 || lynx_strcasecmp(tag_buf, "/p") == 0 ||
+					   lynx_strncasecmp(tag_buf, "div", 3) == 0 || lynx_strncasecmp(tag_buf, "/div", 4) == 0) {
 					if (cur_col > 0) { add_line(cur_line); cur_col = 0; cur_line[0] = '\0'; }
 					add_line("");
-				} else if (strcasecmp(tag_buf, "br") == 0) {
+				} else if (lynx_strcasecmp(tag_buf, "br") == 0) {
 					add_line(cur_line);
 					cur_col = 0;
 					cur_line[0] = '\0';
-				} else if (strcasecmp(tag_buf, "hr") == 0) {
+				} else if (lynx_strcasecmp(tag_buf, "hr") == 0) {
 					if (cur_col > 0) { add_line(cur_line); cur_col = 0; cur_line[0] = '\0'; }
 					add_line("--------------------------------------------------------------------------------");
-				} else if (strcasecmp(tag_buf, "li") == 0) {
+				} else if (lynx_strcasecmp(tag_buf, "li") == 0) {
 					if (cur_col > 0) { add_line(cur_line); cur_col = 0; cur_line[0] = '\0'; }
 					strcpy(cur_line, "  * ");
 					cur_col = 4;
-				} else if (strcasecmp(tag_buf, "pre") == 0) {
+				} else if (lynx_strcasecmp(tag_buf, "pre") == 0) {
 					in_pre = 1;
 					if (cur_col > 0) { add_line(cur_line); cur_col = 0; cur_line[0] = '\0'; }
-				} else if (strcasecmp(tag_buf, "/pre") == 0) {
+				} else if (lynx_strcasecmp(tag_buf, "/pre") == 0) {
 					in_pre = 0;
 					if (cur_col > 0) { add_line(cur_line); cur_col = 0; cur_line[0] = '\0'; }
-				} else if (strncasecmp(tag_buf, "style", 5) == 0) {
+				} else if (lynx_strncasecmp(tag_buf, "style", 5) == 0) {
 					in_style = 1;
-				} else if (strncasecmp(tag_buf, "/style", 6) == 0) {
-					in_style = 0;
-				} else if (strncasecmp(tag_buf, "script", 6) == 0) {
+				} else if (lynx_strncasecmp(tag_buf, "script", 6) == 0) {
 					in_script = 1;
-				} else if (strncasecmp(tag_buf, "/script", 7) == 0) {
-					in_script = 0;
-				} else if (strncasecmp(tag_buf, "a ", 2) == 0) {
+				} else if (lynx_strncasecmp(tag_buf, "a ", 2) == 0) {
 					char *h = strstr(tag_buf, "href=");
 					if (h) {
+						char *end;
 						h += 5;
 						if (*h == '"' || *h == '\'') h++;
-						char *end = h;
+						end = h;
 						while (*end && *end != '"' && *end != '\'' && *end != ' ' && *end != '>') end++;
 						*end = '\0';
 						resolve_link(current_url, h, cur_href, sizeof(cur_href));
 						in_a = 1;
 					}
-				} else if (strcasecmp(tag_buf, "/a") == 0) {
+				} else if (lynx_strcasecmp(tag_buf, "/a") == 0) {
 					if (in_a && total_links < MAX_LINKS) {
 						char num[16];
+						int nlen;
 						sprintf(num, "[%d]", total_links + 1);
-						int nlen = strlen(num);
+						nlen = strlen(num);
 						if (cur_col + nlen < MAX_LINE_LEN - 1) {
 							strcpy(cur_line + cur_col, num);
 							cur_col += nlen;
@@ -407,11 +569,6 @@ static void render_html(const char *html)
 			}
 			if (tag_idx < sizeof(tag_buf) - 1)
 				tag_buf[tag_idx++] = *p;
-			p++;
-			continue;
-		}
-
-		if (in_style || in_script) {
 			p++;
 			continue;
 		}
@@ -438,7 +595,6 @@ static void render_html(const char *html)
 			continue;
 		}
 
-		/* Regular text flow */
 		if (*p == '\n' || *p == '\r' || *p == '\t') {
 			if (cur_col > 0 && cur_line[cur_col - 1] != ' ') {
 				cur_line[cur_col++] = ' ';
@@ -448,13 +604,19 @@ static void render_html(const char *html)
 			continue;
 		}
 
-		/* Entity decoding */
 		if (*p == '&') {
 			if (strncmp(p, "&lt;", 4) == 0) { cur_line[cur_col++] = '<'; p += 4; }
 			else if (strncmp(p, "&gt;", 4) == 0) { cur_line[cur_col++] = '>'; p += 4; }
 			else if (strncmp(p, "&amp;", 5) == 0) { cur_line[cur_col++] = '&'; p += 5; }
 			else if (strncmp(p, "&quot;", 6) == 0) { cur_line[cur_col++] = '"'; p += 6; }
 			else if (strncmp(p, "&nbsp;", 6) == 0) { cur_line[cur_col++] = ' '; p += 6; }
+			else if (strncmp(p, "&copy;", 6) == 0) {
+				if (cur_col < MAX_LINE_LEN - 4) {
+					strcpy(cur_line + cur_col, "(c)");
+					cur_col += 3;
+				}
+				p += 6;
+			}
 			else { cur_line[cur_col++] = *p++; }
 			cur_line[cur_col] = '\0';
 		} else {
@@ -475,19 +637,64 @@ static void render_html(const char *html)
 		strcpy(doc_title, "SIX Lynx");
 }
 
+static void render_source(const char *raw)
+{
+	const char *p = raw;
+	char line_buf[MAX_LINE_LEN];
+	int col = 0;
+
+	total_lines = 0;
+	total_links = 0;
+	strcpy(doc_title, "[Source View]");
+	line_buf[0] = '\0';
+
+	while (*p && total_lines < MAX_LINES) {
+		if (*p == '\n') {
+			line_buf[col] = '\0';
+			add_line(line_buf);
+			col = 0;
+			line_buf[0] = '\0';
+		} else if (*p != '\r') {
+			if (col < MAX_LINE_LEN - 1) {
+				line_buf[col++] = *p;
+			}
+			if (col >= 78) {
+				line_buf[col] = '\0';
+				add_line(line_buf);
+				col = 0;
+				line_buf[0] = '\0';
+			}
+		}
+		p++;
+	}
+	if (col > 0 && total_lines < MAX_LINES) {
+		line_buf[col] = '\0';
+		add_line(line_buf);
+	}
+}
+
+static void render_current(void)
+{
+	if (!raw_doc) return;
+	if (view_source_mode)
+		render_source(raw_doc);
+	else
+		render_html(raw_doc);
+}
+
 static void dump_mode(const char *url)
 {
 	int len;
 	char *html = http_fetch(url, &len);
+	int i;
+
 	if (!html) {
 		printf("lynx: failed to load %s\n", url);
 		return;
 	}
 	strncpy(current_url, url, sizeof(current_url) - 1);
 	render_html(html);
-	free(html);
 
-	int i;
 	for (i = 0; i < total_lines; i++) {
 		printf("%s\n", doc_lines[i]);
 	}
@@ -500,26 +707,59 @@ static void dump_mode(const char *url)
 	}
 }
 
+static void show_help(void)
+{
+	int rows, cols;
+	char ch;
+	get_screen_size(&rows, &cols);
+	printf("\033[H\033[2J");
+	printf("\033[1;36m========================= Lynx Help & Key Bindings =========================\033[0m\r\n\r\n");
+	printf("  \033[1mNavigation:\033[0m\r\n");
+	printf("    Up / Down or k / j   Move between links or scroll one line\r\n");
+	printf("    PgDn / Space / f     Scroll down one page\r\n");
+	printf("    PgUp                 Scroll up one page\r\n");
+	printf("    b                    Back to previous URL in history\r\n\r\n");
+	printf("  \033[1mLinks & URLs:\033[0m\r\n");
+	printf("    Enter                Follow selected link\r\n");
+	printf("    1 - 9                Jump directly to link number\r\n");
+	printf("    g                    Go to URL (supports http://, https://, file://)\r\n");
+	printf("    r                    Reload current page\r\n\r\n");
+	printf("  \033[1mSearch & Document:\033[0m\r\n");
+	printf("    /                    In-page search (case-insensitive)\r\n");
+	printf("    n                    Find next occurrence\r\n");
+	printf("    \\                    Toggle between rendered HTML and raw source view\r\n");
+	printf("    s                    Save page contents to a local file\r\n\r\n");
+	printf("  \033[1mBookmarks:\033[0m\r\n");
+	printf("    a                    Add current page to bookmarks\r\n");
+	printf("    v                    View bookmarks page with clickable links\r\n\r\n");
+	printf("  \033[1mGeneral:\033[0m\r\n");
+	printf("    h or ?               Show this help screen\r\n");
+	printf("    q                    Quit Lynx\r\n\r\n");
+	printf("\033[7m  Press any key to return to browsing...  \033[0m");
+	fflush(stdout);
+
+	read(0, &ch, 1);
+}
+
 static void draw_screen(int top_line, int cur_link, int rows, int cols)
 {
 	int i;
-	printf("\033[H"); /* Move to home */
+	int view_rows = rows - 2;
 
-	/* Top Status Bar: Reverse Video */
+	printf("\033[H");
+
+	/* Top Status Bar */
 	printf("\033[7m");
-	printf(" Lynx 2.8.4: %-50.50s (%d/%d)", doc_title, top_line + 1, total_lines > 0 ? total_lines : 1);
+	printf(" Lynx: %-46.46s (%d/%d)", doc_title, top_line + 1, total_lines > 0 ? total_lines : 1);
 	for (i = strlen(doc_title) + 20; i < cols; i++) putchar(' ');
 	printf("\033[0m\r\n");
 
 	/* Document Body */
-	int view_rows = rows - 2;
 	for (i = 0; i < view_rows; i++) {
 		int line_idx = top_line + i;
-		printf("\033[K"); /* Clear line */
+		printf("\033[K");
 		if (line_idx < total_lines) {
-			/* Check if current line contains selected link */
 			if (cur_link >= 0 && cur_link < total_links && links[cur_link].line == line_idx) {
-				/* Print line with highlighted link */
 				printf("\033[1;36m%s\033[0m", doc_lines[line_idx]);
 			} else {
 				printf("%s", doc_lines[line_idx]);
@@ -528,17 +768,121 @@ static void draw_screen(int top_line, int cur_link, int rows, int cols)
 		printf("\r\n");
 	}
 
-	/* Bottom Command Bar: Reverse Video */
+	/* Bottom Command Bar */
 	printf("\033[7m");
-	if (cur_link >= 0 && cur_link < total_links) {
-		printf(" [%d/%d] %-40.40s  Enter: Follow  g: Go  b: Back  q: Quit",
+	if (status_msg[0] != '\0') {
+		printf(" %-70.70s", status_msg);
+		status_msg[0] = '\0';
+	} else if (cur_link >= 0 && cur_link < total_links) {
+		printf(" [%d/%d] %-36.36s Enter:Follow g:URL /:Find \\:Src s:Save a:Bkmk q:Quit",
 		       cur_link + 1, total_links, links[cur_link].url);
 	} else {
-		printf(" Commands: Down/Up: Scroll  g: Go to URL  b: Back  q: Quit  h: Help");
+		printf(" Down/Up:Scroll  Enter:Follow  g:URL  /:Find  n:Next  \\:Src  s:Save  a:Bkmk  q:Quit");
 	}
-	for (i = 65; i < cols; i++) putchar(' ');
+	for (i = 75; i < cols; i++) putchar(' ');
 	printf("\033[0m");
 	fflush(stdout);
+}
+
+static void do_search(int *top_line, int *cur_link)
+{
+	int i, l;
+	if (last_search[0] == '\0') return;
+
+	/* Search from top_line + 1 to end */
+	for (i = *top_line + 1; i < total_lines; i++) {
+		if (lynx_strcasestr(doc_lines[i], last_search)) {
+			*top_line = i;
+			sprintf(status_msg, "[Found match at line %d]", i + 1);
+			for (l = 0; l < total_links; l++) {
+				if (links[l].line == i) { *cur_link = l; break; }
+			}
+			return;
+		}
+	}
+
+	/* Wrap around from line 0 to top_line */
+	for (i = 0; i <= *top_line; i++) {
+		if (lynx_strcasestr(doc_lines[i], last_search)) {
+			*top_line = i;
+			sprintf(status_msg, "[Found match at line %d (wrapped)]", i + 1);
+			for (l = 0; l < total_links; l++) {
+				if (links[l].line == i) { *cur_link = l; break; }
+			}
+			return;
+		}
+	}
+
+	sprintf(status_msg, "[Pattern not found: %s]", last_search);
+}
+
+static void get_bookmark_path(char *bpath, size_t sz)
+{
+	char *home = getenv("HOME");
+	if (home && strlen(home) > 0)
+		sprintf(bpath, "%s/.lynx_bookmarks", home);
+	else
+		sprintf(bpath, "/root/.lynx_bookmarks");
+}
+
+static void add_bookmark(const char *url, const char *title)
+{
+	char bpath[256];
+	char entry[MAX_URL_LEN + 256];
+	int fd;
+	get_bookmark_path(bpath, sizeof(bpath));
+
+	fd = open(bpath, O_RDWR | O_CREAT | O_APPEND, 0644);
+	if (fd < 0) {
+		sprintf(status_msg, "[Failed to open bookmarks file]");
+		return;
+	}
+
+	sprintf(entry, "<p><a href=\"%s\">%s</a> (%s)</p>\n", url, (title && title[0]) ? title : url, url);
+	write(fd, entry, strlen(entry));
+	close(fd);
+
+	sprintf(status_msg, "[Bookmark added for %s]", url);
+}
+
+static void ensure_bookmarks_exist(void)
+{
+	char bpath[256];
+	int fd;
+	get_bookmark_path(bpath, sizeof(bpath));
+
+	fd = open(bpath, O_RDONLY);
+	if (fd < 0) {
+		fd = open(bpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+		if (fd >= 0) {
+			const char *hdr = "<html><head><title>Lynx Bookmarks</title></head><body><h1>Lynx Bookmarks</h1><hr>\n<p>Press 'a' on any page to bookmark it.</p>\n";
+			write(fd, hdr, strlen(hdr));
+			close(fd);
+		}
+	} else {
+		close(fd);
+	}
+}
+
+static void save_page_to_file(const char *filename)
+{
+	int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	int i;
+	if (fd < 0) {
+		sprintf(status_msg, "[Cannot open %s for writing]", filename);
+		return;
+	}
+
+	if (view_source_mode && raw_doc) {
+		write(fd, raw_doc, raw_doc_len);
+	} else {
+		for (i = 0; i < total_lines; i++) {
+			write(fd, doc_lines[i], strlen(doc_lines[i]));
+			write(fd, "\n", 1);
+		}
+	}
+	close(fd);
+	sprintf(status_msg, "[Saved %d lines to %s]", total_lines, filename);
 }
 
 static void interactive_browse(const char *initial_url)
@@ -553,28 +897,28 @@ static void interactive_browse(const char *initial_url)
 load_new_url:
 	{
 		int len;
-		char *html;
 
 		printf("\033[H\033[2JGetting %s...\r\n", url);
 		fflush(stdout);
 
 		strncpy(current_url, url, sizeof(current_url) - 1);
-		html = http_fetch(url, &len);
-		if (!html) {
+		raw_doc = http_fetch(url, &len);
+		if (!raw_doc) {
 			printf("\r\nFailed to load %s. Press any key to continue.\r\n", url);
 			read(0, &rows, 1);
 			return;
 		}
+		raw_doc_len = len;
 
-		render_html(html);
-		free(html);
+		view_source_mode = 0;
+		render_html(raw_doc);
 
 		top_line = 0;
 		cur_link = (total_links > 0) ? 0 : -1;
 	}
 
 	enable_raw_mode();
-	printf("\033[?25l"); /* Hide cursor */
+	printf("\033[?25l");
 
 	for (;;) {
 		get_screen_size(&rows, &cols);
@@ -586,7 +930,7 @@ load_new_url:
 		if (ch == 'q' || ch == 'Q') {
 			break;
 		} else if (ch == '\033') {
-			/* Escape sequence: arrows */
+			/* Escape sequence: arrow keys */
 			char seq[3];
 			if (read(0, &seq[0], 1) > 0 && read(0, &seq[1], 1) > 0) {
 				if (seq[0] == '[') {
@@ -615,7 +959,6 @@ load_new_url:
 			if (top_line + (rows - 2) < total_lines)
 				top_line += (rows - 2);
 		} else if (ch == 'b' || ch == 'B') {
-			/* Back in history or scroll up */
 			if (history_count > 0) {
 				history_count--;
 				strncpy(url, history_stack[history_count], sizeof(url) - 1);
@@ -627,7 +970,6 @@ load_new_url:
 				if (top_line < 0) top_line = 0;
 			}
 		} else if (ch == '\r' || ch == '\n') {
-			/* Follow currently selected link */
 			if (cur_link >= 0 && cur_link < total_links) {
 				if (history_count < MAX_HIST) {
 					strncpy(history_stack[history_count++], current_url, MAX_URL_LEN - 1);
@@ -638,7 +980,6 @@ load_new_url:
 				goto load_new_url;
 			}
 		} else if (ch >= '1' && ch <= '9') {
-			/* Jump to link number */
 			int lidx = ch - '1';
 			if (lidx < total_links) {
 				if (history_count < MAX_HIST) {
@@ -650,7 +991,6 @@ load_new_url:
 				goto load_new_url;
 			}
 		} else if (ch == 'g' || ch == 'G') {
-			/* Go to URL prompt */
 			char newurl[MAX_URL_LEN];
 			disable_raw_mode();
 			printf("\033[?25h\033[%d;1H\033[KURL to open: ", rows);
@@ -674,6 +1014,75 @@ load_new_url:
 			disable_raw_mode();
 			printf("\033[?25h");
 			goto load_new_url;
+		} else if (ch == '/') {
+			/* In-page search */
+			char query[64];
+			disable_raw_mode();
+			printf("\033[?25h\033[%d;1H\033[KSearch [/]: ", rows);
+			fflush(stdout);
+			if (fgets(query, sizeof(query), stdin)) {
+				char *nl = strchr(query, '\n');
+				if (nl) *nl = '\0';
+				nl = strchr(query, '\r');
+				if (nl) *nl = '\0';
+				if (strlen(query) > 0) {
+					strncpy(last_search, query, sizeof(last_search) - 1);
+					do_search(&top_line, &cur_link);
+				}
+			}
+			enable_raw_mode();
+			printf("\033[?25l");
+		} else if (ch == 'n' || ch == 'N') {
+			/* Next search match */
+			if (last_search[0] != '\0') {
+				do_search(&top_line, &cur_link);
+			} else {
+				sprintf(status_msg, "[No previous search pattern]");
+			}
+		} else if (ch == '\\') {
+			/* Toggle source / rendered view */
+			view_source_mode = !view_source_mode;
+			render_current();
+			top_line = 0;
+			cur_link = (total_links > 0) ? 0 : -1;
+			sprintf(status_msg, view_source_mode ? "[Source View mode enabled]" : "[Rendered HTML mode enabled]");
+		} else if (ch == 's' || ch == 'S') {
+			/* Save page to file */
+			char save_name[128];
+			disable_raw_mode();
+			printf("\033[?25h\033[%d;1H\033[KSave to file: ", rows);
+			fflush(stdout);
+			if (fgets(save_name, sizeof(save_name), stdin)) {
+				char *nl = strchr(save_name, '\n');
+				if (nl) *nl = '\0';
+				nl = strchr(save_name, '\r');
+				if (nl) *nl = '\0';
+				if (strlen(save_name) > 0) {
+					save_page_to_file(save_name);
+				}
+			}
+			enable_raw_mode();
+			printf("\033[?25l");
+		} else if (ch == 'a' || ch == 'A') {
+			/* Bookmark current page */
+			add_bookmark(current_url, doc_title);
+		} else if (ch == 'v' || ch == 'V') {
+			/* View bookmarks */
+			char bpath[256];
+			char burl[280];
+			ensure_bookmarks_exist();
+			get_bookmark_path(bpath, sizeof(bpath));
+			sprintf(burl, "file://%s", bpath);
+
+			if (history_count < MAX_HIST) {
+				strncpy(history_stack[history_count++], current_url, MAX_URL_LEN - 1);
+			}
+			strncpy(url, burl, sizeof(url) - 1);
+			disable_raw_mode();
+			printf("\033[?25h");
+			goto load_new_url;
+		} else if (ch == 'h' || ch == 'H' || ch == '?') {
+			show_help();
 		}
 
 		/* Adjust top_line if cur_link moved outside view */
@@ -686,7 +1095,7 @@ load_new_url:
 	}
 
 	disable_raw_mode();
-	printf("\033[?25h\033[H\033[2J"); /* Show cursor and clear screen */
+	printf("\033[?25h\033[H\033[2J");
 }
 
 int main(int argc, char **argv)

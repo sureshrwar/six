@@ -446,3 +446,96 @@ void six_host_idle_sleep(void)
 {
 	usleep(2000);
 }
+
+static pid_t tls_bridge_pid = -1;
+
+void six_host_tls_bridge_cleanup(void)
+{
+	if (tls_bridge_pid > 0) {
+		kill(tls_bridge_pid, SIGKILL);
+		tls_bridge_pid = -1;
+	}
+}
+
+void six_host_tls_bridge_init(void)
+{
+	/* Check if already listening on 127.0.0.1:18443 */
+	int test_fd = socket(AF_INET, SOCK_STREAM, 0);
+	if (test_fd >= 0) {
+		struct sockaddr_in sin;
+		memset(&sin, 0, sizeof(sin));
+		sin.sin_family = AF_INET;
+		sin.sin_addr.s_addr = inet_addr("127.0.0.1");
+		sin.sin_port = htons(18443);
+		if (connect(test_fd, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
+			/* Already running */
+			close(test_fd);
+			return;
+		}
+		close(test_fd);
+	}
+
+	/* Find tls_bridge.py */
+	static char script_path[1024];
+	script_path[0] = '\0';
+
+	if (access("port/tools/tls_bridge.py", R_OK) == 0) {
+		strcpy(script_path, "port/tools/tls_bridge.py");
+	} else {
+		static char exe[1024];
+		ssize_t len = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+		if (len > 0) {
+			exe[len] = '\0';
+			char *slash = strrchr(exe, '/');
+			if (slash) {
+				*slash = '\0';
+				snprintf(script_path, sizeof(script_path), "%s/port/tools/tls_bridge.py", exe);
+				if (access(script_path, R_OK) != 0) {
+					script_path[0] = '\0';
+				}
+			}
+		}
+	}
+
+	if (script_path[0] == '\0') {
+		fprintf(stderr, "six: tls_bridge.py not found, HTTPS forwarding disabled\n");
+		return;
+	}
+
+	pid_t pid = fork();
+	if (pid == 0) {
+		/* Child: redirect stdin, stdout, stderr to /dev/null */
+		int devnull = open("/dev/null", O_RDWR);
+		if (devnull >= 0) {
+			dup2(devnull, 0);
+			dup2(devnull, 1);
+			dup2(devnull, 2);
+			if (devnull > 2)
+				close(devnull);
+		}
+		execlp("python3", "python3", script_path, (char *)NULL);
+		_exit(1);
+	} else if (pid > 0) {
+		tls_bridge_pid = pid;
+		atexit(six_host_tls_bridge_cleanup);
+		/* Wait briefly for port to bind (up to 200ms) */
+		int i;
+		for (i = 0; i < 20; i++) {
+			usleep(10000);
+			int s = socket(AF_INET, SOCK_STREAM, 0);
+			if (s >= 0) {
+				struct sockaddr_in sin;
+				memset(&sin, 0, sizeof(sin));
+				sin.sin_family = AF_INET;
+				sin.sin_addr.s_addr = inet_addr("127.0.0.1");
+				sin.sin_port = htons(18443);
+				if (connect(s, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
+					close(s);
+					break;
+				}
+				close(s);
+			}
+		}
+	}
+}
+

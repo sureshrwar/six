@@ -69,5 +69,7 @@ int  six_host_net_send(int fd, const void *buf, int len);
 int  six_host_net_recv(int fd, void *buf, int len);
 int  six_host_net_dns_query(const void *req, int req_len, void *resp, int max_resp_len);
 void six_host_net_close(int fd);
+void six_host_tls_bridge_init(void);
+void six_host_tls_bridge_cleanup(void);
 
 #endif /* _SIX_HOST_H */

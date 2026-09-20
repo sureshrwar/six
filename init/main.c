@@ -601,8 +601,10 @@ void main(int argc, char *argv[])
 {
 	int wait_flag = 0;
 	const char *disk_arg = NULL;
+	extern void six_host_tls_bridge_init(void);
 
 	six_host_parse_args(argc, argv, &single, &wait_flag, &disk_arg);
+	six_host_tls_bridge_init();
 
 	/* We are opening some files for recording debug info, the pid etc */
 	setup_files();
