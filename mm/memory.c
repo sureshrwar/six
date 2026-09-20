@@ -636,6 +636,9 @@ int verify_area(int type, const void * addr, unsigned long size)
         if (!size || get_fs() == KERNEL_DS)
                 return 0;
 
+        if (!addr)
+                goto bad_area;
+
         vma = find_vma(current, start);
         if (!vma)
                 goto bad_area;
