@@ -58,6 +58,7 @@ file  /bin/life             0755  applications/life/life
 file  /bin/login            0755  applications/login/login
 file  /bin/ls               0755  applications/ls/ls
 file  /bin/lynx             0755  applications/lynx/lynx
+file  /bin/lynx23           0755  applications/lynx23/lynx23
 file  /bin/matrix           0755  applications/matrix/matrix
 file  /bin/mkdir            0755  applications/mkdir/mkdir
 file  /bin/mv               0755  applications/mv/mv
@@ -87,6 +88,7 @@ file  /bin/wc               0755  applications/wc/wc
 file  /etc/init             0755  applications/init/init
 file  /etc/hostname         0644  port/image/rootfs/etc/hostname
 file  /etc/hosts            0644  port/image/rootfs/etc/hosts
+file  /etc/lynx.cfg         0644  applications/lynx23/lynx.cfg
 file  /etc/motd             0644  port/image/rootfs/etc/motd
 file  /etc/passwd           0644  port/image/rootfs/etc/passwd
 file  /etc/rc               0755  port/image/rootfs/etc/rc

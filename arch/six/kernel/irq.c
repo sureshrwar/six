@@ -2159,6 +2159,8 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 
 	ENTER_KERNEL;
 	current->signum = num;
+	if (num != SIX_HOST_TRAPSIG && num != 14 && num != 26 && num != 29)
+		printk("six: HOST SIGNAL %d at pc=%08x (pid=%d)\n", num, context ? context->pc : 0, current ? current->pid : -1);
 
 	if(current->kernel_level == 1)
 	{

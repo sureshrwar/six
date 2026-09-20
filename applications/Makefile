@@ -64,7 +64,8 @@ SUBDIRS	=	start \
 		telnet \
 		telehack \
 		testdir \
-		testcurses
+		testcurses \
+		lynx23
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

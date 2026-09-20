@@ -83,6 +83,7 @@ applications/*/head
 applications/*/nettest
 applications/*/httpd
 applications/*/lynx
+applications/*/lynx23
 applications/*/ifconfig
 applications/*/sleep
 applications/*/telnet

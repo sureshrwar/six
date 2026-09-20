@@ -112,6 +112,10 @@ void six_fix_context(struct pt_regs *p)
 {
 #if (__i386__)
 	p->fpregs = (unsigned int) &p->fpregs_mem[0];
+	memset(&p->fpregs_mem[0], 0, sizeof(p->fpregs_mem));
+	p->fpregs_mem[0] = 0x037f; /* cw: all exceptions masked */
+	p->fpregs_mem[1] = 0x0000; /* sw: no exceptions pending */
+	p->fpregs_mem[2] = 0xffff; /* tw: all tags empty */
 #endif
 }
 

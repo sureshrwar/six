@@ -1132,6 +1132,9 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	makecontext(regs, entry, 3, bprm->argc,
 			(char **)bprm->page[0],
 			(char **)(bprm->page[0]+(bprm->argc+1)*4));
+#if (__i386__)
+	six_fix_context(regs);
+#endif
 
 	/*
 	 * From here on this task is running guest code, and that has to be

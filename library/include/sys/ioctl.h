@@ -2,6 +2,7 @@
 #define _SYS_IOCTL_H
 
 #include <asm/ioctls.h>
+#include <asm/termios.h>
 
 int ioctl(int d, int request, ...);
 
