@@ -14,6 +14,12 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <signal.h>
+
+static void sig_exit(int sig)
+{
+	exit(0);
+}
 
 static int opt_lines = 10;
 static int opt_bytes = -1;
@@ -182,6 +188,9 @@ static void do_follow(int fd)
 
 int main(int argc, char **argv)
 {
+	signal(SIGINT, sig_exit);
+	signal(SIGTERM, sig_exit);
+
 	int arg_idx = 1;
 	while (arg_idx < argc && argv[arg_idx][0] == '-' && argv[arg_idx][1] != '\0') {
 		char *p = argv[arg_idx] + 1;

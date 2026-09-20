@@ -2400,6 +2400,12 @@ void system_call(int num, void *why, struct pt_regs *context)
 	 * put_ret() left the return value in context->g2; hand it back to
 	 * the caller through whichever channel it arrived on.
 	 */
+	if (context->g2 == -ERESTARTSYS ||
+	    context->g2 == -ERESTARTNOINTR ||
+	    context->g2 == -ERESTARTNOHAND) {
+		context->g2 = -EINTR;
+	}
+
 #if (__i386__)
 	if (gc)
 		gc->ret = context->g2;
