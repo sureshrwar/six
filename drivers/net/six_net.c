@@ -195,8 +195,11 @@ void six_eth_poll(void)
 			__u32 unacked = c->our_seq - c->guest_ack;
 			__u32 win = (c->guest_win > 0) ? c->guest_win : 16384;
 			int got = 0;
-			while (unacked + 1400 <= win && six_host_net_poll_readable(c->host_fd)) {
-				int r = six_host_net_recv(c->host_fd, buf, sizeof(buf));
+			while (unacked < win && six_host_net_poll_readable(c->host_fd)) {
+				int to_read = sizeof(buf);
+				if (to_read > win - unacked)
+					to_read = win - unacked;
+				int r = six_host_net_recv(c->host_fd, buf, to_read);
 				if (r > 0) {
 					inject_tcp(six_dev, c->dest_ip, c->guest_ip,
 						   c->dest_port, c->guest_port,
@@ -381,6 +384,8 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 					if (a >= conn->guest_ack)
 						conn->guest_ack = a;
 					conn->guest_win = ntohs(th->window);
+					if (conn->guest_win == 0)
+						conn->guest_win = 16384;
 				}
 
 				if (plen > 0) {
@@ -393,8 +398,11 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 					while (tries < 1000) {
 						__u32 unacked = conn->our_seq - conn->guest_ack;
 						__u32 win = (conn->guest_win > 0) ? conn->guest_win : 16384;
-						while (unacked + 1400 <= win && six_host_net_poll_readable(conn->host_fd)) {
-							int r = six_host_net_recv(conn->host_fd, rbuf, sizeof(rbuf));
+						while (unacked < win && six_host_net_poll_readable(conn->host_fd)) {
+							int to_read = sizeof(rbuf);
+							if (to_read > win - unacked)
+								to_read = win - unacked;
+							int r = six_host_net_recv(conn->host_fd, rbuf, to_read);
 							if (r > 0) {
 								inject_tcp(dev, conn->dest_ip, conn->guest_ip,
 									   conn->dest_port, conn->guest_port,
@@ -433,48 +441,8 @@ static int six_eth_xmit(struct sk_buff *skb, struct device *dev)
 							do_bottom_half();
 					}
 				} else if (th->ack) {
-					/* Guest ACK: stream next packet if guest window allows */
-					int tries = 0;
-					int max_tries = (conn->our_seq <= 100005) ? 200 : 1;
-					while (tries < max_tries) {
-						__u32 unacked = conn->our_seq - conn->guest_ack;
-						__u32 win = (conn->guest_win > 0) ? conn->guest_win : 16384;
-						int got = 0;
-						while (unacked + 1400 <= win && six_host_net_poll_readable(conn->host_fd)) {
-							int r = six_host_net_recv(conn->host_fd, rbuf, sizeof(rbuf));
-							if (r > 0) {
-								inject_tcp(dev, conn->dest_ip, conn->guest_ip,
-									   conn->dest_port, conn->guest_port,
-									   conn->our_seq, conn->guest_seq,
-									   0x18 /* ACK|PSH */, rbuf, r);
-								conn->our_seq += r;
-								unacked += r;
-								got = 1;
-								if (bh_mask & bh_active)
-									do_bottom_half();
-							} else if (r == 0) {
-								inject_tcp(dev, conn->dest_ip, conn->guest_ip,
-									   conn->dest_port, conn->guest_port,
-									   conn->our_seq++, conn->guest_seq,
-									   0x11 /* FIN|ACK */, NULL, 0);
-								conn->state = CONN_CLOSING;
-								six_host_net_close(conn->host_fd);
-								if (bh_mask & bh_active)
-									do_bottom_half();
-								break;
-							} else {
-								break;
-							}
-						}
-						if (got || conn->state == CONN_CLOSING)
-							break;
-						if (max_tries > 1) {
-							six_host_idle_sleep();
-							tries++;
-						} else {
-							break;
-						}
-					}
+					/* Pure ACK: no payload.  Do not poll or inject data here;
+					 * six_eth_poll() safely injects data in the idle loop. */
 				}
 				if (th->fin) {
 					conn->guest_seq = ntohl(th->seq) + 1;
