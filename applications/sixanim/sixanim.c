@@ -106,6 +106,8 @@ int main(int argc, char **argv)
 	int i, step;
 	int is_tty = isatty(1);
 
+	puts("");
+
 	get_term_size();
 
 	/* Left-aligned by default; support -c for centered if requested */

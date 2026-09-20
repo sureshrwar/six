@@ -22,7 +22,6 @@ telnetd &
 
 sleep 0.25
 
-echo
 sixanim
 sleep 0.25
 echo Escape character is '^\\'.
