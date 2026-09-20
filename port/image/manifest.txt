@@ -74,6 +74,7 @@ file  /bin/sleep            0755  applications/sleep/sleep
 file  /bin/sync             0755  applications/sync/sync
 file  /bin/telnet           0755  applications/telnet/telnet
 file  /bin/telehack         0755  applications/telehack/telehack
+file  /bin/testdir          0755  applications/testdir/testdir
 file  /bin/tetris           0755  applications/tetris/tetris
 file  /bin/touch            0755  applications/touch/touch
 file  /bin/ttt              0755  applications/ttt/ttt

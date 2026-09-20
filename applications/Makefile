@@ -62,7 +62,8 @@ SUBDIRS	=	start \
 		ifconfig \
 		sleep \
 		telnet \
-		telehack
+		telehack \
+		testdir
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

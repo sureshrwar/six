@@ -353,7 +353,7 @@ void six_close(struct pt_regs *u)
 	int fd, ret;
 	grab_args(u, (long *)&fd, 0, 0);
 	ret = sys_close(fd);
-	put_ret(u, (long)fd);
+	put_ret(u, (long)ret);
 }
 
 void six_creat(struct pt_regs *u)

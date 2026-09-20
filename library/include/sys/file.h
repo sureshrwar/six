@@ -1,0 +1,13 @@
+#ifndef _SYS_FILE_H
+#define _SYS_FILE_H
+
+#include <fcntl.h>
+#include <unistd.h>
+
+#ifndef L_SET
+#define L_SET  0
+#define L_INCR 1
+#define L_XTND 2
+#endif
+
+#endif

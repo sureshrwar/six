@@ -1,31 +1,26 @@
-
-#ifndef _LIBRARY_DIRENT_H
-#define _LIBRARY_DIRENT_H
+#ifndef _DIRENT_H
+#define _DIRENT_H
 
 #include <linux/types.h>
 #include <linux/dirent.h>
 
-struct _fl_direct {             /* First slot in an entry */
-        ino_t           d_ino;
-        unsigned char   d_extent;
-        char            d_name[5];  /* Four characters for the shortest name */
-};      
-
-#define _EXTENT(len)    (((len) + 3) >> 3)
-        
-struct _v7_direct {             
-        ino_t           d_ino;
-        char            d_name[14]; 
-};
+#define DIRBUF 1024
 
 typedef struct {
-        char            _fd;    /* Filedescriptor of open directory */
-        char            _v7;    /* Directory is Version 7 */
-        short           _count; /* This many objects in buf */
-        off_t           _pos;   /* Position in directory file */
-        struct _fl_direct  *_ptr;       /* Next slot in buf */
-        struct _fl_direct  _buf[128];   /* One block of a directory file */
-        struct _fl_direct  _v7f[3];     /* V7 entry transformed to flex */
-} DIR;          
+	int   dd_fd;
+	int   dd_loc;
+	int   dd_size;
+	char  dd_buf[DIRBUF];
+} DIR;
+
+DIR *opendir(const char *name);
+struct dirent *readdir(DIR *dirp);
+void rewinddir(DIR *dirp);
+int closedir(DIR *dirp);
+int dirfd(DIR *dirp);
+
+#ifndef d_fileno
+#define d_fileno d_ino
+#endif
 
 #endif
