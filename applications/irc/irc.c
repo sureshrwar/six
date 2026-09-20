@@ -586,8 +586,10 @@ int parsedata()
 	*tmp = '\0';
     } else
 	fromhost = NULL;
-    if (!dumb)
+    if (!dumb) {
 	putchar('\n');
+	tputs_x(CE);
+    }
     column = 0;
     if ((i = atoi(TOK[1])))
 	i = donumeric(i);
@@ -657,6 +659,7 @@ void parseinput()
     if (!dumb) {
 	tputs_x(tgoto(CM, 0, LI - 3));
 	putchar('\n');
+	tputs_x(CE);
     }
     if (*TOK[0] == COMMANDCHAR) {
 	TOK[0]++;
@@ -931,8 +934,8 @@ void redraw()
 	    raw();
 	}
 	wasdate = 0;
-	/* Set scroll region to lines 1 .. LI - 3 */
-	printf("\033[1;%dr", LI - 3);
+	/* Set scroll region to lines 1 .. LI - 2 */
+	printf("\033[1;%dr", LI - 2);
 	fflush(stdout);
 	updatestatus();
 	tputs_x(tgoto(CM, curx % CO, LI - 1));
