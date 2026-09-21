@@ -25,7 +25,7 @@
 
 
 
-#define LOG_BUF_LEN     8192
+#define LOG_BUF_LEN     16384
 
 static char buf[1024];
 
@@ -243,5 +243,40 @@ void register_console(void (*proc)(const char *))
                         msg_level = -1;
                 j = 0;
         }
+}
+
+int kmsg_get_snapshot(char *dst, int maxlen)
+{
+        unsigned long i, j, count;
+        int pos = 0, at_bol = 1;
+        const char *hdr = "Panic#1 Part1\n";
+
+        if (!dst || maxlen <= 32)
+                return 0;
+        while (*hdr && pos < maxlen - 1)
+                dst[pos++] = *hdr++;
+
+        count = maxlen - 1 - pos;
+        if (count > LOG_BUF_LEN)
+                count = LOG_BUF_LEN;
+        if (count > logged_chars)
+                count = logged_chars;
+        j = log_start + log_size - count;
+        for (i = 0; i < count && pos < maxlen - 1; i++) {
+                char c0 = log_buf[(j + i) & (LOG_BUF_LEN - 1)];
+                if (at_bol && c0 == '<' && (i + 2) < count) {
+                        char c1 = log_buf[(j + i + 1) & (LOG_BUF_LEN - 1)];
+                        char c2 = log_buf[(j + i + 2) & (LOG_BUF_LEN - 1)];
+                        if (c1 >= '0' && c1 <= '7' && c2 == '>') {
+                                i += 2;
+                                at_bol = 0;
+                                continue;
+                        }
+                }
+                dst[pos++] = c0;
+                at_bol = (c0 == '\n');
+        }
+        dst[pos] = '\0';
+        return pos;
 }
 

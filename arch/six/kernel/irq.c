@@ -2353,6 +2353,40 @@ void show_ftrace(void)
 	}
 }
 
+int ftrace_get_snapshot(char *dst, int maxlen)
+{
+	unsigned int count = (six_ftrace_total < SIX_FTRACE_MAX) ? six_ftrace_total : SIX_FTRACE_MAX;
+	unsigned int start = six_ftrace_head - count;
+	unsigned int i;
+	int pos = 0;
+	char sym[64], *plus;
+
+	if (!dst || maxlen <= 64)
+		return 0;
+	pos += sprintf(dst + pos, "# tracer: syscall\n# entries-in-buffer: %u\n", count);
+	for (i = 0; i < count && pos + 96 < maxlen; i++) {
+		struct six_ftrace_entry *e = &six_ftrace_ring[(start + i) & (SIX_FTRACE_MAX - 1)];
+		sym[0] = '\0';
+		if (e->syscallnum >= 0 &&
+		    e->syscallnum < (int)(sizeof(sys_call_table) / sizeof(sys_call_table[0])) &&
+		    sys_call_table[e->syscallnum]) {
+			six_host_sprint_symbol((unsigned long)sys_call_table[e->syscallnum], sym, sizeof(sym));
+			for (plus = sym; *plus; plus++) {
+				if (*plus == '+') {
+					*plus = '\0';
+					break;
+				}
+			}
+		}
+		pos += sprintf(dst + pos,
+			       "  [jiffies=%6lu] %-8s[%2d]: syscall=%3d (%-14s) eip=%08lx arg1=%08lx\n",
+			       e->jiffies, e->comm, e->pid, e->syscallnum,
+			       sym[0] ? sym : "?", e->pc, e->arg1);
+	}
+	dst[pos] = '\0';
+	return pos;
+}
+
 void system_call(int num, void *why, struct pt_regs *context)
 {
 	int syscallnum;

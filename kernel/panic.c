@@ -31,11 +31,57 @@ extern void show_timers(void);
 extern void show_locks(void);
 extern void show_ftrace(void);
 extern void show_all_cpu_bt(void);
+extern int kmsg_get_snapshot(char *dst, int maxlen);
+extern int ftrace_get_snapshot(char *dst, int maxlen);
+asmlinkage int sys_open(const char *, int, int);
+asmlinkage int sys_write(unsigned int, const char *, int);
+asmlinkage int sys_close(unsigned int);
 extern int oops_in_progress;
 extern int C_A_D;
 
 int panic_timeout = 0;
 unsigned long panic_print = 0x3fUL; /* Default: all 6 diagnostic sections */
+
+#if (SIX)
+static char pstore_kmsg_buf[16384];
+static char pstore_ftrace_buf[2048];
+
+static void pstore_dump(void)
+{
+        int klen, flen, fd;
+        unsigned short old_euid, old_fsuid;
+
+        if (!current || current == task[0] || !current->files)
+                return;
+
+        klen = kmsg_get_snapshot(pstore_kmsg_buf, sizeof(pstore_kmsg_buf));
+        flen = ftrace_get_snapshot(pstore_ftrace_buf, sizeof(pstore_ftrace_buf));
+
+        old_euid = current->euid;
+        old_fsuid = current->fsuid;
+        current->euid = 0;
+        current->fsuid = 0;
+
+        /* O_WRONLY | O_CREAT | O_TRUNC == 01101 */
+        fd = sys_open("/sys/fs/pstore/dmesg-ramoops-0", 01101, 0644);
+        if (fd >= 0) {
+                sys_write(fd, pstore_kmsg_buf, klen);
+                sys_close(fd);
+        }
+
+        if (flen > 0) {
+                fd = sys_open("/sys/fs/pstore/ftrace-ramoops-0", 01101, 0644);
+                if (fd >= 0) {
+                        sys_write(fd, pstore_ftrace_buf, flen);
+                        sys_close(fd);
+                }
+        }
+
+        current->euid = old_euid;
+        current->fsuid = old_fsuid;
+        printk(KERN_EMERG "pstore: saved crash dump to /sys/fs/pstore/dmesg-ramoops-0 (%d bytes)\n", klen);
+}
+#endif
 
 static void panic_print_sys_info(void)
 {
@@ -76,8 +122,12 @@ NORET_TYPE void panic(const char * fmt, ...)
 #endif
         if (!current || current == task[0])
                 printk(KERN_EMERG "In swapper task - not syncing\n");
-        else
+        else {
+#if (SIX)
+                pstore_dump();
+#endif
                 sys_sync();
+        }
 
         do_unblank_screen();
 

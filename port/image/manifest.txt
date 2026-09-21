@@ -42,6 +42,10 @@ dir   /var/games            0777
 dir   /var/mail             0777
 dir   /var/spool            0755
 dir   /var/spool/mail       0777
+dir   /sys                  0755
+dir   /sys/fs               0755
+dir   /sys/fs/pstore        0755
+sym   /pstore               -     /sys/fs/pstore
 
 # --- /bin (all 23 programs from the SPARC root disk + vi & advent) ----------
 file  /bin/advent           0755  applications/advent/advent
