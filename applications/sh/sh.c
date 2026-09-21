@@ -159,13 +159,16 @@ register char **argv;
                 signal(SIGINT, onintr);
         dolv = argv;
         dolc = argc;
-        //dolv[0] = name;
-        if (dolc > 1)
-                for (ap = ++argv; --argc > 0;)
-                        if (assign(*ap = *argv++, !COPYV))
+        dolv[0] = name;
+        if (dolc > 1) {
+                for (ap = ++argv; --argc > 0; argv++) {
+                        if (assign(*argv, !COPYV))
                                 dolc--; /* keyword */
                         else
-                                ap++;
+                                *ap++ = *argv;
+                }
+                *ap = NULL;
+        }
         setval(lookup("#"), putn((--dolc < 0) ? (dolc = 0) : dolc));
 
         for (;;) {
