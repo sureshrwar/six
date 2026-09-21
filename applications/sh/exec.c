@@ -60,6 +60,73 @@ _PROTOTYPE(int doset, (struct op *t ));
 _PROTOTYPE(void varput, (char *s, int out ));
 _PROTOTYPE(int dotimes, (void));
 
+#define MAX_JOBS 16
+#define JOB_NONE    0
+#define JOB_RUNNING 1
+#define JOB_STOPPED 2
+
+struct sh_job {
+	int jid;
+	int pid;
+	int state;
+	char cmd[64];
+};
+
+static struct sh_job sh_jobs[MAX_JOBS];
+static char sh_last_cmd[64];
+extern void sh_restore_tty(void);
+
+static void sh_save_cmd(struct op *t)
+{
+	int i;
+	sh_last_cmd[0] = '\0';
+	if (!t || !t->words || !t->words[0])
+		return;
+	for (i = 0; t->words[i]; i++) {
+		if (i > 0 && strlen(sh_last_cmd) + 2 < sizeof(sh_last_cmd))
+			strcat(sh_last_cmd, " ");
+		if (strlen(sh_last_cmd) + strlen(t->words[i]) + 1 < sizeof(sh_last_cmd))
+			strcat(sh_last_cmd, t->words[i]);
+	}
+}
+
+static int sh_add_job(int pid, int state, const char *cmd)
+{
+	int i, max_jid = 0;
+	for (i = 0; i < MAX_JOBS; i++) {
+		if (sh_jobs[i].state != JOB_NONE && sh_jobs[i].pid == pid) {
+			sh_jobs[i].state = state;
+			if (cmd && cmd[0]) {
+				strncpy(sh_jobs[i].cmd, cmd, sizeof(sh_jobs[i].cmd) - 1);
+				sh_jobs[i].cmd[sizeof(sh_jobs[i].cmd) - 1] = '\0';
+			}
+			return sh_jobs[i].jid;
+		}
+		if (sh_jobs[i].state != JOB_NONE && sh_jobs[i].jid > max_jid)
+			max_jid = sh_jobs[i].jid;
+	}
+	for (i = 0; i < MAX_JOBS; i++) {
+		if (sh_jobs[i].state == JOB_NONE) {
+			sh_jobs[i].jid = max_jid + 1;
+			sh_jobs[i].pid = pid;
+			sh_jobs[i].state = state;
+			strncpy(sh_jobs[i].cmd, (cmd && cmd[0]) ? cmd : "job", sizeof(sh_jobs[i].cmd) - 1);
+			sh_jobs[i].cmd[sizeof(sh_jobs[i].cmd) - 1] = '\0';
+			return sh_jobs[i].jid;
+		}
+	}
+	return 1;
+}
+
+static void sh_remove_job(int pid)
+{
+	int i;
+	for (i = 0; i < MAX_JOBS; i++) {
+		if (sh_jobs[i].state != JOB_NONE && sh_jobs[i].pid == pid)
+			sh_jobs[i].state = JOB_NONE;
+	}
+}
+
 int
 execute(t, pin, pout, act)
 register struct op *t;
@@ -105,6 +172,8 @@ int act;
 		break;
 
 	case TASYNC:
+		if (t->left)
+			sh_save_cmd(t->left);
 		i = parent();
 		if (i != 0) {
 			if (i != -1) {
@@ -112,6 +181,8 @@ int act;
 				if (pin != NULL)
 					closepipe(pin);
 				if (talking) {
+					int jid = sh_add_job(i, JOB_RUNNING, sh_last_cmd);
+					prs("["); prn(jid); prs("] ");
 					prs(putn(i));
 					prs("\n");
 				}
@@ -121,6 +192,7 @@ int act;
 		} else {
 			signal(SIGINT, SIG_IGN);
 			signal(SIGQUIT, SIG_IGN);
+			signal(SIGTSTP, SIG_IGN);
 			if (talking)
 				signal(SIGTERM, SIG_DFL);
 			talking = 0;
@@ -260,6 +332,7 @@ int *pforked;
 	t->words = wp;
 	f = act;
 	if (shcom == NULL && (f & FEXEC) == 0) {
+		sh_save_cmd(t);
 		i = parent();
 		if (i != 0) {
 			if (i == -1)
@@ -315,6 +388,7 @@ int *pforked;
 	if (resetsig) {
 		signal(SIGINT, SIG_DFL);
 		signal(SIGQUIT, SIG_DFL);
+		signal(SIGTSTP, SIG_DFL);
 	}
 	if (t->type == TPAREN)
 		exit(execute(t->left, NOPIPE, NOPIPE, FEXEC));
@@ -498,11 +572,24 @@ int canintr;
 	heedint = 0;
 	rv = 0;
 	do {
-		pid = waitpid(-1, &s, 0);
+		pid = waitpid(-1, &s, 2); /* 2 == WUNTRACED */
 		if (pid == -1) {
 			if (errno != EINTR || canintr)
 				break;
+		} else if ((s & 0xff) == 0x7f) {
+			/* Child stopped (e.g. SIGTSTP from Ctrl+Z) */
+			int jid = sh_add_job(pid, JOB_STOPPED, sh_last_cmd);
+			if (talking) {
+				sh_restore_tty();
+				prs("\n["); prn(jid); prs("]+  Stopped                 ");
+				prs(sh_last_cmd[0] ? sh_last_cmd : "job");
+				prs(" (pid "); prn(pid); prs(")\n");
+			}
+			rv = 128 + ((s >> 8) & 0xff);
+			if (pid == lastpid)
+				break;
 		} else {
+			sh_remove_job(pid);
 			if ((rv = WAITSIG(s)) != 0) {
 				if (rv < NSIGNAL) {
 					if (signame[rv] != NULL) {
@@ -538,6 +625,89 @@ int canintr;
 			onintr(0);
 		}
 	return(rv);
+}
+
+static void sh_reap_jobs(void)
+{
+	int pid, s;
+	while ((pid = waitpid(-1, &s, 1)) > 0) { /* 1 == WNOHANG */
+		if ((s & 0xff) != 0x7f)
+			sh_remove_job(pid);
+	}
+}
+
+static struct sh_job *sh_find_job(const char *arg, int prefer_state)
+{
+	int i, target = 0;
+	struct sh_job *best = NULL;
+
+	sh_reap_jobs();
+	if (arg && *arg) {
+		if (*arg == '%')
+			arg++;
+		target = getn((char *)arg);
+		for (i = 0; i < MAX_JOBS; i++) {
+			if (sh_jobs[i].state != JOB_NONE &&
+			    (sh_jobs[i].jid == target || sh_jobs[i].pid == target))
+				return &sh_jobs[i];
+		}
+		return NULL;
+	}
+	for (i = 0; i < MAX_JOBS; i++) {
+		if (sh_jobs[i].state == prefer_state)
+			best = &sh_jobs[i];
+	}
+	if (!best) {
+		for (i = 0; i < MAX_JOBS; i++) {
+			if (sh_jobs[i].state != JOB_NONE)
+				best = &sh_jobs[i];
+		}
+	}
+	return best;
+}
+
+int dojobs(struct op *t)
+{
+	int i;
+	sh_reap_jobs();
+	for (i = 0; i < MAX_JOBS; i++) {
+		if (sh_jobs[i].state != JOB_NONE) {
+			prs("["); prn(sh_jobs[i].jid); prs("]   ");
+			prs(sh_jobs[i].state == JOB_STOPPED ? "Stopped                 " : "Running                 ");
+			prs(sh_jobs[i].cmd);
+			prs(" (pid "); prn(sh_jobs[i].pid); prs(")\n");
+		}
+	}
+	return 0;
+}
+
+int dofg(struct op *t)
+{
+	struct sh_job *jb = sh_find_job(t ? t->words[1] : NULL, JOB_STOPPED);
+	if (!jb) {
+		err("fg: no current job");
+		return 1;
+	}
+	strncpy(sh_last_cmd, jb->cmd, sizeof(sh_last_cmd) - 1);
+	sh_last_cmd[sizeof(sh_last_cmd) - 1] = '\0';
+	prs(jb->cmd); prs("\n");
+	jb->state = JOB_RUNNING;
+	kill(jb->pid, SIGCONT);
+	return waitfor(jb->pid, 1);
+}
+
+int dobg(struct op *t)
+{
+	struct sh_job *jb = sh_find_job(t ? t->words[1] : NULL, JOB_STOPPED);
+	if (!jb) {
+		err("bg: no current job");
+		return 1;
+	}
+	jb->state = JOB_RUNNING;
+	kill(jb->pid, SIGCONT);
+	prs("["); prn(jb->jid); prs("]+ ");
+	prs(jb->cmd); prs(" &\n");
+	return 0;
 }
 
 int

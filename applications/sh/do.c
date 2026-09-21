@@ -508,6 +508,10 @@ dohistory()
 	return(0);
 }
 
+extern int dojobs(struct op *t);
+extern int dofg(struct op *t);
+extern int dobg(struct op *t);
+
 struct	builtin {
 	char	*command;
 	int	(*fn)();
@@ -533,6 +537,9 @@ static struct	builtin	builtin[] = {
 	"newgrp",	dologin,
 	"times",	dotimes,
 	"history",	dohistory,
+	"jobs",		dojobs,
+	"fg",		dofg,
+	"bg",		dobg,
 	0,
 };
 

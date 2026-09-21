@@ -277,7 +277,8 @@ asmlinkage int do_signal(unsigned long oldmask, struct pt_regs * regs)
                                 continue;
 
                         case SIGTSTP: case SIGTTIN: case SIGTTOU:
-                                if (is_orphaned_pgrp(current->pgrp))
+                                if (is_orphaned_pgrp(current->pgrp) &&
+                                    !(current->p_pptr && current->p_pptr->pid > 1))
                                         continue;
                         case SIGSTOP:
                                 if (current->flags & PF_PTRACED)

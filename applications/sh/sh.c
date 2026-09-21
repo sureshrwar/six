@@ -149,8 +149,12 @@ register char **argv;
                 if ((f = open("/etc/profile", 0)) >= 0)
                         next(remap(f));
         }
-        if (talking)
+        if (talking) {
                 signal(SIGTERM, sig);
+                signal(SIGTSTP, SIG_IGN);
+                signal(SIGTTIN, SIG_IGN);
+                signal(SIGTTOU, SIG_IGN);
+        }
         if (signal(SIGINT, SIG_IGN) != SIG_IGN)
                 signal(SIGINT, onintr);
         dolv = argv;
