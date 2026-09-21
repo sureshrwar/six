@@ -45,6 +45,7 @@ dir   /var/spool/mail       0777
 dir   /sys                  0755
 dir   /sys/fs               0755
 dir   /sys/fs/pstore        0755
+file  /sys/fs/hangman       0666  port/image/rootfs/sys/fs/hangman
 sym   /pstore               -     /sys/fs/pstore
 
 # --- /bin (all 23 programs from the SPARC root disk + vi & advent) ----------

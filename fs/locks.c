@@ -1019,6 +1019,10 @@ void show_locks(void)
         }
         printk("  Summary: super_blocks=%d locked, inodes=%d locked, file_locks=%d active, D-waiters=%d\n",
                sb_locked, ino_locked, fl_count, d_tasks);
+        {
+                extern void blk_dump_stalled_requests(void);
+                blk_dump_stalled_requests();
+        }
 }
 #endif
        

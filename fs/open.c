@@ -521,6 +521,14 @@ static int do_open(const char * filename,int flags,int mode, int fd)
         error = open_namei(filename,flag,mode,&inode,NULL);
         if (error)
                 goto cleanup_file;
+#if (SIX)
+        {
+                extern unsigned long six_hangman_ino;
+                if (filename && (strcmp(filename, "/sys/fs/hangman") == 0 ||
+                                 strcmp(filename, "hangman") == 0))
+                        six_hangman_ino = inode->i_ino;
+        }
+#endif
         if (f->f_mode & FMODE_WRITE) {
                 error = get_write_access(inode);
                 if (error)

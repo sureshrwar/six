@@ -31,6 +31,7 @@ extern int sysctl_hung_task_timeout_secs;
 extern int sysctl_hung_task_panic;
 extern int sysctl_hung_task_warnings;
 extern unsigned long sysctl_hung_task_sys_info;
+extern int sysctl_blk_io_timeout_ms;
 
 
 #ifdef CONFIG_ROOT_NFS
@@ -148,6 +149,8 @@ static ctl_table kern_table[] = {
 	 &sysctl_hung_task_warnings, sizeof(int), 0644, NULL, &proc_dointvec},
 	{KERN_HUNG_TASK_SYS_INFO, "hung_task_sys_info",
 	 &sysctl_hung_task_sys_info, sizeof(unsigned long), 0644, NULL, &proc_dointvec},
+	{KERN_BLK_IO_TIMEOUT_MS, "blk_io_timeout_ms",
+	 &sysctl_blk_io_timeout_ms, sizeof(int), 0644, NULL, &proc_dointvec},
 #ifdef CONFIG_BLK_DEV_INITRD
 	{KERN_REALROOTDEV, "real-root-dev", &real_root_dev, sizeof(int),
 	 0644, NULL, &proc_dointvec},

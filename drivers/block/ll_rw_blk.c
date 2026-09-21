@@ -108,6 +108,37 @@ static inline void plug_device(struct blk_dev_struct * dev)
 	queue_task_irq_off(&dev->plug_tq, &tq_disk);
 }
 
+#if (SIX)
+struct six_rq_meta {
+        unsigned long start_jiffies;
+        unsigned long last_report_jiffies;
+        int pid;
+        char comm[16];
+        struct task_struct *task;
+};
+static struct six_rq_meta rq_meta[NR_REQUEST];
+static struct buffer_head hangman_bh[NR_REQUEST];
+int sysctl_blk_io_timeout_ms = 30000;
+unsigned long six_hangman_ino = 0;
+
+static void six_record_rq_meta(struct request *req)
+{
+        int tag = (int)(req - all_requests);
+        if (tag < 0 || tag >= NR_REQUEST)
+                return;
+        rq_meta[tag].start_jiffies = jiffies ? jiffies : 1;
+        rq_meta[tag].last_report_jiffies = 0;
+        rq_meta[tag].pid = current ? current->pid : 0;
+        rq_meta[tag].task = current;
+        if (current) {
+                strncpy(rq_meta[tag].comm, current->comm, 15);
+                rq_meta[tag].comm[15] = '\0';
+        } else {
+                strcpy(rq_meta[tag].comm, "?");
+        }
+}
+#endif
+
 /*
  * look for a free request in the first N entries.
  * NOTE: interrupts must be disabled on the way in, and will still
@@ -137,6 +168,9 @@ static inline struct request * get_request(int n, kdev_t dev)
 	prev_found = req;
 	req->rq_status = RQ_ACTIVE;
 	req->rq_dev = dev;
+#if (SIX)
+	six_record_rq_meta(req);
+#endif
 	return req;
 }
 
@@ -598,6 +632,153 @@ void ll_rw_swap_file(int rw, kdev_t dev, unsigned int *b, int nb, char *buf)
 }
 
 
+#if (SIX)
+static struct timer_list blk_stall_timer;
+
+static char six_task_state_char(struct task_struct *t)
+{
+        static const char s_map[] = { 'R', 'S', 'D', 'Z', 'T', 'W' };
+        int i, valid = 0;
+        if (!t)
+                return '?';
+        for (i = 0; i < NR_TASKS; i++) {
+                if (task[i] == t) {
+                        valid = 1;
+                        break;
+                }
+        }
+        if (!valid)
+                return '?';
+        if ((unsigned int)t->state < sizeof(s_map))
+                return s_map[t->state];
+        return '?';
+}
+
+void blk_dump_stalled_requests(void)
+{
+        int tag, inflight = 0, stalled = 0;
+        unsigned long thresh_ms = (sysctl_blk_io_timeout_ms > 0) ? (unsigned long)sysctl_blk_io_timeout_ms : 1UL;
+
+        for (tag = 0; tag < NR_REQUEST; tag++) {
+                struct request *req = &all_requests[tag];
+                unsigned long age_ms;
+                int bios_cnt = 0;
+                struct buffer_head *bh;
+
+                if (req->rq_status == RQ_INACTIVE)
+                        continue;
+                inflight++;
+                age_ms = (jiffies >= rq_meta[tag].start_jiffies)
+                         ? ((jiffies - rq_meta[tag].start_jiffies) * (1000UL / HZ))
+                         : 0UL;
+                for (bh = req->bh; bh && bios_cnt < 64; bh = bh->b_reqnext)
+                        bios_cnt++;
+                if (bios_cnt == 0)
+                        bios_cnt = 1;
+                if (age_ms >= thresh_ms)
+                        stalled++;
+                printk(KERN_WARNING "rq: tag=%d hctx=0 op=%s sector=%lu len=%lu bios=%d age=%lu ms pid=%d comm=%s state=%c\n",
+                       tag,
+                       (req->cmd == WRITE) ? "WRITE" : "READ",
+                       req->sector,
+                       req->nr_sectors * 512UL,
+                       bios_cnt,
+                       age_ms,
+                       rq_meta[tag].pid,
+                       rq_meta[tag].comm,
+                       six_task_state_char(rq_meta[tag].task));
+        }
+        if (inflight > 0) {
+                printk(KERN_WARNING "blk: queue stall on hda: %d inflight, %d stalled (threshold %d ms)\n",
+                       inflight, stalled, sysctl_blk_io_timeout_ms);
+        }
+}
+
+static void blk_stall_watchdog_fn(unsigned long data)
+{
+        if (sysctl_blk_io_timeout_ms > 0) {
+                unsigned long thresh_ms = (unsigned long)sysctl_blk_io_timeout_ms;
+                unsigned long thresh_j = (thresh_ms * HZ) / 1000UL;
+                int tag, inflight = 0, stalled = 0, need_print = 0;
+
+                if (thresh_j == 0)
+                        thresh_j = 1;
+
+                for (tag = 0; tag < NR_REQUEST; tag++) {
+                        struct request *req = &all_requests[tag];
+                        unsigned long age_ms;
+                        if (req->rq_status == RQ_INACTIVE)
+                                continue;
+                        inflight++;
+                        age_ms = (jiffies >= rq_meta[tag].start_jiffies)
+                                 ? ((jiffies - rq_meta[tag].start_jiffies) * (1000UL / HZ))
+                                 : 0UL;
+                        if (age_ms >= thresh_ms) {
+                                stalled++;
+                                if (rq_meta[tag].last_report_jiffies == 0 ||
+                                    (jiffies - rq_meta[tag].last_report_jiffies) >= thresh_j) {
+                                        rq_meta[tag].last_report_jiffies = jiffies ? jiffies : 1;
+                                        need_print = 1;
+                                }
+                        }
+                }
+                if (need_print && stalled > 0)
+                        blk_dump_stalled_requests();
+        }
+        init_timer(&blk_stall_timer);
+        blk_stall_timer.expires = jiffies + HZ;
+        blk_stall_timer.data = 0;
+        blk_stall_timer.function = blk_stall_watchdog_fn;
+        add_timer(&blk_stall_timer);
+}
+
+int blk_hangman_stall_write(const char *buf, unsigned int count)
+{
+        struct request *req;
+        int tag;
+
+        if (buf && count >= 5 &&
+            (strncmp(buf, "reset", 5) == 0 || strncmp(buf, "unhang", 6) == 0 ||
+             strncmp(buf, "clear", 5) == 0)) {
+                for (tag = 0; tag < NR_REQUEST; tag++) {
+                        if (all_requests[tag].rq_status != RQ_INACTIVE &&
+                            all_requests[tag].bh == &hangman_bh[tag]) {
+                                all_requests[tag].rq_status = RQ_INACTIVE;
+                                all_requests[tag].bh = NULL;
+                                clear_bit(BH_Lock, &hangman_bh[tag].b_state);
+                                wake_up(&hangman_bh[tag].b_wait);
+                        }
+                }
+                return (int)count;
+        }
+
+        cli();
+        req = get_request(NR_REQUEST, ROOT_DEV);
+        sti();
+        if (!req)
+                return -EAGAIN;
+
+        tag = (int)(req - all_requests);
+        req->cmd = WRITE;
+        req->errors = 0;
+        req->sector = 4096UL + (unsigned long)tag * 8UL;
+        req->nr_sectors = (count > 512) ? ((count + 511) / 512) : 2;
+        req->current_nr_sectors = req->nr_sectors;
+        req->buffer = NULL;
+        req->sem = NULL;
+        req->next = NULL;
+
+        memset(&hangman_bh[tag], 0, sizeof(struct buffer_head));
+        set_bit(BH_Lock, &hangman_bh[tag].b_state);
+        req->bh = &hangman_bh[tag];
+        req->bhtail = &hangman_bh[tag];
+
+        /* Block in TASK_UNINTERRUPTIBLE (D state) inside wait_on_buffer() */
+        wait_on_buffer(&hangman_bh[tag]);
+        return (int)count;
+}
+#endif
+
 int blk_dev_init(void)
 {
         struct request * req;
@@ -618,6 +799,13 @@ int blk_dev_init(void)
                 req->next = NULL;
         }
         memset(ro_bits,0,sizeof(ro_bits));
+#if (SIX)
+        init_timer(&blk_stall_timer);
+        blk_stall_timer.expires = jiffies + HZ;
+        blk_stall_timer.data = 0;
+        blk_stall_timer.function = blk_stall_watchdog_fn;
+        add_timer(&blk_stall_timer);
+#endif
 #if (!SIX)
 #ifdef CONFIG_BLK_DEV_RAM
         rd_init();

@@ -149,6 +149,14 @@ asmlinkage int sys_write(unsigned int fd,char * buf,unsigned int count)
         error = verify_area(VERIFY_READ,buf,count);
         if (error)
                 return error;
+#if (SIX)
+        {
+                extern unsigned long six_hangman_ino;
+                extern int blk_hangman_stall_write(const char *buf, unsigned int count);
+                if (six_hangman_ino && inode->i_ino == six_hangman_ino)
+                        return blk_hangman_stall_write(buf, count);
+        }
+#endif
         /*
          * If data has been written to the file, remove the setuid and
          * the setgid bits. We do it anyway otherwise there is an
