@@ -737,9 +737,11 @@ int blk_hangman_stall_write(const char *buf, unsigned int count)
         struct request *req;
         int tag;
 
-        if (buf && count >= 5 &&
-            (strncmp(buf, "reset", 5) == 0 || strncmp(buf, "unhang", 6) == 0 ||
-             strncmp(buf, "clear", 5) == 0)) {
+        if (buf && count >= 1 &&
+            (buf[0] == '0' ||
+             (count >= 5 && (strncmp(buf, "reset", 5) == 0 ||
+                             strncmp(buf, "unhang", 6) == 0 ||
+                             strncmp(buf, "clear", 5) == 0)))) {
                 for (tag = 0; tag < NR_REQUEST; tag++) {
                         if (all_requests[tag].rq_status != RQ_INACTIVE &&
                             all_requests[tag].bh == &hangman_bh[tag]) {
