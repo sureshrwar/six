@@ -162,7 +162,7 @@ void show_task_trace(struct task_struct *p)
 	if (!p)
 		return;
 
-	printk("   Call Trace:");
+	printk("   Call Trace:\n");
 	if (p == current) {
 #if (__i386__)
 		__asm__ __volatile__("movl %%ebp, %0" : "=r"(ebp));
@@ -180,8 +180,9 @@ void show_task_trace(struct task_struct *p)
 		ebp = p->kcontext.ebp;
 		get_task_stack_bounds(p, ebp, &stack_low, &stack_high);
 		if (p->kcontext.pc && is_kernel_text(p->kcontext.pc)) {
-			printk(" ");
+			printk("    ");
 			print_kaddr(p->kcontext.pc);
+			printk("\n");
 			depth++;
 		}
 	}
@@ -193,20 +194,20 @@ void show_task_trace(struct task_struct *p)
 		unsigned long ret_pc = frame[1];
 		if (!ret_pc)
 			break;
-		printk(" ");
+		printk("    ");
 		print_kaddr(ret_pc);
+		printk("\n");
 		depth++;
 		if (next_ebp <= ebp)
 			break;
 		ebp = next_ebp;
 	}
 	if (p->user_mode && p->ucontext.pc) {
-		printk(" [<%08x>] (user esp=%08x)", p->ucontext.pc, p->ucontext.kesp);
+		printk("    [<%08x>] (user esp=%08x)\n", p->ucontext.pc, p->ucontext.kesp);
 		depth++;
 	}
 	if (depth == 0)
-		printk(" <none>");
-	printk("\n");
+		printk("    <none>\n");
 }
 
 void dump_stack(void)
