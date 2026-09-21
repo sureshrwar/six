@@ -554,3 +554,96 @@ void six_host_tls_bridge_init(void)
 	}
 }
 
+typedef struct {
+	const char *dli_fname;
+	void       *dli_fbase;
+	const char *dli_sname;
+	void       *dli_saddr;
+} six_dl_info_t;
+
+extern int dladdr(const void *addr, six_dl_info_t *info);
+
+struct six_sym_entry {
+	unsigned long addr;
+	char name[56];
+};
+
+static struct six_sym_entry *six_symtab = NULL;
+static int six_symtab_count = 0;
+static int six_symtab_loaded = 0;
+
+static void six_load_system_map(void)
+{
+	FILE *fp;
+	char line[256];
+	int cap = 4096;
+
+	if (six_symtab_loaded)
+		return;
+	six_symtab_loaded = 1;
+
+	fp = fopen("System.map", "r");
+	if (!fp)
+		return;
+	six_symtab = (struct six_sym_entry *)malloc(cap * sizeof(struct six_sym_entry));
+	if (!six_symtab) {
+		fclose(fp);
+		return;
+	}
+	while (fgets(line, sizeof(line), fp)) {
+		unsigned long a;
+		char type;
+		char sname[128];
+		if (sscanf(line, "%lx %c %127s", &a, &type, sname) == 3) {
+			if (type == 'T' || type == 't' || type == 'W' || type == 'w') {
+				if (six_symtab_count >= cap) {
+					cap *= 2;
+					six_symtab = (struct six_sym_entry *)realloc(
+						six_symtab, cap * sizeof(struct six_sym_entry));
+					if (!six_symtab) {
+						six_symtab_count = 0;
+						break;
+					}
+				}
+				six_symtab[six_symtab_count].addr = a;
+				strncpy(six_symtab[six_symtab_count].name, sname, 55);
+				six_symtab[six_symtab_count].name[55] = '\0';
+				six_symtab_count++;
+			}
+		}
+	}
+	fclose(fp);
+}
+
+int six_host_sprint_symbol(unsigned long addr, char *buf, int buflen)
+{
+	six_dl_info_t info;
+	int i, best = -1;
+
+	if (!buf || buflen <= 0)
+		return 0;
+
+	six_load_system_map();
+	if (six_symtab && six_symtab_count > 0) {
+		for (i = 0; i < six_symtab_count; i++) {
+			if (six_symtab[i].addr <= addr)
+				best = i;
+			else
+				break;
+		}
+		if (best >= 0 && (addr - six_symtab[best].addr) < 0x10000UL) {
+			snprintf(buf, buflen, "%s+0x%lx",
+				 six_symtab[best].name, addr - six_symtab[best].addr);
+			return 1;
+		}
+	}
+
+	if (dladdr((const void *)addr, &info) && info.dli_sname) {
+		unsigned long off = addr - (unsigned long)info.dli_saddr;
+		snprintf(buf, buflen, "%s+0x%lx", info.dli_sname, off);
+		return 1;
+	}
+	buf[0] = '\0';
+	return 0;
+}
+

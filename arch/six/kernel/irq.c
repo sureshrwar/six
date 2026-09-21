@@ -927,7 +927,12 @@ void six_swapoff(struct pt_regs *u)
 
 void six_reboot(struct pt_regs *u)
 {
-	int ret = sys_reboot(0xfee1dead, 672274793, 0xCDEF0123);
+	unsigned long magic = 0, magic2 = 0, flag = 0;
+	int ret;
+	grab_args(u, (long *)&magic, (long *)&magic2, (long *)&flag);
+	if (magic == 0xfee1deadUL && flag == 0xdead0000UL)
+		panic("SysRq : Trigger a crashdump");
+	ret = sys_reboot(0xfee1dead, 672274793, 0xCDEF0123);
 	put_ret(u, (long)ret);
 }
 

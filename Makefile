@@ -341,12 +341,13 @@ symlinks:
 config: symlinks
 	@echo Configuration complete.
 six:	linuxsubdirs init/version.o init/main.o
-	$(CC) $(CFLAGS) -no-pie init/main.o init/version.o \
+	$(CC) $(CFLAGS) -no-pie -rdynamic init/main.o init/version.o \
 	-o $(INSTALL_PATH)/six \
 	$(DRIVERS) \
 	$(ARCHIVES) \
 	$(FILESYSTEMS) \
 	$(LIBS)
+	@$(NM) -n $(INSTALL_PATH)/six > $(INSTALL_PATH)/System.map
 
 endif
 

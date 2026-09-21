@@ -23,6 +23,10 @@
 asmlinkage void sys_sync(void); /* it's really int */
 extern void hard_reset_now(void);
 extern void do_unblank_screen(void);
+extern void dump_stack(void);
+extern void show_state(void);
+extern void show_mem(void);
+extern int oops_in_progress;
 extern int C_A_D;
 
 int panic_timeout = 0;
@@ -42,7 +46,13 @@ NORET_TYPE void panic(const char * fmt, ...)
         va_start(args, fmt);
         vsprintf(buf, fmt, args);
         va_end(args);
-        printk(KERN_EMERG "Kernel panic: %s\n",buf);
+        printk(KERN_EMERG "\nKernel panic: %s\n", buf);
+#if (SIX)
+        if (!oops_in_progress)
+                dump_stack();
+        show_state();
+        show_mem();
+#endif
         if (!current || current == task[0])
                 printk(KERN_EMERG "In swapper task - not syncing\n");
         else

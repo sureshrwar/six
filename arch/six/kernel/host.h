@@ -73,4 +73,7 @@ void six_host_net_close(int fd);
 void six_host_tls_bridge_init(void);
 void six_host_tls_bridge_cleanup(void);
 
+/* Kernel symbol resolution for stack traces via dladdr(). */
+int  six_host_sprint_symbol(unsigned long addr, char *buf, int buflen);
+
 #endif /* _SIX_HOST_H */

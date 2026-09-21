@@ -1290,9 +1290,14 @@ asmlinkage int sys_nanosleep(struct timespec *rqtp, struct timespec *rmtp)
         return 0;
 }
 
+#if (SIX)
+extern unsigned long six_task_saved_pc(struct task_struct *p);
+extern void show_task_trace(struct task_struct *p);
+#endif
+
 static void show_task(int nr,struct task_struct * p)
 {
-        unsigned long free;
+        unsigned long free = 0;
         static const char * stat_nam[] = { "R", "S", "D", "Z", "T", "W" };
 
         printk("%-8s %3d ", p->comm, (p == current) ? -nr : nr);
@@ -1300,22 +1305,28 @@ static void show_task(int nr,struct task_struct * p)
                 printk(stat_nam[p->state]);
         else
                 printk(" ");
-#if ((~0UL) == 0xffffffff)
+#if (SIX) || defined(__i386__)
         if (p == current)
                 printk(" current  ");
         else
+#if (SIX)
+                printk(" %08lX ", six_task_saved_pc(p));
+#else
                 printk(" %08lX ", thread_saved_pc(&p->tss));
+#endif
 #else
         if (p == current)
                 printk("   current task   ");
         else
                 printk(" %016lx ", thread_saved_pc(&p->tss));
 #endif
-        for (free = 1; free < PAGE_SIZE/sizeof(long) ; free++) {
-                if (((unsigned long *)p->kernel_stack_page)[free])
-                        break;
-        }       
-        printk("%5lu %5d %6d ", free*sizeof(long), p->pid, p->p_pptr->pid);
+        if (p->kernel_stack_page) {
+                for (free = 1; free < PAGE_SIZE/sizeof(long) ; free++) {
+                        if (((unsigned long *)p->kernel_stack_page)[free])
+                                break;
+                }
+        }
+        printk("%5lu %5d %6d ", free*sizeof(long), p->pid, p->p_pptr ? p->p_pptr->pid : 0);
         if (p->p_cptr)
                 printk("%5d ", p->p_cptr->pid);
         else
@@ -1328,13 +1339,16 @@ static void show_task(int nr,struct task_struct * p)
                 printk(" %5d\n", p->p_osptr->pid);
         else
                 printk("\n");
+#if (SIX)
+        show_task_trace(p);
+#endif
 }
 
 void show_state(void)
 {
         int i;
 
-#if ((~0UL) == 0xffffffff)
+#if (SIX) || defined(__i386__)
         printk("\n"
                "                         free                        sibling\n");
         printk("  task             PC    stack   pid father child younger older\n");

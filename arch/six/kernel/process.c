@@ -66,13 +66,202 @@ void hard_reset_now(void)
 	exit(1);
 }
 
+#include "host.h"
+
+extern char _start[], _etext[];
+int oops_in_progress = 0;
+
+static int is_kernel_text(unsigned long addr)
+{
+	return (addr >= (unsigned long)_start && addr < (unsigned long)_etext);
+}
+
+void print_kaddr(unsigned long addr)
+{
+	char sym[96];
+	if (six_host_sprint_symbol(addr, sym, sizeof(sym)))
+		printk("[<%08lx>] <%s>", addr, sym);
+	else
+		printk("[<%08lx>]", addr);
+}
+
+void show_trace_ebp(unsigned long ebp, unsigned long stack_low, unsigned long stack_high)
+{
+	int depth = 0;
+	while (stack_low && ebp >= stack_low && (ebp + 8) <= stack_high &&
+	       (ebp & 3) == 0 && depth < 16) {
+		unsigned long *frame = (unsigned long *)ebp;
+		unsigned long next_ebp = frame[0];
+		unsigned long ret_pc = frame[1];
+		if (!ret_pc)
+			break;
+		printk(" ");
+		print_kaddr(ret_pc);
+		printk("\n");
+		depth++;
+		if (next_ebp <= ebp)
+			break;
+		ebp = next_ebp;
+	}
+	if (depth == 0)
+		printk("  <none>\n");
+}
+
+static void get_task_stack_bounds(struct task_struct *p, unsigned long ebp,
+				  unsigned long *low_out, unsigned long *high_out)
+{
+	unsigned long low = p->kernel_stack_page;
+	unsigned long high = low ? (low + DEFAULT_STACK_SIZE) : 0;
+
+	if (low && ebp >= low && (ebp + 8) <= high) {
+		*low_out = low;
+		*high_out = high;
+		return;
+	}
+	if (p->mm && p->mm->start_stack) {
+		low = p->mm->start_stack;
+		high = low + DEFAULT_STACK_SIZE;
+		if (ebp >= low && (ebp + 8) <= high) {
+			*low_out = low;
+			*high_out = high;
+			return;
+		}
+	}
+	if (p->kcontext.kesp && ebp >= p->kcontext.kesp &&
+	    (ebp - p->kcontext.kesp) < 0x4000UL) {
+		*low_out = p->kcontext.kesp;
+		*high_out = (p->kcontext.kesp & ~0x1fffUL) + 0x4000UL;
+		return;
+	}
+	*low_out = low;
+	*high_out = high;
+}
+
+unsigned long six_task_saved_pc(struct task_struct *p)
+{
+	unsigned long stack_low, stack_high, ebp;
+	if (!p)
+		return 0;
+	ebp = p->kcontext.ebp;
+	get_task_stack_bounds(p, ebp, &stack_low, &stack_high);
+	if (stack_low && ebp >= stack_low && (ebp + 8) <= stack_high && (ebp & 3) == 0) {
+		unsigned long ret_pc = ((unsigned long *)ebp)[1];
+		if (ret_pc)
+			return ret_pc;
+	}
+	if (p->kcontext.pc)
+		return p->kcontext.pc;
+	return p->ucontext.pc;
+}
+
+void show_task_trace(struct task_struct *p)
+{
+	unsigned long stack_low = 0, stack_high = 0, ebp;
+	int depth = 0;
+
+	if (!p)
+		return;
+
+	printk("   Call Trace:");
+	if (p == current) {
+#if (__i386__)
+		__asm__ __volatile__("movl %%ebp, %0" : "=r"(ebp));
+		get_task_stack_bounds(p, ebp, &stack_low, &stack_high);
+		if (!stack_low || ebp < stack_low || ebp >= stack_high) {
+			unsigned long esp;
+			__asm__ __volatile__("movl %%esp, %0" : "=r"(esp));
+			stack_low = esp & ~0x1fffUL;
+			stack_high = stack_low + 0x4000UL;
+		}
+#else
+		ebp = 0;
+#endif
+	} else {
+		ebp = p->kcontext.ebp;
+		get_task_stack_bounds(p, ebp, &stack_low, &stack_high);
+		if (p->kcontext.pc && is_kernel_text(p->kcontext.pc)) {
+			printk(" ");
+			print_kaddr(p->kcontext.pc);
+			depth++;
+		}
+	}
+
+	while (stack_low && ebp >= stack_low && (ebp + 8) <= stack_high &&
+	       (ebp & 3) == 0 && depth < 12) {
+		unsigned long *frame = (unsigned long *)ebp;
+		unsigned long next_ebp = frame[0];
+		unsigned long ret_pc = frame[1];
+		if (!ret_pc)
+			break;
+		printk(" ");
+		print_kaddr(ret_pc);
+		depth++;
+		if (next_ebp <= ebp)
+			break;
+		ebp = next_ebp;
+	}
+	if (p->user_mode && p->ucontext.pc) {
+		printk(" [<%08x>] (user esp=%08x)", p->ucontext.pc, p->ucontext.kesp);
+		depth++;
+	}
+	if (depth == 0)
+		printk(" <none>");
+	printk("\n");
+}
+
+void dump_stack(void)
+{
+	unsigned long ebp = 0, esp = 0;
+	unsigned long stack_low, stack_high;
+	unsigned long *sp;
+	int i;
+
+#if (__i386__)
+	__asm__ __volatile__("movl %%ebp, %0\n\tmovl %%esp, %1"
+			     : "=r"(ebp), "=r"(esp));
+#endif
+	if (current) {
+		printk("Pid: %d, comm: %s\n", current->pid, current->comm);
+		stack_low = current->kernel_stack_page;
+		stack_high = stack_low + DEFAULT_STACK_SIZE;
+		if (esp < stack_low || esp >= stack_high) {
+			stack_low = esp;
+			stack_high = (esp & ~0x1fffUL) + 0x4000UL;
+		}
+	} else {
+		stack_low = esp;
+		stack_high = (esp & ~0x1fffUL) + 0x4000UL;
+	}
+
+	if (esp) {
+		sp = (unsigned long *)esp;
+		printk("Stack:");
+		for (i = 0; i < 24; i++) {
+			if ((unsigned long)(sp + i + 1) > stack_high)
+				break;
+			if ((i % 8) == 0)
+				printk("\n       ");
+			printk("%08lx ", sp[i]);
+		}
+		printk("\n");
+	}
+
+	printk("Call Trace:\n");
+	show_trace_ebp(ebp, stack_low, stack_high);
+}
+
 void show_regs(struct pt_regs * regs)
 {
+	unsigned long stack_low = 0, stack_high = 0;
+	int i;
+
 	if (!regs)
 		return;
+	oops_in_progress = 1;
 #if (__i386__)
-	printk("\nEIP: %04x:[<%08x>] EFLAGS: %08x CR2: %08x\n",
-	       regs->cs & 0xffff, regs->pc, regs->psw, regs->cr2);
+	printk("\nEIP: %04x:", regs->cs & 0xffff);
+	print_kaddr(regs->pc);
+	printk(" EFLAGS: %08x CR2: %08x\n", regs->psw, regs->cr2);
 	printk("EAX: %08x EBX: %08x ECX: %08x EDX: %08x\n",
 	       regs->uu2[3], regs->uu2[0], regs->uu2[2], regs->uu2[1]);
 	printk("ESI: %08x EDI: %08x EBP: %08x ESP: %08x\n",
@@ -85,10 +274,45 @@ void show_regs(struct pt_regs * regs)
 	       regs->pc, regs->npc, regs->psw, regs->esp);
 #endif
 	if (current) {
-		printk("Process %s (pid: %d, kernel_level: %d, user_mode: %d)\n",
-		       current->comm, current->pid,
+		printk("Process %s (pid: %d, stackpage=%08lx, kernel_level: %d, user_mode: %d)\n",
+		       current->comm, current->pid, current->kernel_stack_page,
 		       current->kernel_level, current->user_mode);
+		stack_low = current->kernel_stack_page;
+		stack_high = stack_low + DEFAULT_STACK_SIZE;
 	}
+#if (__i386__)
+	if (regs->kesp) {
+		unsigned long *sp = (unsigned long *)regs->kesp;
+		if (regs->kesp < stack_low || regs->kesp >= stack_high) {
+			stack_low = regs->kesp;
+			stack_high = (regs->kesp & ~0x1fffUL) + 0x4000UL;
+		}
+		printk("Stack:");
+		for (i = 0; i < 24; i++) {
+			if ((unsigned long)(sp + i + 1) > stack_high)
+				break;
+			if ((i % 8) == 0)
+				printk("\n       ");
+			printk("%08lx ", sp[i]);
+		}
+		printk("\n");
+	}
+	printk("Call Trace:\n");
+	if (regs->pc) {
+		printk(" ");
+		print_kaddr(regs->pc);
+		printk("\n");
+	}
+	show_trace_ebp(regs->ebp, stack_low, stack_high);
+	if (is_kernel_text(regs->pc) ||
+	    (regs->pc >= 0x03000000UL && regs->pc + 16 <= TASK_SIZE)) {
+		unsigned char *code = (unsigned char *)regs->pc;
+		printk("Code: ");
+		for (i = 0; i < 16; i++)
+			printk("%02x ", code[i]);
+		printk("\n");
+	}
+#endif
 }
 
 /*
