@@ -1129,6 +1129,10 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	 * reads exactly as many as it is told to, so asking for four made it
 	 * copy one word past the end of the argument list onto the new stack.
 	 */
+	{
+		extern void six_set_task_cmdline(struct task_struct *tsk, int argc, char **argv);
+		six_set_task_cmdline(current, bprm->argc, (char **)bprm->page[0]);
+	}
 	makecontext(regs, entry, 3, bprm->argc,
 			(char **)bprm->page[0],
 			(char **)(bprm->page[0]+(bprm->argc+1)*4));

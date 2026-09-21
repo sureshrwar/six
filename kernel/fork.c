@@ -216,25 +216,144 @@ static inline int copy_sighand(unsigned long clone_flags, struct task_struct * t
 }
 
 #if (SIX)
-/*
- * A stupid, easy, ridiculous way to make ps work.
- * Will implement all this properely later.
- */
+extern unsigned long six_task_saved_pc(struct task_struct *p);
+extern int six_host_sprint_symbol(unsigned long addr, char *buf, int buflen);
+
+static char six_task_cmdline[NR_TASKS][128];
+
+void six_set_task_cmdline(struct task_struct *tsk, int argc, char **argv)
+{
+	int i, slot = -1, pos = 0;
+
+	if (!tsk)
+		return;
+	for (i = 0; i < NR_TASKS; i++) {
+		if (task[i] == tsk) {
+			slot = i;
+			break;
+		}
+	}
+	if (slot < 0)
+		return;
+
+	six_task_cmdline[slot][0] = '\0';
+	if (!argv || argc <= 0)
+		return;
+	for (i = 0; i < argc && pos < 120; i++) {
+		const char *arg = argv[i];
+		if (!arg || (unsigned long)arg < 0x03000000UL || (unsigned long)arg >= TASK_SIZE)
+			break;
+		if (i > 0 && pos < 126)
+			six_task_cmdline[slot][pos++] = ' ';
+		while (*arg && pos < 126)
+			six_task_cmdline[slot][pos++] = *arg++;
+	}
+	six_task_cmdline[slot][pos] = '\0';
+}
+
 int sys_sixps(struct six_proc *sp)
 {
 	int index;
-	if(!sp)
+	struct task_struct *p;
+	struct vm_area_struct *vma;
+	unsigned long vsz = 0;
+	char sym[64], *plus, *name;
+
+	if (!sp)
 		return -1;
 	index = sp->index;
-	if(!task[index])
+	if (index < 0)
+		index = 0;
+	while (index < NR_TASKS && !task[index])
+		index++;
+	if (index >= NR_TASKS || !task[index])
 		return -1;
-	strcpy(sp->comm, task[index]->comm);
-	sp->pid = task[index]->pid;
-	if(task[index]->p_opptr)
-		sp->ppid = task[index]->p_opptr->pid;
-	else sp->ppid = 0;
 
-	sp->index++;	
+	p = task[index];
+	memset(sp, 0, sizeof(*sp));
+	strncpy(sp->comm, p->comm, sizeof(sp->comm) - 1);
+	sp->pid = p->pid;
+	sp->ppid = p->p_pptr ? p->p_pptr->pid : (p->p_opptr ? p->p_opptr->pid : 0);
+	sp->uid = p->uid;
+	sp->euid = p->euid;
+	sp->gid = p->gid;
+	sp->pgrp = p->pgrp;
+	sp->session = p->session;
+	sp->state = (int)p->state;
+	sp->utime = (p->pid == 0) ? 0 : p->utime;
+	sp->stime = (p->pid == 0) ? 0 : p->stime;
+	sp->start_time = p->start_time;
+	sp->jiffies_now = jiffies;
+	sp->nice = (long)DEF_PRIORITY - p->priority;
+	sp->priority = 80 + sp->nice;
+	sp->is_kthread = !p->user_mode;
+
+	if (p->tty) {
+		int maj = MAJOR(p->tty->device);
+		int min = MINOR(p->tty->device);
+		sp->tty_nr = (int)p->tty->device;
+		if (maj == 4)
+			sprintf(sp->tty_name, "tty%d", min);
+		else if (maj == 3)
+			sprintf(sp->tty_name, "ttyp%d", min);
+		else
+			sprintf(sp->tty_name, "tty%d,%d", maj, min);
+	} else {
+		sp->tty_nr = 0;
+		strcpy(sp->tty_name, "?");
+	}
+
+	if (p->user_mode && p->mm) {
+		for (vma = p->mm->mmap; vma; vma = vma->vm_next) {
+			if (vma->vm_end > vma->vm_start)
+				vsz += (vma->vm_end - vma->vm_start) >> 10;
+		}
+		if (vsz == 0)
+			vsz = 64;
+		sp->vsize_kb = vsz;
+		sp->rss_kb = (p->mm->rss > 0) ? ((unsigned long)p->mm->rss << (PAGE_SHIFT - 10)) : (vsz / 2 + 16);
+		sp->memsize = (int)sp->vsize_kb;
+	} else {
+		sp->vsize_kb = 0;
+		sp->rss_kb = 0;
+		sp->memsize = 0;
+	}
+
+	if (p->state == TASK_INTERRUPTIBLE || p->state == TASK_UNINTERRUPTIBLE) {
+		sp->wchan_addr = six_task_saved_pc(p);
+		sym[0] = '\0';
+		if (sp->wchan_addr && six_host_sprint_symbol(sp->wchan_addr, sym, sizeof(sym))) {
+			for (plus = sym; *plus; plus++) {
+				if (*plus == '+') {
+					*plus = '\0';
+					break;
+				}
+			}
+			name = sym;
+			if (strncmp(name, "sys_", 4) == 0)
+				name += 4;
+			else if (strncmp(name, "six_", 4) == 0)
+				name += 4;
+			else if (strncmp(name, "__", 2) == 0)
+				name += 2;
+			strncpy(sp->wchan, name, sizeof(sp->wchan) - 1);
+		} else {
+			strcpy(sp->wchan, "?");
+		}
+	} else {
+		sp->wchan_addr = 0;
+		strcpy(sp->wchan, "-");
+	}
+
+	if (!p->user_mode) {
+		sprintf(sp->args, "[%s]", p->comm);
+	} else if (six_task_cmdline[index][0]) {
+		strncpy(sp->args, six_task_cmdline[index], sizeof(sp->args) - 1);
+	} else {
+		strncpy(sp->args, p->comm, sizeof(sp->args) - 1);
+	}
+
+	sp->index = index + 1;
 	return 0;
 }
 #endif
@@ -262,6 +381,18 @@ int do_fork(unsigned long clone_flags, unsigned long usp, struct pt_regs *regs)
         nr = find_empty_process();
         if (nr < 0)
                 goto bad_fork_free_stack;
+#if (SIX)
+	{
+		int pi;
+		six_task_cmdline[nr][0] = '\0';
+		for (pi = 0; pi < NR_TASKS; pi++) {
+			if (task[pi] == current) {
+				strcpy(six_task_cmdline[nr], six_task_cmdline[pi]);
+				break;
+			}
+		}
+	}
+#endif
 	 *p = *current;
         if (p->exec_domain && p->exec_domain->use_count)
                 (*p->exec_domain->use_count)++;
