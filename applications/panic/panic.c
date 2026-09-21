@@ -44,7 +44,7 @@ static unsigned long parse_mask(const char *s)
 
 static void usage(void)
 {
-	printf("Usage: panic [-p mask] [message ...]\n\n");
+	printf("Usage: panic [-p mask | -d] [message ...]\n\n");
 	printf("Trigger a Linux kernel panic with configurable panic_print bitmask:\n");
 	printf("  0x01  TASK_INFO    Task table & stack traces of all threads\n");
 	printf("  0x02  MEM_INFO     Memory, page allocator, swap, & buffers\n");
@@ -53,6 +53,7 @@ static void usage(void)
 	printf("  0x10  FTRACE_INFO  Syscall trace ring buffer\n");
 	printf("  0x20  ALL_CPU_BT   Per-CPU state & stack backtrace\n");
 	printf("  0x3f  ALL (default)\n");
+	printf("  -d                 Block in TASK_UNINTERRUPTIBLE (D state) to test khungtaskd\n");
 }
 
 int main(int argc, char **argv)
@@ -63,6 +64,11 @@ int main(int argc, char **argv)
 
 	if (argc > 1 && (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)) {
 		usage();
+		return 0;
+	}
+
+	if (argc > 1 && strcmp(argv[1], "-d") == 0) {
+		syscall(88, 0xfee1deadL, 0L, (long)0xdead000dUL);
 		return 0;
 	}
 

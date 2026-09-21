@@ -32,6 +32,9 @@ extern int syscall(int num, long a1, long a2, long a3);
 #define KERN_SECURELVL   14
 #define KERN_PANIC       15
 #define KERN_PANIC_PRINT 21
+#define KERN_HUNG_TASK_TIMEOUT_SECS 22
+#define KERN_HUNG_TASK_PANIC 23
+#define KERN_HUNG_TASK_WARNINGS 24
 
 #define VM_FREEPG        3
 
@@ -61,19 +64,22 @@ struct sysctl_entry {
 };
 
 static struct sysctl_entry entries[] = {
-	{ "kernel.ostype",      "ostype",      CTL_KERN, KERN_OSTYPE,      TYPE_STRING,  0 },
-	{ "kernel.osrelease",   "osrelease",   CTL_KERN, KERN_OSRELEASE,   TYPE_STRING,  0 },
-	{ "kernel.version",     "version",     CTL_KERN, KERN_VERSION,     TYPE_STRING,  0 },
-	{ "kernel.hostname",    "hostname",    CTL_KERN, KERN_NODENAME,    TYPE_STRING,  1 },
-	{ "kernel.domainname",  "domainname",  CTL_KERN, KERN_DOMAINNAME,  TYPE_STRING,  1 },
-	{ "kernel.inode-nr",    "inode-nr",    CTL_KERN, KERN_NRINODE,     TYPE_INT2,    0 },
-	{ "kernel.inode-max",   "inode-max",   CTL_KERN, KERN_MAXINODE,    TYPE_INT,     1 },
-	{ "kernel.file-nr",     "file-nr",     CTL_KERN, KERN_NRFILE,      TYPE_INT,     0 },
-	{ "kernel.file-max",    "file-max",    CTL_KERN, KERN_MAXFILE,     TYPE_INT,     1 },
-	{ "kernel.securelevel", "securelevel", CTL_KERN, KERN_SECURELVL,   TYPE_INT,     1 },
-	{ "kernel.panic",       "panic",       CTL_KERN, KERN_PANIC,       TYPE_INT,     1 },
-	{ "kernel.panic_print", "panic_print", CTL_KERN, KERN_PANIC_PRINT, TYPE_PANIC_P, 1 },
-	{ "vm.freepages",       "freepages",   CTL_VM,   VM_FREEPG,        TYPE_INT3,    1 },
+	{ "kernel.ostype",                 "ostype",                 CTL_KERN, KERN_OSTYPE,                 TYPE_STRING,  0 },
+	{ "kernel.osrelease",              "osrelease",              CTL_KERN, KERN_OSRELEASE,              TYPE_STRING,  0 },
+	{ "kernel.version",                "version",                CTL_KERN, KERN_VERSION,                TYPE_STRING,  0 },
+	{ "kernel.hostname",               "hostname",               CTL_KERN, KERN_NODENAME,               TYPE_STRING,  1 },
+	{ "kernel.domainname",             "domainname",             CTL_KERN, KERN_DOMAINNAME,             TYPE_STRING,  1 },
+	{ "kernel.inode-nr",               "inode-nr",               CTL_KERN, KERN_NRINODE,                TYPE_INT2,    0 },
+	{ "kernel.inode-max",              "inode-max",              CTL_KERN, KERN_MAXINODE,               TYPE_INT,     1 },
+	{ "kernel.file-nr",                "file-nr",                CTL_KERN, KERN_NRFILE,                 TYPE_INT,     0 },
+	{ "kernel.file-max",               "file-max",               CTL_KERN, KERN_MAXFILE,                TYPE_INT,     1 },
+	{ "kernel.securelevel",            "securelevel",            CTL_KERN, KERN_SECURELVL,              TYPE_INT,     1 },
+	{ "kernel.panic",                  "panic",                  CTL_KERN, KERN_PANIC,                  TYPE_INT,     1 },
+	{ "kernel.panic_print",            "panic_print",            CTL_KERN, KERN_PANIC_PRINT,            TYPE_PANIC_P, 1 },
+	{ "kernel.hung_task_timeout_secs", "hung_task_timeout_secs", CTL_KERN, KERN_HUNG_TASK_TIMEOUT_SECS, TYPE_INT,     1 },
+	{ "kernel.hung_task_panic",        "hung_task_panic",        CTL_KERN, KERN_HUNG_TASK_PANIC,        TYPE_INT,     1 },
+	{ "kernel.hung_task_warnings",     "hung_task_warnings",     CTL_KERN, KERN_HUNG_TASK_WARNINGS,     TYPE_INT,     1 },
+	{ "vm.freepages",                  "freepages",              CTL_VM,   VM_FREEPG,                   TYPE_INT3,    1 },
 	{ NULL, NULL, 0, 0, 0, 0 }
 };
 

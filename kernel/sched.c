@@ -340,6 +340,19 @@ static inline int goodness(struct task_struct * p, struct task_struct * prev, in
 }
 
 
+#if (SIX)
+static unsigned long six_switch_count[NR_TASKS];
+
+static void six_note_context_switch(struct task_struct *prev, struct task_struct *next)
+{
+        int i;
+        for (i = 0; i < NR_TASKS; i++) {
+                if (task[i] == prev || task[i] == next)
+                        six_switch_count[i]++;
+        }
+}
+#endif
+
 /*
  *  'schedule()' is the scheduler function. It's a very simple and nice
  * scheduler: it's not perfect, but certainly works for most things.
@@ -467,6 +480,9 @@ asmlinkage void schedule(void)
                 struct timer_list timer;
         
                 kstat.context_swtch++;
+#if (SIX)
+                six_note_context_switch(prev, next);
+#endif
                 if (timeout) {
                         init_timer(&timer);
                         timer.expires = timeout;
@@ -1436,6 +1452,111 @@ void show_timers(void)
         }
         if (count == 0)
                 printk("  <no active dynamic timers queued>\n");
+}
+
+int sysctl_hung_task_timeout_secs = 120;
+int sysctl_hung_task_panic = 0;
+int sysctl_hung_task_warnings = 10;
+
+static unsigned long six_d_last_switch[NR_TASKS];
+static unsigned long six_d_since_jiffies[NR_TASKS];
+static int six_d_last_pid[NR_TASKS];
+static struct wait_queue *khungtaskd_wait = NULL;
+static struct timer_list khungtaskd_timer;
+static int khungtaskd_awake = 0;
+
+extern void show_locks(void);
+
+static void khungtaskd_timer_fn(unsigned long data)
+{
+        int i, need_wakeup = 0;
+
+        if (sysctl_hung_task_timeout_secs > 0) {
+                unsigned long timeout_jiffies = (unsigned long)sysctl_hung_task_timeout_secs * HZ;
+                for (i = 0; i < NR_TASKS; i++) {
+                        struct task_struct *p = task[i];
+                        if (!p || p->state != TASK_UNINTERRUPTIBLE) {
+                                six_d_since_jiffies[i] = 0;
+                                continue;
+                        }
+                        if (six_d_since_jiffies[i] == 0 ||
+                            six_d_last_pid[i] != p->pid ||
+                            six_d_last_switch[i] != six_switch_count[i]) {
+                                six_d_since_jiffies[i] = jiffies ? jiffies : 1;
+                                six_d_last_pid[i] = p->pid;
+                                six_d_last_switch[i] = six_switch_count[i];
+                        } else if ((unsigned long)(jiffies - six_d_since_jiffies[i]) >= timeout_jiffies) {
+                                need_wakeup = 1;
+                        }
+                }
+        }
+        if (need_wakeup && !khungtaskd_awake) {
+                khungtaskd_awake = 1;
+                wake_up(&khungtaskd_wait);
+                need_resched = 1;
+        }
+        init_timer(&khungtaskd_timer);
+        khungtaskd_timer.expires = jiffies + HZ;
+        khungtaskd_timer.data = 0;
+        khungtaskd_timer.function = khungtaskd_timer_fn;
+        add_timer(&khungtaskd_timer);
+}
+
+static void check_hung_uninterruptible_tasks(void)
+{
+        int i, found_hung = 0;
+        unsigned long timeout_jiffies;
+
+        if (sysctl_hung_task_timeout_secs <= 0)
+                return;
+        timeout_jiffies = (unsigned long)sysctl_hung_task_timeout_secs * HZ;
+
+        for (i = 0; i < NR_TASKS; i++) {
+                struct task_struct *p = task[i];
+                if (!p || p->state != TASK_UNINTERRUPTIBLE || !six_d_since_jiffies[i])
+                        continue;
+                if (six_d_last_pid[i] != p->pid || six_d_last_switch[i] != six_switch_count[i])
+                        continue;
+                if ((unsigned long)(jiffies - six_d_since_jiffies[i]) >= timeout_jiffies) {
+                        six_d_since_jiffies[i] = jiffies ? jiffies : 1;
+                        found_hung = 1;
+                        if (sysctl_hung_task_warnings != 0) {
+                                if (sysctl_hung_task_warnings > 0)
+                                        sysctl_hung_task_warnings--;
+                                printk(KERN_ERR "\nINFO: task %s:%d blocked for more than %d seconds.\n",
+                                       p->comm, p->pid, sysctl_hung_task_timeout_secs);
+                                printk(KERN_ERR "\"sysctl -w kernel.hung_task_timeout_secs=0\" disables this message.\n");
+                                show_task(i, p);
+                                show_locks();
+                        }
+                }
+        }
+        if (found_hung && sysctl_hung_task_panic)
+                panic("hung_task: blocked tasks");
+}
+
+int khungtaskd(void *unused)
+{
+        current->session = 1;
+        current->pgrp = 1;
+        sprintf(current->comm, "khungtaskd");
+        current->blocked = ~0UL;
+
+        init_timer(&khungtaskd_timer);
+        khungtaskd_timer.expires = jiffies + HZ;
+        khungtaskd_timer.data = 0;
+        khungtaskd_timer.function = khungtaskd_timer_fn;
+        add_timer(&khungtaskd_timer);
+
+        printk("Started khungtaskd (timeout=%ds)\n", sysctl_hung_task_timeout_secs);
+
+        while (1) {
+                khungtaskd_awake = 0;
+                current->signal = 0;
+                interruptible_sleep_on(&khungtaskd_wait);
+                khungtaskd_awake = 1;
+                check_hung_uninterruptible_tasks();
+        }
 }
 #endif
 

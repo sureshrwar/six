@@ -63,6 +63,9 @@ struct __sysctl_args {
 #define KERN_JAVA_INTERPRETER 19 /* path to Java(tm) interpreter */
 #define KERN_JAVA_APPLETVIEWER 20 /* path to Java(tm) appletviewer */
 #define KERN_PANIC_PRINT 21	/* ulong: bitmask of info to print on panic */
+#define KERN_HUNG_TASK_TIMEOUT_SECS 22 /* int: hung task timeout in seconds */
+#define KERN_HUNG_TASK_PANIC 23	/* int: panic on hung task */
+#define KERN_HUNG_TASK_WARNINGS 24 /* int: max hung task warnings */
 
 /* panic_print bitmask flags */
 #define PANIC_PRINT_TASK_INFO		0x00000001UL

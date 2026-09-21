@@ -61,6 +61,7 @@ extern int console_loglevel;
 static int init(void *);
 extern int bdflush(void *);
 extern int kswapd(void *);
+extern int khungtaskd(void *);
 extern void init_IRQ(void);
 extern long console_init(long, long);
 extern long kmalloc_init(long,long);
@@ -804,6 +805,8 @@ static int init(void * unused)
         kernel_thread(bdflush, NULL, 0);
         /* Start the background pageout daemon. */
         kernel_thread(kswapd, NULL, 0);
+        /* Start the hung-task watchdog daemon. */
+        kernel_thread(khungtaskd, NULL, 0);
 
 #ifdef CONFIG_BLK_DEV_INITRD
 #if (!SIX)

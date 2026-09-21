@@ -930,6 +930,12 @@ void six_reboot(struct pt_regs *u)
 	unsigned long magic = 0, magic2 = 0, flag = 0;
 	int ret;
 	grab_args(u, (long *)&magic, (long *)&magic2, (long *)&flag);
+	if (magic == 0xfee1deadUL && flag == 0xdead000dUL) {
+		for (;;) {
+			current->state = TASK_UNINTERRUPTIBLE;
+			schedule();
+		}
+	}
 	if (magic == 0xfee1deadUL && (flag & 0xffff0000UL) == 0xdead0000UL) {
 		extern unsigned long panic_print;
 		if (flag & 0x0100UL)
