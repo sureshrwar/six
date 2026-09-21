@@ -192,9 +192,12 @@ void six_clone(struct pt_regs *u)
 
 void six_execve(struct pt_regs *u)
 {
+	int ret;
 	char **argv, **envp, *filename;
         grab_args(u, (long *)&filename, (long *)&argv, (long *)&envp);
-	do_execve(filename, argv, envp, u);
+	ret = do_execve(filename, argv, envp, u);
+	if (ret < 0)
+		put_ret(u, (long)ret);
 }
 
 void six_brk(struct pt_regs *u)

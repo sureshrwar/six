@@ -25,7 +25,7 @@
 #include <asm/pgtable.h>
 
 #if (SIX)
-int smp_num_cpus;
+int smp_num_cpus = 1;
 #endif
 
 void notify_parent(struct task_struct * tsk)

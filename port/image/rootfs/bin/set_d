@@ -1,0 +1,2 @@
+# /bin/set_d - spawn a background D-state task on /sys/fs/hangman
+echo 1 > /sys/fs/hangman &

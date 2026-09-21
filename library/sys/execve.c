@@ -5,9 +5,10 @@
 
 int execve(char *filename, char **argv, char **envp)
 {
+	int ret;
 	if (!filename)
                 return -EINVAL;
-	syscall(__NR_execve, (long)filename, (long)argv, (long)envp);
-	errno = ENOENT;
+	ret = syscall(__NR_execve, (long)filename, (long)argv, (long)envp);
+	errno = (ret < 0) ? -ret : ENOENT;
 	return -1;
 }

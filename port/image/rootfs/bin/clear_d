@@ -1,0 +1,2 @@
+# /bin/clear_d - release all D-state tasks stalled on /sys/fs/hangman
+echo 0 > /sys/fs/hangman

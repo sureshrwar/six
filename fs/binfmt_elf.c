@@ -902,6 +902,13 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	 * Read the Elf header
 	 */
         read_exec(bprm->inode, 0, e, sizeof(Elf32_Ehdr), 1);
+	if (e->e_ident[0] != 0x7f ||
+	    strncmp((char *)&e->e_ident[1], "ELF", 3) != 0) {
+		kfree(e);
+		kfree(s);
+		kfree(strhdr);
+		return -ENOEXEC;
+	}
 	/*
 	 * Read the String header
 	 */
