@@ -40,7 +40,7 @@ extern int oops_in_progress;
 extern int C_A_D;
 
 int panic_timeout = 0;
-unsigned long panic_print = 0x3fUL; /* Default: all 6 diagnostic sections */
+unsigned long panic_print = 0UL;
 
 #if (SIX)
 static char pstore_kmsg_buf[16384];

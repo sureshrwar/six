@@ -1455,9 +1455,9 @@ void show_timers(void)
 }
 
 int sysctl_hung_task_timeout_secs = 120;
-int sysctl_hung_task_panic = 1;
+int sysctl_hung_task_panic = 0;
 int sysctl_hung_task_warnings = 10;
-unsigned long sysctl_hung_task_sys_info = 0x3fUL;
+unsigned long sysctl_hung_task_sys_info = 0UL;
 
 static unsigned long six_d_last_switch[NR_TASKS];
 static unsigned long six_d_since_jiffies[NR_TASKS];
