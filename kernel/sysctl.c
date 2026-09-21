@@ -33,6 +33,7 @@ extern int sysctl_hung_task_warnings;
 extern unsigned long sysctl_hung_task_sys_info;
 extern int sysctl_blk_io_timeout_ms;
 extern int sysctl_hung_task_detect_count;
+extern unsigned long kernel_si_mask;
 
 
 #ifdef CONFIG_ROOT_NFS
@@ -152,6 +153,8 @@ static ctl_table kern_table[] = {
 	{KERN_PANIC_PRINT, "panic_print", &panic_print, sizeof(unsigned long),
 	 0644, NULL, &proc_dointvec, (ctl_handler *)&do_panic_print_strategy},
 	{KERN_PANIC_SYS_INFO, "panic_sys_info", &panic_print, sizeof(unsigned long),
+	 0644, NULL, &proc_dointvec},
+	{KERN_KERNEL_SYS_INFO, "kernel_sys_info", &kernel_si_mask, sizeof(unsigned long),
 	 0644, NULL, &proc_dointvec},
 	{KERN_HUNG_TASK_TIMEOUT_SECS, "hung_task_timeout_secs",
 	 &sysctl_hung_task_timeout_secs, sizeof(int), 0644, NULL, &proc_dointvec},

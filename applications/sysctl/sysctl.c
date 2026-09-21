@@ -39,6 +39,7 @@ extern int syscall(int num, long a1, long a2, long a3);
 #define KERN_BLK_IO_TIMEOUT_MS  26
 #define KERN_PANIC_SYS_INFO     27
 #define KERN_HUNG_TASK_DETECT_COUNT 28
+#define KERN_KERNEL_SYS_INFO    29
 
 #define VM_FREEPG        3
 
@@ -81,6 +82,7 @@ static struct sysctl_entry entries[] = {
 	{ "kernel.panic",                  "panic",                  CTL_KERN, KERN_PANIC,                  TYPE_INT,     1 },
 	{ "kernel.panic_print",            "panic_print",            CTL_KERN, KERN_PANIC_PRINT,            TYPE_PANIC_P, 1 },
 	{ "kernel.panic_sys_info",         "panic_sys_info",         CTL_KERN, KERN_PANIC_SYS_INFO,         TYPE_PANIC_P, 1 },
+	{ "kernel.kernel_sys_info",        "kernel_sys_info",        CTL_KERN, KERN_KERNEL_SYS_INFO,        TYPE_PANIC_P, 1 },
 	{ "kernel.hung_task_timeout_secs", "hung_task_timeout_secs", CTL_KERN, KERN_HUNG_TASK_TIMEOUT_SECS, TYPE_INT,     1 },
 	{ "kernel.hung_task_panic",        "hung_task_panic",        CTL_KERN, KERN_HUNG_TASK_PANIC,        TYPE_INT,     1 },
 	{ "kernel.hung_task_warnings",     "hung_task_warnings",     CTL_KERN, KERN_HUNG_TASK_WARNINGS,     TYPE_INT,     1 },

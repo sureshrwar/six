@@ -84,6 +84,7 @@ static void pstore_dump(void)
 #endif
 
 extern void show_blocked_tasks(void);
+unsigned long kernel_si_mask = 0UL;
 static unsigned long sys_info_already_dumped = 0;
 
 void kernel_sys_info_reset(void)
@@ -93,7 +94,8 @@ void kernel_sys_info_reset(void)
 
 void kernel_sys_info(unsigned long mask)
 {
-	unsigned long todo = mask & ~sys_info_already_dumped;
+	unsigned long effective = mask ? mask : kernel_si_mask;
+	unsigned long todo = effective & ~sys_info_already_dumped;
 	sys_info_already_dumped |= todo;
 
 	if (todo & PANIC_PRINT_ALL_CPU_BT)
