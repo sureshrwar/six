@@ -24,18 +24,56 @@ dolabel()
 	return(0);
 }
 
+static char prev_dir[256];
+
 int
 dochdir(t)
 register struct op *t;
 {
 	register char *cp, *er;
+	char oldcwd[256], newcwd[256];
+	int is_dash = 0;
+	int have_old = 0;
 
-	if ((cp = t->words[1]) == NULL && (cp = homedir->value) == NULL)
+	if (getcwd(oldcwd, sizeof(oldcwd)) != NULL)
+		have_old = 1;
+
+	cp = t->words[1];
+	if (cp != NULL && strcmp(cp, "-") == 0) {
+		struct var *vp = lookup("OLDPWD");
+		if (vp != NULL && vp->value != NULL && vp->value[0] != '\0')
+			cp = vp->value;
+		else if (prev_dir[0] != '\0')
+			cp = prev_dir;
+		else {
+			err("cd: OLDPWD not set");
+			return(1);
+		}
+		is_dash = 1;
+	}
+
+	if (cp == NULL && (cp = homedir->value) == NULL)
 		er = ": no home directory";
-	else if(chdir(cp) < 0)
+	else if (chdir(cp) < 0)
 		er = ": bad directory";
-	else
+	else {
+		if (have_old) {
+			strncpy(prev_dir, oldcwd, sizeof(prev_dir) - 1);
+			prev_dir[sizeof(prev_dir) - 1] = '\0';
+			setval(lookup("OLDPWD"), prev_dir);
+		}
+		if (getcwd(newcwd, sizeof(newcwd)) != NULL) {
+			setval(lookup("PWD"), newcwd);
+			if (is_dash) {
+				prs(newcwd);
+				prs("\n");
+			}
+		} else if (is_dash) {
+			prs(cp);
+			prs("\n");
+		}
 		return(0);
+	}
 	prs(cp != NULL? cp: "cd");
 	err(er);
 	return(1);
