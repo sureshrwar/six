@@ -225,16 +225,16 @@ file  /usr/include/linux/errno.h       0644  include/linux/errno.h
 file  /usr/include/linux/termios.h     0644  include/linux/termios.h
 file  /usr/include/linux/signal.h      0644  include/linux/signal.h
 
-file  /usr/include/asm/types.h         0644  include/asm-i386/types.h
-file  /usr/include/asm/posix_types.h   0644  include/asm-i386/posix_types.h
-file  /usr/include/asm/stat.h          0644  include/asm-i386/stat.h
-file  /usr/include/asm/fcntl.h         0644  include/asm-i386/fcntl.h
-file  /usr/include/asm/errno.h         0644  include/asm-i386/errno.h
-file  /usr/include/asm/termbits.h      0644  include/asm-i386/termbits.h
-file  /usr/include/asm/termios.h       0644  include/asm-i386/termios.h
-file  /usr/include/asm/signal.h        0644  include/asm-i386/signal.h
-file  /usr/include/asm/ioctls.h        0644  include/asm-i386/ioctls.h
-file  /usr/include/asm/param.h         0644  include/asm-i386/param.h
+file  /usr/include/asm/types.h         0644  include/asm-six/types.h
+file  /usr/include/asm/posix_types.h   0644  include/asm-six/posix_types.h
+file  /usr/include/asm/stat.h          0644  include/asm-six/stat.h
+file  /usr/include/asm/fcntl.h         0644  include/asm-six/fcntl.h
+file  /usr/include/asm/errno.h         0644  include/asm-six/errno.h
+file  /usr/include/asm/termbits.h      0644  include/asm-six/termbits.h
+file  /usr/include/asm/termios.h       0644  include/asm-six/termios.h
+file  /usr/include/asm/signal.h        0644  include/asm-six/signal.h
+file  /usr/include/asm/ioctls.h        0644  include/asm-six/ioctls.h
+file  /usr/include/asm/param.h         0644  include/asm-six/param.h
 
 # --- /var/mail (seeded local mailbox) ---------------------------------------
 file  /var/mail/root                   0600  port/image/rootfs/var/mail/root
