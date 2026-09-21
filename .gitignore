@@ -110,6 +110,7 @@ applications/*/awk
 applications/*/robots
 applications/*/zork
 applications/*/panic
+applications/*/sysctl
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h

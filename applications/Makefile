@@ -85,7 +85,8 @@ SUBDIRS	=	start \
 		awk \
 		robots \
 		zork \
-		panic
+		panic \
+		sysctl
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

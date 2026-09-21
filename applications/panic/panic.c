@@ -57,7 +57,7 @@ static void usage(void)
 
 int main(int argc, char **argv)
 {
-	unsigned long mask = 0x3fUL;
+	unsigned long flag = 0xdead0000UL;
 	static char msg[256];
 	int i = 1;
 
@@ -67,7 +67,7 @@ int main(int argc, char **argv)
 	}
 
 	if (argc > 2 && strcmp(argv[1], "-p") == 0) {
-		mask = parse_mask(argv[2]);
+		flag = 0xdead0100UL | (parse_mask(argv[2]) & 0x7fUL);
 		i = 3;
 	}
 
@@ -83,6 +83,6 @@ int main(int argc, char **argv)
 		strcpy(msg, "SysRq : Trigger a crashdump (via /bin/panic)");
 
 	sync();
-	syscall(88, 0xfee1deadL, (long)msg, (long)(0xdead0000UL | (mask & 0x7fUL)));
+	syscall(88, 0xfee1deadL, (long)msg, (long)flag);
 	return 0;
 }

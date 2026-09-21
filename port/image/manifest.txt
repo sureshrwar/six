@@ -121,6 +121,7 @@ file  /bin/telnetd          0755  applications/telnetd/telnetd
 file  /bin/zork             0755  applications/zork/zork
 sym   /bin/dungeon          -     zork
 file  /bin/panic            0755  applications/panic/panic
+file  /bin/sysctl           0755  applications/sysctl/sysctl
 
 # --- /etc (init binary + configuration recovered from the SPARC root disk) -
 file  /etc/init             0755  applications/init/init

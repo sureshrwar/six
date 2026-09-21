@@ -932,8 +932,8 @@ void six_reboot(struct pt_regs *u)
 	grab_args(u, (long *)&magic, (long *)&magic2, (long *)&flag);
 	if (magic == 0xfee1deadUL && (flag & 0xffff0000UL) == 0xdead0000UL) {
 		extern unsigned long panic_print;
-		if (flag & 0xffUL)
-			panic_print = flag & 0xffUL;
+		if (flag & 0x0100UL)
+			panic_print = flag & 0x7fUL;
 		if (magic2 >= 0x03000000UL && magic2 < TASK_SIZE &&
 		    *(const char *)magic2 != '\0')
 			panic("%s", (const char *)magic2);
