@@ -162,7 +162,7 @@ static ctl_table kern_table[] = {
 	{KERN_HUNG_TASK_SYS_INFO, "hung_task_sys_info",
 	 &sysctl_hung_task_sys_info, sizeof(unsigned long), 0644, NULL, &proc_dointvec},
 	{KERN_HUNG_TASK_DETECT_COUNT, "hung_task_detect_count",
-	 &sysctl_hung_task_detect_count, sizeof(int), 0644, NULL, &proc_dointvec},
+	 &sysctl_hung_task_detect_count, sizeof(int), 0444, NULL, &proc_dointvec},
 	{KERN_BLK_IO_TIMEOUT_MS, "blk_io_timeout_ms",
 	 &sysctl_blk_io_timeout_ms, sizeof(int), 0644, NULL, &proc_dointvec},
 #ifdef CONFIG_BLK_DEV_INITRD
