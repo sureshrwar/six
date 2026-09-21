@@ -1565,6 +1565,7 @@ static int khungtaskd_awake = 0;
 
 extern void show_locks(void);
 extern void kernel_sys_info(unsigned long mask);
+extern void kernel_sys_info_reset(void);
 
 static void khungtaskd_timer_fn(unsigned long data)
 {
@@ -1608,9 +1609,9 @@ static void khungtaskd_timer_fn(unsigned long data)
 static void check_hung_uninterruptible_tasks(void)
 {
         int i, j;
-        int prev_detect_count = sysctl_hung_task_detect_count;
         int total_hung_task = 0;
         int call_panic = 0;
+        int hung_task_show_lock = 0;
         unsigned long timeout_jiffies;
 
         if (sysctl_hung_task_timeout_secs <= 0)
@@ -1624,17 +1625,22 @@ static void check_hung_uninterruptible_tasks(void)
                 if (six_d_last_pid[i] != p->pid || six_d_last_switch[i] != six_switch_count[i])
                         continue;
                 if ((unsigned long)(jiffies - six_d_since_jiffies[i]) >= timeout_jiffies) {
-                        six_d_last_report_jiffies[i] = jiffies ? jiffies : 1;
-                        sysctl_hung_task_detect_count++;
-                        total_hung_task = sysctl_hung_task_detect_count - prev_detect_count;
-
+                        total_hung_task++;
                         if (sysctl_hung_task_panic > 0 && total_hung_task >= sysctl_hung_task_panic)
                                 call_panic = 1;
+
+                        if (six_d_last_report_jiffies[i] != 0 &&
+                            (unsigned long)(jiffies - six_d_last_report_jiffies[i]) < timeout_jiffies)
+                                continue;
+
+                        six_d_last_report_jiffies[i] = jiffies ? jiffies : 1;
+                        sysctl_hung_task_detect_count++;
 
                         if (sysctl_hung_task_warnings != 0) {
                                 struct six_lock_holder *lh;
                                 if (sysctl_hung_task_warnings > 0)
                                         sysctl_hung_task_warnings--;
+                                hung_task_show_lock = 1;
                                 printk(KERN_ERR "\nINFO: task %s:%d blocked for more than %d seconds.\n",
                                        p->comm, p->pid, sysctl_hung_task_timeout_secs);
                                 printk(KERN_ERR "\"sysctl -w kernel.hung_task_timeout_secs=0\" disables this message.\n");
@@ -1653,16 +1659,16 @@ static void check_hung_uninterruptible_tasks(void)
                                                 }
                                         }
                                 }
-                                show_locks();
                         }
                 }
         }
-        if (total_hung_task > 0 && sysctl_hung_task_sys_info && !call_panic)
-                kernel_sys_info(sysctl_hung_task_sys_info);
         if (call_panic) {
-                if (sysctl_hung_task_sys_info)
-                        kernel_sys_info(sysctl_hung_task_sys_info);
+                kernel_sys_info(sysctl_hung_task_sys_info | (hung_task_show_lock ? 0x08UL : 0UL));
                 panic("hung_task: blocked tasks");
+        }
+        if (hung_task_show_lock || (total_hung_task > 0 && sysctl_hung_task_sys_info)) {
+                kernel_sys_info(sysctl_hung_task_sys_info | (hung_task_show_lock ? 0x08UL : 0UL));
+                kernel_sys_info_reset();
         }
 }
 

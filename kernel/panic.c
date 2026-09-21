@@ -86,6 +86,11 @@ static void pstore_dump(void)
 extern void show_blocked_tasks(void);
 static unsigned long sys_info_already_dumped = 0;
 
+void kernel_sys_info_reset(void)
+{
+	sys_info_already_dumped = 0;
+}
+
 void kernel_sys_info(unsigned long mask)
 {
 	unsigned long todo = mask & ~sys_info_already_dumped;
