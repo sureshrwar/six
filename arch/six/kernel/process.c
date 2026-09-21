@@ -68,9 +68,27 @@ void hard_reset_now(void)
 
 void show_regs(struct pt_regs * regs)
 {
-	/*
-	 * TODO. Later.
-	 */
+	if (!regs)
+		return;
+#if (__i386__)
+	printk("\nEIP: %04x:[<%08x>] EFLAGS: %08x CR2: %08x\n",
+	       regs->cs & 0xffff, regs->pc, regs->psw, regs->cr2);
+	printk("EAX: %08x EBX: %08x ECX: %08x EDX: %08x\n",
+	       regs->uu2[3], regs->uu2[0], regs->uu2[2], regs->uu2[1]);
+	printk("ESI: %08x EDI: %08x EBP: %08x ESP: %08x\n",
+	       regs->esi, regs->edi, regs->ebp, regs->kesp);
+	printk(" DS: %04x  ES: %04x  FS: %04x  GS: %04x  SS: %04x\n",
+	       regs->ds & 0xffff, regs->es & 0xffff,
+	       regs->fs & 0xffff, regs->gs & 0xffff, regs->ss & 0xffff);
+#else
+	printk("\nPC: [<%08x>] NPC: [<%08x>] PSR: %08x SP: %08x\n",
+	       regs->pc, regs->npc, regs->psw, regs->esp);
+#endif
+	if (current) {
+		printk("Process %s (pid: %d, kernel_level: %d, user_mode: %d)\n",
+		       current->comm, current->pid,
+		       current->kernel_level, current->user_mode);
+	}
 }
 
 /*

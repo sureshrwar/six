@@ -16,6 +16,7 @@
 #include <linux/kernel.h>
 #include <linux/sched.h>
 #include <linux/delay.h>
+#include <asm/system.h>
 
 
 
@@ -29,14 +30,20 @@ int panic_timeout = 0;
 NORET_TYPE void panic(const char * fmt, ...)
 {
         static char buf[1024];
+        static int in_panic = 0;
         va_list args;
         int i;
+
+        cli();
+        if (in_panic++) {
+                hard_reset_now();
+        }
 
         va_start(args, fmt);
         vsprintf(buf, fmt, args);
         va_end(args);
         printk(KERN_EMERG "Kernel panic: %s\n",buf);
-        if (current == task[0])
+        if (!current || current == task[0])
                 printk(KERN_EMERG "In swapper task - not syncing\n");
         else
                 sys_sync();
@@ -54,6 +61,10 @@ NORET_TYPE void panic(const char * fmt, ...)
                         udelay(1000);
                 hard_reset_now();
         }
+#if (SIX)
+        printk(KERN_EMERG "System halted.\n");
+        hard_reset_now();
+#endif
         for(;;);
 }
 

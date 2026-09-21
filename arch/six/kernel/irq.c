@@ -1926,18 +1926,31 @@ static void KILL_action(void)
 static struct irqaction irqKILL  = { KILL_action, 0, 0, "SIGKILL", NULL, NULL};
 
 
+#if (__i386__)
+#define IS_GUEST_USER_PC(p) \
+	((unsigned long)(p) >= 0x03000000UL && (unsigned long)(p) < TASK_SIZE)
+#endif
+
 static void SEGV_action(int irq, void *dev_id, struct pt_regs *regs)
 {
-	printk("\nCaught SIGSEGV (pid=%d comm=%s pc=%08x kesp=%08x uesp=%08x um=%d kl=%d) : Exiting\n",
-	       current ? current->pid : -1,
-	       current ? current->comm : "?",
-	       regs ? regs->pc : 0,
-	       regs ? regs->kesp : 0,
-	       regs ? regs->esp : 0,
-	       current ? current->user_mode : -1,
-	       current ? current->kernel_level : -1);
-	reset_sun_tty();
-        exit(SIGSEGV);
+#if (__i386__)
+	if (current && current->pid > 1 &&
+	    current->user_mode && current->kernel_level == 1 &&
+	    regs && IS_GUEST_USER_PC(regs->pc)) {
+		printk("six: %s[%d]: segfault at %08x eip %08x esp %08x error %x\n",
+		       current->comm, current->pid,
+		       regs->cr2, regs->pc, regs->kesp, regs->uu2[5]);
+		force_sig(SIGSEGV, current);
+		return;
+	}
+#endif
+	printk(KERN_EMERG "\nUnable to handle kernel paging request at virtual address %08x\n",
+	       regs ? regs->cr2 : 0);
+#if (__i386__)
+	printk(KERN_EMERG "Oops: %04x\n", regs ? (regs->uu2[5] & 0xffff) : 0);
+#endif
+	show_regs(regs);
+	panic("Fatal exception in kernel mode (SIGSEGV)");
 }
 static struct irqaction irqSEGV  = { SEGV_action, 0, 0, "SIGSEGV", NULL, NULL};
 
@@ -2133,7 +2146,7 @@ void ret_from_sys_call(struct pt_regs *context)
 		schedule();
 	if (current->signal)
 	{
-		if (!(current->signal & current->blocked))
+		if (current->signal & ~current->blocked)
 		{
 			/* work to do; there is an unblocked signal */
 			unsigned long oldmask;
@@ -2159,7 +2172,7 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 
 	ENTER_KERNEL;
 	current->signum = num;
-	if (num != SIX_HOST_TRAPSIG && num != 14 && num != 26 && num != 29)
+	if (num != SIX_HOST_TRAPSIG && num != 14 && num != 26 && num != 29 && num != SIGSEGV)
 		printk("six: HOST SIGNAL %d at pc=%08x (pid=%d)\n", num, context ? context->pc : 0, current ? current->pid : -1);
 
 	if(current->kernel_level == 1)
@@ -2183,8 +2196,6 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 		 * setcontext(&current->ucontext) cleanly from the top.
 		 */
 #if (__i386__)
-#define IS_GUEST_USER_PC(p) \
-	((unsigned long)(p) >= 0x03000000UL && (unsigned long)(p) < TASK_SIZE)
 		if (!(!IS_GUEST_USER_PC(context->pc) &&
 		      IS_GUEST_USER_PC(current->ucontext.pc)))
 			SAVE_ALL;
