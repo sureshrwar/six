@@ -930,8 +930,15 @@ void six_reboot(struct pt_regs *u)
 	unsigned long magic = 0, magic2 = 0, flag = 0;
 	int ret;
 	grab_args(u, (long *)&magic, (long *)&magic2, (long *)&flag);
-	if (magic == 0xfee1deadUL && flag == 0xdead0000UL)
+	if (magic == 0xfee1deadUL && (flag & 0xffff0000UL) == 0xdead0000UL) {
+		extern unsigned long panic_print;
+		if (flag & 0xffUL)
+			panic_print = flag & 0xffUL;
+		if (magic2 >= 0x03000000UL && magic2 < TASK_SIZE &&
+		    *(const char *)magic2 != '\0')
+			panic("%s", (const char *)magic2);
 		panic("SysRq : Trigger a crashdump");
+	}
 	ret = sys_reboot(0xfee1dead, 672274793, 0xCDEF0123);
 	put_ret(u, (long)ret);
 }
@@ -2279,6 +2286,73 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 	}
 }
 
+#define SIX_FTRACE_MAX 16
+
+struct six_ftrace_entry {
+	unsigned long jiffies;
+	int pid;
+	char comm[16];
+	int syscallnum;
+	unsigned long pc;
+	unsigned long arg1;
+};
+
+static struct six_ftrace_entry six_ftrace_ring[SIX_FTRACE_MAX];
+static unsigned int six_ftrace_head = 0;
+static unsigned int six_ftrace_total = 0;
+
+static void six_ftrace_record(int syscallnum, struct pt_regs *context)
+{
+	struct six_ftrace_entry *e = &six_ftrace_ring[six_ftrace_head & (SIX_FTRACE_MAX - 1)];
+	int i;
+
+	e->jiffies = jiffies;
+	e->pid = current ? current->pid : 0;
+	if (current) {
+		for (i = 0; i < 15 && current->comm[i]; i++)
+			e->comm[i] = current->comm[i];
+		e->comm[i] = '\0';
+	} else {
+		e->comm[0] = '?';
+		e->comm[1] = '\0';
+	}
+	e->syscallnum = syscallnum;
+	e->pc = context ? context->pc : 0;
+	e->arg1 = context ? context->g3 : 0;
+	six_ftrace_head++;
+	six_ftrace_total++;
+}
+
+extern int six_host_sprint_symbol(unsigned long addr, char *buf, int buflen);
+
+void show_ftrace(void)
+{
+	unsigned int count = (six_ftrace_total < SIX_FTRACE_MAX) ? six_ftrace_total : SIX_FTRACE_MAX;
+	unsigned int start = six_ftrace_head - count;
+	unsigned int i;
+	char sym[64], *plus;
+
+	printk("\nDumping ftrace buffer (%u recent syscall events):\n", count);
+	for (i = 0; i < count; i++) {
+		struct six_ftrace_entry *e = &six_ftrace_ring[(start + i) & (SIX_FTRACE_MAX - 1)];
+		sym[0] = '\0';
+		if (e->syscallnum >= 0 &&
+		    e->syscallnum < (int)(sizeof(sys_call_table) / sizeof(sys_call_table[0])) &&
+		    sys_call_table[e->syscallnum]) {
+			six_host_sprint_symbol((unsigned long)sys_call_table[e->syscallnum], sym, sizeof(sym));
+			for (plus = sym; *plus; plus++) {
+				if (*plus == '+') {
+					*plus = '\0';
+					break;
+				}
+			}
+		}
+		printk("  [jiffies=%6lu] %-8s[%2d]: syscall=%3d (%-14s) eip=%08lx arg1=%08lx\n",
+		       e->jiffies, e->comm, e->pid, e->syscallnum,
+		       sym[0] ? sym : "?", e->pc, e->arg1);
+	}
+}
+
 void system_call(int num, void *why, struct pt_regs *context)
 {
 	int syscallnum;
@@ -2408,6 +2482,7 @@ void system_call(int num, void *why, struct pt_regs *context)
 	/*
 	 * Call the system call worker
 	 */
+	six_ftrace_record(syscallnum, context);
 	cli();
 	sys_call_table[syscallnum](context);
 	sti();

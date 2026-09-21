@@ -62,6 +62,16 @@ struct __sysctl_args {
 #define KERN_NFSRADDRS	18	/* NFS root addresses */
 #define KERN_JAVA_INTERPRETER 19 /* path to Java(tm) interpreter */
 #define KERN_JAVA_APPLETVIEWER 20 /* path to Java(tm) appletviewer */
+#define KERN_PANIC_PRINT 21	/* ulong: bitmask of info to print on panic */
+
+/* panic_print bitmask flags */
+#define PANIC_PRINT_TASK_INFO		0x00000001UL
+#define PANIC_PRINT_MEM_INFO		0x00000002UL
+#define PANIC_PRINT_TIMER_INFO		0x00000004UL
+#define PANIC_PRINT_LOCK_INFO		0x00000008UL
+#define PANIC_PRINT_FTRACE_INFO		0x00000010UL
+#define PANIC_PRINT_ALL_CPU_BT		0x00000020UL
+#define PANIC_PRINT_BLOCKED_TASKS	0x00000040UL
 
 /* CTL_VM names: */
 #define VM_SWAPCTL	1	/* struct: Set vm swapping control */

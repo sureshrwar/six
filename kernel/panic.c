@@ -16,6 +16,7 @@
 #include <linux/kernel.h>
 #include <linux/sched.h>
 #include <linux/delay.h>
+#include <linux/sysctl.h>
 #include <asm/system.h>
 
 
@@ -26,10 +27,31 @@ extern void do_unblank_screen(void);
 extern void dump_stack(void);
 extern void show_state(void);
 extern void show_mem(void);
+extern void show_timers(void);
+extern void show_locks(void);
+extern void show_ftrace(void);
+extern void show_all_cpu_bt(void);
 extern int oops_in_progress;
 extern int C_A_D;
 
 int panic_timeout = 0;
+unsigned long panic_print = 0x3fUL; /* Default: all 6 diagnostic sections */
+
+static void panic_print_sys_info(void)
+{
+        if (panic_print & PANIC_PRINT_ALL_CPU_BT)
+                show_all_cpu_bt();
+        if (panic_print & PANIC_PRINT_TASK_INFO)
+                show_state();
+        if (panic_print & PANIC_PRINT_MEM_INFO)
+                show_mem();
+        if (panic_print & PANIC_PRINT_TIMER_INFO)
+                show_timers();
+        if (panic_print & PANIC_PRINT_LOCK_INFO)
+                show_locks();
+        if (panic_print & PANIC_PRINT_FTRACE_INFO)
+                show_ftrace();
+}
 
 NORET_TYPE void panic(const char * fmt, ...)
 {
@@ -50,8 +72,7 @@ NORET_TYPE void panic(const char * fmt, ...)
 #if (SIX)
         if (!oops_in_progress)
                 dump_stack();
-        show_state();
-        show_mem();
+        panic_print_sys_info();
 #endif
         if (!current || current == task[0])
                 printk(KERN_EMERG "In swapper task - not syncing\n");

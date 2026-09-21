@@ -109,6 +109,7 @@ applications/*/telnetd
 applications/*/awk
 applications/*/robots
 applications/*/zork
+applications/*/panic
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h

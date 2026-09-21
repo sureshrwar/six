@@ -1408,6 +1408,37 @@ void sleep_on(struct wait_queue **p)
 
 static struct timer_list timer_head = { &timer_head, &timer_head, ~0, 0, NULL };
 
+#if (SIX)
+extern void print_kaddr(unsigned long addr);
+
+void show_timers(void)
+{
+        struct timer_list *tp;
+        int i, count = 0;
+
+        printk("\nTimer List Dump (jiffies=%lu, xtime=%lu.%06lu, bh_active=%08lx, bh_mask=%08lx):\n",
+               jiffies, (unsigned long)xtime.tv_sec, (unsigned long)xtime.tv_usec,
+               bh_active, bh_mask);
+        for (i = 0; i < 32; i++) {
+                if (timer_active & (1UL << i)) {
+                        printk("  timer_table[%2d]: expires=%lu fn=", i, timer_table[i].expires);
+                        print_kaddr((unsigned long)timer_table[i].fn);
+                        printk("\n");
+                        count++;
+                }
+        }
+        for (tp = timer_head.next; tp && tp != &timer_head && count < 32; tp = tp->next) {
+                printk("  timer_list[%2d]:  expires=%lu (+%ldj) data=%08lx fn=",
+                       count, tp->expires, (long)(tp->expires - jiffies), tp->data);
+                print_kaddr((unsigned long)tp->function);
+                printk("\n");
+                count++;
+        }
+        if (count == 0)
+                printk("  <no active dynamic timers queued>\n");
+}
+#endif
+
 #define SLOW_BUT_DEBUGGING_TIMERS 0
 
 void add_timer(struct timer_list * timer)

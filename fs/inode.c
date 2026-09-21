@@ -37,7 +37,7 @@ static struct inode_hash_entry {
         int updating;
 } hash_table[NR_IHASH];
 
-static struct inode * first_inode;
+struct inode * first_inode;
 static struct wait_queue * inode_wait = NULL;
 /* Keep these next two contiguous in memory for sysctl.c */
 int nr_inodes = 0, nr_free_inodes = 0;

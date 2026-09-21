@@ -250,6 +250,38 @@ void dump_stack(void)
 	show_trace_ebp(ebp, stack_low, stack_high);
 }
 
+extern unsigned long intr_count;
+extern unsigned long kernel_counter;
+
+void show_all_cpu_bt(void)
+{
+	unsigned long ebp = 0, esp = 0;
+	unsigned long stack_low, stack_high;
+
+#if (__i386__)
+	__asm__ __volatile__("movl %%ebp, %0\n\tmovl %%esp, %1"
+			     : "=r"(ebp), "=r"(esp));
+#endif
+	printk("\nSending NMI / dumping backtrace for all CPUs:\n");
+	printk("CPU#0 [online, kernel_counter=%lu, intr_count=%lu, need_resched=%d, esp=%08lx, ebp=%08lx]:\n",
+	       kernel_counter, intr_count, need_resched, esp, ebp);
+	if (current) {
+		printk("  current: %s (pid=%d, state=%ld, kernel_level=%d, user_mode=%d)\n",
+		       current->comm, current->pid, current->state,
+		       current->kernel_level, current->user_mode);
+		stack_low = current->kernel_stack_page;
+		stack_high = stack_low + DEFAULT_STACK_SIZE;
+		if (esp < stack_low || esp >= stack_high) {
+			stack_low = esp;
+			stack_high = (esp & ~0x1fffUL) + 0x4000UL;
+		}
+	} else {
+		stack_low = esp;
+		stack_high = (esp & ~0x1fffUL) + 0x4000UL;
+	}
+	show_trace_ebp(ebp, stack_low, stack_high);
+}
+
 void show_regs(struct pt_regs * regs)
 {
 	unsigned long stack_low = 0, stack_high = 0;

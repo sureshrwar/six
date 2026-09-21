@@ -968,3 +968,58 @@ static void locks_insert_lock(struct file_lock **pos, struct file_lock *fl)
         return;
 }       
 
+#if (SIX)
+extern struct inode *first_inode;
+extern unsigned long intr_count;
+extern unsigned long kernel_counter;
+
+void show_locks(void)
+{
+        struct file_lock *fl;
+        struct inode *ino;
+        int i, sb_locked = 0, ino_locked = 0, fl_count = 0, d_tasks = 0;
+
+        printk("\nShowing all locks held in the system (kernel_counter=%lu, intr_count=%lu):\n",
+               kernel_counter, intr_count);
+        for (i = 0; i < NR_SUPER; i++) {
+                if (super_blocks[i].s_dev && super_blocks[i].s_lock) {
+                        printk("  super_block[%d]: dev=%04x s_lock=%d\n",
+                               i, super_blocks[i].s_dev, super_blocks[i].s_lock);
+                        sb_locked++;
+                }
+        }
+        if (first_inode) {
+                ino = first_inode;
+                for (i = 0; ino && i < 128; i++) {
+                        if (ino->i_lock) {
+                                printk("  inode: dev=%04x ino=%lu i_lock=%d i_count=%d\n",
+                                       ino->i_dev, ino->i_ino, ino->i_lock, ino->i_count);
+                                ino_locked++;
+                        }
+                        ino = ino->i_next;
+                        if (ino == first_inode)
+                                break;
+                }
+        }
+        for (fl = file_lock_table; fl != NULL && fl_count < 32; fl = fl->fl_nextlink) {
+                printk("  file_lock[%d]: owner=%s[%d] type=%s range=%ld..%ld\n",
+                       fl_count,
+                       fl->fl_owner ? fl->fl_owner->comm : "?",
+                       fl->fl_owner ? fl->fl_owner->pid : -1,
+                       (fl->fl_type == F_WRLCK) ? "WRITE" : "READ",
+                       (long)fl->fl_start, (long)fl->fl_end);
+                fl_count++;
+        }
+        for (i = 0; i < NR_TASKS; i++) {
+                if (task[i] && task[i]->state == TASK_UNINTERRUPTIBLE) {
+                        printk("  D-state lock waiter: %s[%d]\n",
+                               task[i]->comm, task[i]->pid);
+                        d_tasks++;
+                }
+        }
+        printk("  Summary: super_blocks=%d locked, inodes=%d locked, file_locks=%d active, D-waiters=%d\n",
+               sb_locked, ino_locked, fl_count, d_tasks);
+}
+#endif
+       
+

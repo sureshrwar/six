@@ -84,7 +84,8 @@ SUBDIRS	=	start \
 		telnetd \
 		awk \
 		robots \
-		zork
+		zork \
+		panic
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

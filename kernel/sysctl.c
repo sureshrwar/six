@@ -26,6 +26,7 @@
 
 /* External variables not in a header file. */
 extern int panic_timeout;
+extern unsigned long panic_print;
 
 
 #ifdef CONFIG_ROOT_NFS
@@ -132,6 +133,8 @@ static ctl_table kern_table[] = {
 	{KERN_SECURELVL, "securelevel", &securelevel, sizeof(int),
 	 0444, NULL, &proc_dointvec, (ctl_handler *)&do_securelevel_strategy},
 	{KERN_PANIC, "panic", &panic_timeout, sizeof(int),
+	 0644, NULL, &proc_dointvec},
+	{KERN_PANIC_PRINT, "panic_print", &panic_print, sizeof(unsigned long),
 	 0644, NULL, &proc_dointvec},
 #ifdef CONFIG_BLK_DEV_INITRD
 	{KERN_REALROOTDEV, "real-root-dev", &real_root_dev, sizeof(int),
