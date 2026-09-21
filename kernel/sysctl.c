@@ -32,6 +32,7 @@ extern int sysctl_hung_task_panic;
 extern int sysctl_hung_task_warnings;
 extern unsigned long sysctl_hung_task_sys_info;
 extern int sysctl_blk_io_timeout_ms;
+extern int sysctl_hung_task_detect_count;
 
 
 #ifdef CONFIG_ROOT_NFS
@@ -105,6 +106,15 @@ extern int bdf_prm[], bdflush_min[], bdflush_max[];
 static int do_securelevel_strategy (ctl_table *, int *, int, void *, size_t *,
 				    void *, size_t, void **);
 
+static int do_panic_print_strategy(ctl_table *table, int *name, int nlen,
+				   void *oldval, size_t *oldlenp,
+				   void *newval, size_t newlen, void **context)
+{
+	if (newval && newlen)
+		printk(KERN_WARNING "WARNING: 'panic_print' is deprecated, please use 'panic_sys_info' instead.\n");
+	return 0;
+}
+
 extern char binfmt_java_interpreter[], binfmt_java_appletviewer[];
 
 /* The default sysctl tables: */
@@ -140,6 +150,8 @@ static ctl_table kern_table[] = {
 	{KERN_PANIC, "panic", &panic_timeout, sizeof(int),
 	 0644, NULL, &proc_dointvec},
 	{KERN_PANIC_PRINT, "panic_print", &panic_print, sizeof(unsigned long),
+	 0644, NULL, &proc_dointvec, (ctl_handler *)&do_panic_print_strategy},
+	{KERN_PANIC_SYS_INFO, "panic_sys_info", &panic_print, sizeof(unsigned long),
 	 0644, NULL, &proc_dointvec},
 	{KERN_HUNG_TASK_TIMEOUT_SECS, "hung_task_timeout_secs",
 	 &sysctl_hung_task_timeout_secs, sizeof(int), 0644, NULL, &proc_dointvec},
@@ -149,6 +161,8 @@ static ctl_table kern_table[] = {
 	 &sysctl_hung_task_warnings, sizeof(int), 0644, NULL, &proc_dointvec},
 	{KERN_HUNG_TASK_SYS_INFO, "hung_task_sys_info",
 	 &sysctl_hung_task_sys_info, sizeof(unsigned long), 0644, NULL, &proc_dointvec},
+	{KERN_HUNG_TASK_DETECT_COUNT, "hung_task_detect_count",
+	 &sysctl_hung_task_detect_count, sizeof(int), 0644, NULL, &proc_dointvec},
 	{KERN_BLK_IO_TIMEOUT_MS, "blk_io_timeout_ms",
 	 &sysctl_blk_io_timeout_ms, sizeof(int), 0644, NULL, &proc_dointvec},
 #ifdef CONFIG_BLK_DEV_INITRD

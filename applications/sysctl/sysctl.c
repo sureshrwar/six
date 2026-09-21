@@ -37,6 +37,8 @@ extern int syscall(int num, long a1, long a2, long a3);
 #define KERN_HUNG_TASK_WARNINGS 24
 #define KERN_HUNG_TASK_SYS_INFO 25
 #define KERN_BLK_IO_TIMEOUT_MS  26
+#define KERN_PANIC_SYS_INFO     27
+#define KERN_HUNG_TASK_DETECT_COUNT 28
 
 #define VM_FREEPG        3
 
@@ -78,10 +80,12 @@ static struct sysctl_entry entries[] = {
 	{ "kernel.securelevel",            "securelevel",            CTL_KERN, KERN_SECURELVL,              TYPE_INT,     1 },
 	{ "kernel.panic",                  "panic",                  CTL_KERN, KERN_PANIC,                  TYPE_INT,     1 },
 	{ "kernel.panic_print",            "panic_print",            CTL_KERN, KERN_PANIC_PRINT,            TYPE_PANIC_P, 1 },
+	{ "kernel.panic_sys_info",         "panic_sys_info",         CTL_KERN, KERN_PANIC_SYS_INFO,         TYPE_PANIC_P, 1 },
 	{ "kernel.hung_task_timeout_secs", "hung_task_timeout_secs", CTL_KERN, KERN_HUNG_TASK_TIMEOUT_SECS, TYPE_INT,     1 },
 	{ "kernel.hung_task_panic",        "hung_task_panic",        CTL_KERN, KERN_HUNG_TASK_PANIC,        TYPE_INT,     1 },
 	{ "kernel.hung_task_warnings",     "hung_task_warnings",     CTL_KERN, KERN_HUNG_TASK_WARNINGS,     TYPE_INT,     1 },
 	{ "kernel.hung_task_sys_info",     "hung_task_sys_info",     CTL_KERN, KERN_HUNG_TASK_SYS_INFO,     TYPE_PANIC_P, 1 },
+	{ "kernel.hung_task_detect_count", "hung_task_detect_count", CTL_KERN, KERN_HUNG_TASK_DETECT_COUNT, TYPE_INT,     1 },
 	{ "kernel.blk_io_timeout_ms",      "blk_io_timeout_ms",      CTL_KERN, KERN_BLK_IO_TIMEOUT_MS,      TYPE_INT,     1 },
 	{ "vm.freepages",                  "freepages",              CTL_VM,   VM_FREEPG,                   TYPE_INT3,    1 },
 	{ NULL, NULL, 0, 0, 0, 0 }
@@ -94,12 +98,13 @@ struct flag_bit {
 };
 
 static struct flag_bit panic_flags[] = {
-	{ "task_info",   "tasks",  0x01UL },
-	{ "mem_info",    "mem",    0x02UL },
-	{ "timer_info",  "timers", 0x04UL },
-	{ "lock_info",   "locks",  0x08UL },
-	{ "ftrace_info", "ftrace", 0x10UL },
-	{ "all_cpu_bt",  "cpu_bt", 0x20UL },
+	{ "tasks",         "task_info",   0x01UL },
+	{ "mem",           "mem_info",    0x02UL },
+	{ "timers",        "timer_info",  0x04UL },
+	{ "locks",         "lock_info",   0x08UL },
+	{ "ftrace",        "ftrace_info", 0x10UL },
+	{ "all_bt",        "all_cpu_bt",  0x20UL },
+	{ "blocked_tasks", "blocked",     0x40UL },
 	{ NULL, NULL, 0 }
 };
 
@@ -125,7 +130,7 @@ static void print_panic_flags(unsigned long val)
 {
 	int i, first = 1;
 	printf(" (0x%02lx: ", val);
-	if ((val & 0x3fUL) == 0) {
+	if ((val & 0x7fUL) == 0) {
 		printf("none)");
 		return;
 	}
@@ -189,7 +194,7 @@ static unsigned long parse_panic_print_expr(const char *expr, unsigned long cur)
 	if (ok)
 		return num & 0x7fUL;
 	if (strcmp(expr, "all") == 0)
-		return 0x3fUL;
+		return 0x7fUL;
 	if (strcmp(expr, "none") == 0)
 		return 0UL;
 

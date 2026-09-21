@@ -130,12 +130,19 @@ int bdflush_max[N_PARAM] = {100,5000, 2000, 2000,100, 60000, 60000, 2047, 5};
  * if 'b_wait' is set before calling this, so that the queues aren't set
  * up unnecessarily.
  */             
+#if (SIX)
+extern void six_set_current_blocker(void *lock, int type);
+#endif
+
 void __wait_on_buffer(struct buffer_head * bh)
 {                          
         struct wait_queue wait = { current, NULL }; 
 
         bh->b_count++;
         add_wait_queue(&bh->b_wait, &wait);
+#if (SIX)
+        six_set_current_blocker((void *)bh, 2);
+#endif
 repeat:                        
         run_task_queue(&tq_disk);
         current->state = TASK_UNINTERRUPTIBLE;
@@ -143,6 +150,9 @@ repeat:
                 schedule();
                 goto repeat;
         }
+#if (SIX)
+        six_set_current_blocker(NULL, 0);
+#endif
         remove_wait_queue(&bh->b_wait, &wait);
         bh->b_count--;
         current->state = TASK_RUNNING;

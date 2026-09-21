@@ -732,10 +732,14 @@ static void blk_stall_watchdog_fn(unsigned long data)
         add_timer(&blk_stall_timer);
 }
 
+extern void six_record_lock_holder(void *lock, struct task_struct *holder);
+extern void six_clear_lock_holder(void *lock);
+
 int blk_hangman_stall_write(const char *buf, unsigned int count)
 {
         struct request *req;
-        int tag;
+        struct task_struct *holder = NULL;
+        int tag, i;
 
         if (buf && count >= 1 &&
             (buf[0] == '0' ||
@@ -747,12 +751,24 @@ int blk_hangman_stall_write(const char *buf, unsigned int count)
                             all_requests[tag].bh == &hangman_bh[tag]) {
                                 all_requests[tag].rq_status = RQ_INACTIVE;
                                 all_requests[tag].bh = NULL;
+                                six_clear_lock_holder(&hangman_bh[tag]);
                                 clear_bit(BH_Lock, &hangman_bh[tag].b_state);
                                 wake_up(&hangman_bh[tag].b_wait);
                         }
                 }
                 return (int)count;
         }
+
+        for (i = 0; i < NR_REQUEST; i++) {
+                if (all_requests[i].rq_status != RQ_INACTIVE &&
+                    all_requests[i].bh == &hangman_bh[i] &&
+                    rq_meta[i].task && rq_meta[i].task != current) {
+                        holder = rq_meta[i].task;
+                        break;
+                }
+        }
+        if (!holder)
+                holder = task[2] ? task[2] : current;
 
         cli();
         req = get_request(NR_REQUEST, ROOT_DEV);
@@ -772,6 +788,7 @@ int blk_hangman_stall_write(const char *buf, unsigned int count)
 
         memset(&hangman_bh[tag], 0, sizeof(struct buffer_head));
         set_bit(BH_Lock, &hangman_bh[tag].b_state);
+        six_record_lock_holder(&hangman_bh[tag], holder);
         req->bh = &hangman_bh[tag];
         req->bhtail = &hangman_bh[tag];
 

@@ -1376,17 +1376,112 @@ void show_state(void)
         for (i=0 ; i<NR_TASKS ; i++)
                 if (task[i])
                         show_task(i,task[i]);
-}       
+}
+
+#if (SIX)
+void show_blocked_tasks(void)
+{
+        int i, found = 0;
+
+        printk("\nBlocked tasks (TASK_UNINTERRUPTIBLE / D state):\n");
+        printk("  task             PC    stack   pid father child younger older\n");
+        for (i = 0; i < NR_TASKS; i++) {
+                if (task[i] && task[i]->state == TASK_UNINTERRUPTIBLE) {
+                        show_task(i, task[i]);
+                        found++;
+                }
+        }
+        if (!found)
+                printk("  <no blocked tasks>\n");
+}
+
+#define SIX_MAX_LOCK_HOLDERS 64
+struct six_lock_holder {
+        void *lock;
+        struct task_struct *holder;
+        int pid;
+        char comm[16];
+};
+static struct six_lock_holder six_lock_holders[SIX_MAX_LOCK_HOLDERS];
+static void *six_task_blocker[NR_TASKS];
+static int six_task_blocker_type[NR_TASKS]; /* 1 = semaphore, 2 = buffer */
+
+void six_record_lock_holder(void *lock, struct task_struct *holder)
+{
+        int i, free_slot = -1;
+        if (!lock || !holder)
+                return;
+        for (i = 0; i < SIX_MAX_LOCK_HOLDERS; i++) {
+                if (six_lock_holders[i].lock == lock) {
+                        free_slot = i;
+                        break;
+                }
+                if (free_slot < 0 && six_lock_holders[i].lock == NULL)
+                        free_slot = i;
+        }
+        if (free_slot < 0)
+                free_slot = (int)(((unsigned long)lock >> 3) % SIX_MAX_LOCK_HOLDERS);
+        six_lock_holders[free_slot].lock = lock;
+        six_lock_holders[free_slot].holder = holder;
+        six_lock_holders[free_slot].pid = holder->pid;
+        strncpy(six_lock_holders[free_slot].comm, holder->comm, 15);
+        six_lock_holders[free_slot].comm[15] = '\0';
+}
+
+void six_clear_lock_holder(void *lock)
+{
+        int i;
+        if (!lock)
+                return;
+        for (i = 0; i < SIX_MAX_LOCK_HOLDERS; i++) {
+                if (six_lock_holders[i].lock == lock)
+                        six_lock_holders[i].lock = NULL;
+        }
+}
+
+void six_set_current_blocker(void *lock, int type)
+{
+        int i;
+        if (!current)
+                return;
+        for (i = 0; i < NR_TASKS; i++) {
+                if (task[i] == current) {
+                        six_task_blocker[i] = lock;
+                        six_task_blocker_type[i] = type;
+                        break;
+                }
+        }
+}
+
+static struct six_lock_holder *six_find_lock_holder(void *lock)
+{
+        int i;
+        if (!lock)
+                return NULL;
+        for (i = 0; i < SIX_MAX_LOCK_HOLDERS; i++) {
+                if (six_lock_holders[i].lock == lock)
+                        return &six_lock_holders[i];
+        }
+        return NULL;
+}
+#endif
 
 void __down(struct semaphore * sem)
 {       
         struct wait_queue wait = { current, NULL };
         add_wait_queue(&sem->wait, &wait);
         current->state = TASK_UNINTERRUPTIBLE;
+#if (SIX)
+        six_set_current_blocker((void *)sem, 1);
+#endif
         while (sem->count <= 0) {          
                 schedule();
                 current->state = TASK_UNINTERRUPTIBLE;
         }
+#if (SIX)
+        six_set_current_blocker(NULL, 0);
+        six_record_lock_holder((void *)sem, current);
+#endif
         current->state = TASK_RUNNING;
         remove_wait_queue(&sem->wait, &wait);
 }            
@@ -1458,9 +1553,11 @@ int sysctl_hung_task_timeout_secs = 120;
 int sysctl_hung_task_panic = 0;
 int sysctl_hung_task_warnings = 10;
 unsigned long sysctl_hung_task_sys_info = 0UL;
+int sysctl_hung_task_detect_count = 0;
 
 static unsigned long six_d_last_switch[NR_TASKS];
 static unsigned long six_d_since_jiffies[NR_TASKS];
+static unsigned long six_d_last_report_jiffies[NR_TASKS];
 static int six_d_last_pid[NR_TASKS];
 static struct wait_queue *khungtaskd_wait = NULL;
 static struct timer_list khungtaskd_timer;
@@ -1479,15 +1576,19 @@ static void khungtaskd_timer_fn(unsigned long data)
                         struct task_struct *p = task[i];
                         if (!p || p->state != TASK_UNINTERRUPTIBLE) {
                                 six_d_since_jiffies[i] = 0;
+                                six_d_last_report_jiffies[i] = 0;
                                 continue;
                         }
                         if (six_d_since_jiffies[i] == 0 ||
                             six_d_last_pid[i] != p->pid ||
                             six_d_last_switch[i] != six_switch_count[i]) {
                                 six_d_since_jiffies[i] = jiffies ? jiffies : 1;
+                                six_d_last_report_jiffies[i] = 0;
                                 six_d_last_pid[i] = p->pid;
                                 six_d_last_switch[i] = six_switch_count[i];
-                        } else if ((unsigned long)(jiffies - six_d_since_jiffies[i]) >= timeout_jiffies) {
+                        } else if ((unsigned long)(jiffies - six_d_since_jiffies[i]) >= timeout_jiffies &&
+                                   (six_d_last_report_jiffies[i] == 0 ||
+                                    (unsigned long)(jiffies - six_d_last_report_jiffies[i]) >= timeout_jiffies)) {
                                 need_wakeup = 1;
                         }
                 }
@@ -1506,7 +1607,10 @@ static void khungtaskd_timer_fn(unsigned long data)
 
 static void check_hung_uninterruptible_tasks(void)
 {
-        int i, found_hung = 0;
+        int i, j;
+        int prev_detect_count = sysctl_hung_task_detect_count;
+        int total_hung_task = 0;
+        int call_panic = 0;
         unsigned long timeout_jiffies;
 
         if (sysctl_hung_task_timeout_secs <= 0)
@@ -1520,22 +1624,42 @@ static void check_hung_uninterruptible_tasks(void)
                 if (six_d_last_pid[i] != p->pid || six_d_last_switch[i] != six_switch_count[i])
                         continue;
                 if ((unsigned long)(jiffies - six_d_since_jiffies[i]) >= timeout_jiffies) {
-                        six_d_since_jiffies[i] = jiffies ? jiffies : 1;
-                        found_hung = 1;
+                        six_d_last_report_jiffies[i] = jiffies ? jiffies : 1;
+                        sysctl_hung_task_detect_count++;
+                        total_hung_task = sysctl_hung_task_detect_count - prev_detect_count;
+
+                        if (sysctl_hung_task_panic > 0 && total_hung_task >= sysctl_hung_task_panic)
+                                call_panic = 1;
+
                         if (sysctl_hung_task_warnings != 0) {
+                                struct six_lock_holder *lh;
                                 if (sysctl_hung_task_warnings > 0)
                                         sysctl_hung_task_warnings--;
                                 printk(KERN_ERR "\nINFO: task %s:%d blocked for more than %d seconds.\n",
                                        p->comm, p->pid, sysctl_hung_task_timeout_secs);
                                 printk(KERN_ERR "\"sysctl -w kernel.hung_task_timeout_secs=0\" disables this message.\n");
                                 show_task(i, p);
+
+                                lh = six_find_lock_holder(six_task_blocker[i]);
+                                if (lh) {
+                                        const char *btype = (six_task_blocker_type[i] == 1) ? "semaphore" : "buffer";
+                                        printk(KERN_ERR "INFO: task %s:%d blocked on a %s likely last held by task %s:%d\n",
+                                               p->comm, p->pid, btype, lh->comm, lh->pid);
+                                        for (j = 0; j < NR_TASKS; j++) {
+                                                if (task[j] && task[j] == lh->holder && task[j]->pid == lh->pid) {
+                                                        if (task[j]->state != TASK_UNINTERRUPTIBLE)
+                                                                show_task(j, task[j]);
+                                                        break;
+                                                }
+                                        }
+                                }
                                 show_locks();
                         }
                 }
         }
-        if (found_hung && sysctl_hung_task_sys_info && !sysctl_hung_task_panic)
+        if (total_hung_task > 0 && sysctl_hung_task_sys_info && !call_panic)
                 kernel_sys_info(sysctl_hung_task_sys_info);
-        if (found_hung && sysctl_hung_task_panic) {
+        if (call_panic) {
                 if (sysctl_hung_task_sys_info)
                         kernel_sys_info(sysctl_hung_task_sys_info);
                 panic("hung_task: blocked tasks");

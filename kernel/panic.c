@@ -83,25 +83,28 @@ static void pstore_dump(void)
 }
 #endif
 
+extern void show_blocked_tasks(void);
 static unsigned long sys_info_already_dumped = 0;
 
 void kernel_sys_info(unsigned long mask)
 {
-        unsigned long todo = mask & ~sys_info_already_dumped;
-        sys_info_already_dumped |= todo;
+	unsigned long todo = mask & ~sys_info_already_dumped;
+	sys_info_already_dumped |= todo;
 
-        if (todo & PANIC_PRINT_ALL_CPU_BT)
-                show_all_cpu_bt();
-        if (todo & PANIC_PRINT_TASK_INFO)
-                show_state();
-        if (todo & PANIC_PRINT_MEM_INFO)
-                show_mem();
-        if (todo & PANIC_PRINT_TIMER_INFO)
-                show_timers();
-        if (todo & PANIC_PRINT_LOCK_INFO)
-                show_locks();
-        if (todo & PANIC_PRINT_FTRACE_INFO)
-                show_ftrace();
+	if (todo & PANIC_PRINT_ALL_CPU_BT)
+		show_all_cpu_bt();
+	if (todo & PANIC_PRINT_TASK_INFO)
+		show_state();
+	else if (todo & PANIC_PRINT_BLOCKED_TASKS)
+		show_blocked_tasks();
+	if (todo & PANIC_PRINT_MEM_INFO)
+		show_mem();
+	if (todo & PANIC_PRINT_TIMER_INFO)
+		show_timers();
+	if (todo & PANIC_PRINT_LOCK_INFO)
+		show_locks();
+	if (todo & PANIC_PRINT_FTRACE_INFO)
+		show_ftrace();
 }
 
 NORET_TYPE void panic(const char * fmt, ...)
