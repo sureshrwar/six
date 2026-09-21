@@ -83,19 +83,24 @@ static void pstore_dump(void)
 }
 #endif
 
-static void panic_print_sys_info(void)
+static unsigned long sys_info_already_dumped = 0;
+
+void kernel_sys_info(unsigned long mask)
 {
-        if (panic_print & PANIC_PRINT_ALL_CPU_BT)
+        unsigned long todo = mask & ~sys_info_already_dumped;
+        sys_info_already_dumped |= todo;
+
+        if (todo & PANIC_PRINT_ALL_CPU_BT)
                 show_all_cpu_bt();
-        if (panic_print & PANIC_PRINT_TASK_INFO)
+        if (todo & PANIC_PRINT_TASK_INFO)
                 show_state();
-        if (panic_print & PANIC_PRINT_MEM_INFO)
+        if (todo & PANIC_PRINT_MEM_INFO)
                 show_mem();
-        if (panic_print & PANIC_PRINT_TIMER_INFO)
+        if (todo & PANIC_PRINT_TIMER_INFO)
                 show_timers();
-        if (panic_print & PANIC_PRINT_LOCK_INFO)
+        if (todo & PANIC_PRINT_LOCK_INFO)
                 show_locks();
-        if (panic_print & PANIC_PRINT_FTRACE_INFO)
+        if (todo & PANIC_PRINT_FTRACE_INFO)
                 show_ftrace();
 }
 
@@ -118,7 +123,7 @@ NORET_TYPE void panic(const char * fmt, ...)
 #if (SIX)
         if (!oops_in_progress)
                 dump_stack();
-        panic_print_sys_info();
+        kernel_sys_info(panic_print);
 #endif
         if (!current || current == task[0])
                 printk(KERN_EMERG "In swapper task - not syncing\n");

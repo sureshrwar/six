@@ -66,6 +66,7 @@ struct __sysctl_args {
 #define KERN_HUNG_TASK_TIMEOUT_SECS 22 /* int: hung task timeout in seconds */
 #define KERN_HUNG_TASK_PANIC 23	/* int: panic on hung task */
 #define KERN_HUNG_TASK_WARNINGS 24 /* int: max hung task warnings */
+#define KERN_HUNG_TASK_SYS_INFO 25 /* ulong: sys_info bitmask on hung task */
 
 /* panic_print bitmask flags */
 #define PANIC_PRINT_TASK_INFO		0x00000001UL

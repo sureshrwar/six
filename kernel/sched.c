@@ -1455,8 +1455,9 @@ void show_timers(void)
 }
 
 int sysctl_hung_task_timeout_secs = 120;
-int sysctl_hung_task_panic = 0;
+int sysctl_hung_task_panic = 1;
 int sysctl_hung_task_warnings = 10;
+unsigned long sysctl_hung_task_sys_info = 0x3fUL;
 
 static unsigned long six_d_last_switch[NR_TASKS];
 static unsigned long six_d_since_jiffies[NR_TASKS];
@@ -1466,6 +1467,7 @@ static struct timer_list khungtaskd_timer;
 static int khungtaskd_awake = 0;
 
 extern void show_locks(void);
+extern void kernel_sys_info(unsigned long mask);
 
 static void khungtaskd_timer_fn(unsigned long data)
 {
@@ -1531,8 +1533,13 @@ static void check_hung_uninterruptible_tasks(void)
                         }
                 }
         }
-        if (found_hung && sysctl_hung_task_panic)
+        if (found_hung && sysctl_hung_task_sys_info && !sysctl_hung_task_panic)
+                kernel_sys_info(sysctl_hung_task_sys_info);
+        if (found_hung && sysctl_hung_task_panic) {
+                if (sysctl_hung_task_sys_info)
+                        kernel_sys_info(sysctl_hung_task_sys_info);
                 panic("hung_task: blocked tasks");
+        }
 }
 
 int khungtaskd(void *unused)
