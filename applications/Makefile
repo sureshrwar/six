@@ -86,7 +86,8 @@ SUBDIRS	=	start \
 		robots \
 		zork \
 		panic \
-		sysctl
+		sysctl \
+		weather
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
