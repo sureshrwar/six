@@ -5,12 +5,15 @@ case "$#" in
 	case "$1" in
 	[1-9]|[1-9][0-9])
 		sysctl -w kernel.hung_task_timeout_secs=120
+		sysctl -w kernel.hung_task_sys_info=0
 		sysctl -w kernel.hung_task_panic=$1
 		;;
 	*)
-		echo "Usage: hang_and_panic <num_blocked_tasks> [timeout_secs]"
-		echo "  Example: hang_and_panic 5       (timeout defaults to 120s)"
-		echo "  Example: hang_and_panic 5 30    (timeout set to 30s)"
+		echo "Usage: hang_and_panic <num_blocked_tasks> [timeout_secs] [sys_info]"
+		echo "  Example: hang_and_panic 2          (timeout=120s, sys_info=0)"
+		echo "  Example: hang_and_panic 2 15       (timeout=15s,  sys_info=0)"
+		echo "  Example: hang_and_panic 2 all      (timeout=120s, sys_info=all)"
+		echo "  Example: hang_and_panic 2 15 all   (timeout=15s,  sys_info=all)"
 		exit 1
 		;;
 	esac
@@ -20,29 +23,62 @@ case "$#" in
 	[1-9]|[1-9][0-9])
 		;;
 	*)
-		echo "Usage: hang_and_panic <num_blocked_tasks> [timeout_secs]"
-		echo "  Example: hang_and_panic 5       (timeout defaults to 120s)"
-		echo "  Example: hang_and_panic 5 30    (timeout set to 30s)"
+		echo "Usage: hang_and_panic <num_blocked_tasks> [timeout_secs] [sys_info]"
+		echo "  Example: hang_and_panic 2          (timeout=120s, sys_info=0)"
+		echo "  Example: hang_and_panic 2 15       (timeout=15s,  sys_info=0)"
+		echo "  Example: hang_and_panic 2 all      (timeout=120s, sys_info=all)"
+		echo "  Example: hang_and_panic 2 15 all   (timeout=15s,  sys_info=all)"
 		exit 1
 		;;
 	esac
 	case "$2" in
 	[1-9]|[1-9][0-9]|[1-9][0-9][0-9])
 		sysctl -w kernel.hung_task_timeout_secs=$2
+		sysctl -w kernel.hung_task_sys_info=0
 		sysctl -w kernel.hung_task_panic=$1
 		;;
 	*)
-		echo "Usage: hang_and_panic <num_blocked_tasks> [timeout_secs]"
-		echo "  Example: hang_and_panic 5       (timeout defaults to 120s)"
-		echo "  Example: hang_and_panic 5 30    (timeout set to 30s)"
+		sysctl -w kernel.hung_task_timeout_secs=120
+		sysctl -w kernel.hung_task_sys_info=$2
+		sysctl -w kernel.hung_task_panic=$1
+		;;
+	esac
+	;;
+3)
+	case "$1" in
+	[1-9]|[1-9][0-9])
+		;;
+	*)
+		echo "Usage: hang_and_panic <num_blocked_tasks> [timeout_secs] [sys_info]"
+		echo "  Example: hang_and_panic 2          (timeout=120s, sys_info=0)"
+		echo "  Example: hang_and_panic 2 15       (timeout=15s,  sys_info=0)"
+		echo "  Example: hang_and_panic 2 all      (timeout=120s, sys_info=all)"
+		echo "  Example: hang_and_panic 2 15 all   (timeout=15s,  sys_info=all)"
+		exit 1
+		;;
+	esac
+	case "$2" in
+	[1-9]|[1-9][0-9]|[1-9][0-9][0-9])
+		sysctl -w kernel.hung_task_timeout_secs=$2
+		sysctl -w kernel.hung_task_sys_info=$3
+		sysctl -w kernel.hung_task_panic=$1
+		;;
+	*)
+		echo "Usage: hang_and_panic <num_blocked_tasks> [timeout_secs] [sys_info]"
+		echo "  Example: hang_and_panic 2          (timeout=120s, sys_info=0)"
+		echo "  Example: hang_and_panic 2 15       (timeout=15s,  sys_info=0)"
+		echo "  Example: hang_and_panic 2 all      (timeout=120s, sys_info=all)"
+		echo "  Example: hang_and_panic 2 15 all   (timeout=15s,  sys_info=all)"
 		exit 1
 		;;
 	esac
 	;;
 *)
-	echo "Usage: hang_and_panic <num_blocked_tasks> [timeout_secs]"
-	echo "  Example: hang_and_panic 5       (timeout defaults to 120s)"
-	echo "  Example: hang_and_panic 5 30    (timeout set to 30s)"
+	echo "Usage: hang_and_panic <num_blocked_tasks> [timeout_secs] [sys_info]"
+	echo "  Example: hang_and_panic 2          (timeout=120s, sys_info=0)"
+	echo "  Example: hang_and_panic 2 15       (timeout=15s,  sys_info=0)"
+	echo "  Example: hang_and_panic 2 all      (timeout=120s, sys_info=all)"
+	echo "  Example: hang_and_panic 2 15 all   (timeout=15s,  sys_info=all)"
 	exit 1
 	;;
 esac
