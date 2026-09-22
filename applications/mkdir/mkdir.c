@@ -4,22 +4,40 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <linux/string.h>
 #include <linux/unistd.h>
 #include <stat.h>
 
+/*
+ * Report a failed system call.
+ *
+ * The stubs in library/sys/ return the kernel's negative errno and never
+ * assign to errno, so perror() on its own prints whatever happened to be
+ * there -- in practice "Error 0", since nothing ever sets it.  Fill it in
+ * from the return value first.  Same pattern as applications/rm/rm.c.
+ */
+static void fail(const char *what, int rc)
+{
+	errno = (rc < 0) ? -rc : rc;
+	perror(what);
+}
+
 static int make_parents(char *path, int mode)
 {
+	struct stat st;
 	char *p = path;
+	int rc;
+
 	if (*p == '/') p++;
 
 	while (*p) {
 		if (*p == '/') {
 			*p = '\0';
-			struct stat st;
 			if (stat(path, &st) != 0) {
-				if (mkdir(path, mode) != 0) {
-					perror(path);
+				rc = mkdir(path, mode);
+				if (rc != 0) {
+					fail(path, rc);
 					*p = '/';
 					return 1;
 				}
@@ -28,9 +46,19 @@ static int make_parents(char *path, int mode)
 		}
 		p++;
 	}
-	if (stat(path, NULL) != 0) {
-		if (mkdir(path, mode) != 0) {
-			perror(path);
+
+	/*
+	 * The final component.  This used to be stat(path, NULL): a null
+	 * buffer, so the call could only ever fail, and the mkdir below ran
+	 * unconditionally.  That made "mkdir -p" report EEXIST for a
+	 * directory that was already there -- which is precisely the case
+	 * -p exists to tolerate, and precisely what happens on the second
+	 * and every subsequent boot if the mkdir lives in /etc/rc.
+	 */
+	if (stat(path, &st) != 0) {
+		rc = mkdir(path, mode);
+		if (rc != 0) {
+			fail(path, rc);
 			return 1;
 		}
 	}
@@ -60,8 +88,9 @@ int main(int argc, char **argv)
 			if (make_parents(tmp, mode) != 0)
 				rc = 1;
 		} else {
-			if (mkdir(argv[i], mode) != 0) {
-				perror(argv[i]);
+			int ret = mkdir(argv[i], mode);
+			if (ret != 0) {
+				fail(argv[i], ret);
 				rc = 1;
 			}
 		}

@@ -4,9 +4,11 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <linux/string.h>
 #include <linux/unistd.h>
 #include <asm/statfs.h>
+#include <stat.h>
 
 static void format_human(long kbytes, char *out)
 {
@@ -18,9 +20,43 @@ static void format_human(long kbytes, char *out)
 		sprintf(out, "%ldK", kbytes);
 }
 
+/*
+ * Name the device a path lives on.
+ *
+ * This used to be the literal string "/dev/hda", which was true for as
+ * long as there was only one disk and nothing but / was ever mounted.
+ * Both of those stopped being true when /dev/hdb arrived.
+ *
+ * struct statfs carries no device, so take it from stat(2)'s st_dev.  The
+ * hd driver splits its minor into a drive number in the top two bits and a
+ * partition in the bottom six -- DEVICE_NR() in <linux/blk.h> -- and SIX
+ * has no partitions, so the drive letter is simply minor >> 6.  Anything
+ * that is not major 3 gets the major:minor form the kernel itself prints,
+ * which is what kdevname() in fs/devices.c does.
+ */
+static void device_name(const char *path, char *out, int outlen)
+{
+	struct stat st;
+	int major, minor;
+
+	if (stat((char *)path, &st) != 0) {
+		snprintf(out, outlen, "-");
+		return;
+	}
+
+	major = (st.st_dev >> 8) & 0xff;
+	minor = st.st_dev & 0xff;
+
+	if (major == 3)
+		snprintf(out, outlen, "/dev/hd%c", 'a' + (minor >> 6));
+	else
+		snprintf(out, outlen, "%02x:%02x", major, minor);
+}
+
 static int show_df(const char *path, int human)
 {
 	struct statfs s;
+	char dev[16];
 	long total_k, free_k, used_k, avail_k;
 	int pct = 0;
 
@@ -28,6 +64,8 @@ static int show_df(const char *path, int human)
 		perror(path);
 		return 1;
 	}
+
+	device_name(path, dev, sizeof(dev));
 
 	total_k = (s.f_blocks * s.f_bsize) / 1024;
 	free_k  = (s.f_bfree * s.f_bsize) / 1024;
@@ -43,10 +81,10 @@ static int show_df(const char *path, int human)
 		format_human(used_k, s_used);
 		format_human(avail_k, s_avail);
 		printf("%-15s %8s %8s %8s %4d%% %s\n",
-		       "/dev/hda", s_tot, s_used, s_avail, pct, path);
+		       dev, s_tot, s_used, s_avail, pct, path);
 	} else {
 		printf("%-15s %9ld %9ld %9ld %4d%% %s\n",
-		       "/dev/hda", total_k, used_k, avail_k, pct, path);
+		       dev, total_k, used_k, avail_k, pct, path);
 	}
 	return 0;
 }
