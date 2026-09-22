@@ -18,18 +18,77 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <errno.h>
+#include <linux/fcntl.h>
 #include <linux/unistd.h>
 #include <sys/mount.h>
+
+static int umount_all(void)
+{
+	char buf[4096];
+	char *mnts[32];
+	int fd, n, count = 0, i, ret = 0;
+	char *p;
+
+	fd = open("/proc/mounts", O_RDONLY);
+	if (fd < 0) {
+		perror("/proc/mounts");
+		return 1;
+	}
+	n = read(fd, buf, sizeof(buf) - 1);
+	close(fd);
+	if (n <= 0)
+		return 0;
+
+	buf[n] = '\0';
+	p = buf;
+	while (*p && count < 32) {
+		char *line = p;
+		char *mp;
+
+		while (*p && *p != '\n')
+			p++;
+		if (*p == '\n')
+			*p++ = '\0';
+
+		while (*line == ' ' || *line == '\t')
+			line++;
+		while (*line && *line != ' ' && *line != '\t')
+			line++;
+		while (*line == ' ' || *line == '\t')
+			line++;
+		if (!*line)
+			continue;
+
+		mp = line;
+		while (*line && *line != ' ' && *line != '\t')
+			line++;
+		*line = '\0';
+		if (strcmp(mp, "/") != 0 && strcmp(mp, "/proc") != 0)
+			mnts[count++] = mp;
+	}
+
+	for (i = count - 1; i >= 0; i--) {
+		if (umount(mnts[i]) < 0) {
+			perror(mnts[i]);
+			ret = 1;
+		}
+	}
+	return ret;
+}
 
 int main(int argc, char **argv)
 {
 	int i, ret = 0;
 
 	if (argc < 2) {
-		fprintf(stderr, "Usage: umount <dir|device...>\n");
+		fprintf(stderr, "Usage: umount [-a | <dir|device...>]\n");
 		return 1;
 	}
+
+	if (strcmp(argv[1], "-a") == 0)
+		return umount_all();
 
 	for (i = 1; i < argc; i++) {
 		int rc = umount(argv[i]);
