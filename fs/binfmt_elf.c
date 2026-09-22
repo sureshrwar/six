@@ -1143,14 +1143,22 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	{
 		extern void six_set_task_cmdline(struct task_struct *tsk, int argc, char **argv);
 		extern void six_set_task_exe(struct task_struct *tsk, const char *filename);
-		struct vm_area_struct *vma = find_vma(current->mm, tbase);
+		struct vm_area_struct *vma = find_vma(current, tbase);
 		char **argv_p = (char **)bprm->page[0];
 		char **envp_p = (char **)(bprm->page[0] + (bprm->argc + 1) * 4);
 		if (vma && vma->vm_start == tbase && bprm->inode) {
+			struct vm_area_struct *share;
 			vma->vm_flags |= VM_EXECUTABLE;
 			vma->vm_inode = bprm->inode;
 			bprm->inode->i_count++;
-			vma->vm_next_share = vma->vm_prev_share = vma;
+			if ((share = bprm->inode->i_mmap)) {
+				vma->vm_next_share = share->vm_next_share;
+				vma->vm_next_share->vm_prev_share = vma;
+				share->vm_next_share = vma;
+				vma->vm_prev_share = share;
+			} else {
+				bprm->inode->i_mmap = vma->vm_next_share = vma->vm_prev_share = vma;
+			}
 		}
 		if (bprm->argc > 0 && argv_p[0]) {
 			char *last_arg = argv_p[bprm->argc - 1];
