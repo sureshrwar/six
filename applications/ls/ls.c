@@ -39,7 +39,6 @@ char _ifmt[] = "0pcCd?bB-?l?s???";
 #define minor(dev)	((int) (((dev) >> 0) & 0xFF))
 #endif
 
-#undef S_IFLNK
 #ifdef S_IFLNK
 int (*status)(const char *file, struct stat *stp);
 #else
@@ -761,11 +760,11 @@ void print1(struct file *f, int col, int doit)
 		if ((field & F_LONG) && (f->mode & S_IFMT) == S_IFLNK) {
 			char *buf;
 			int r, didx;
+			size_t bsz = f->size > 128 ? (size_t)f->size : 128;
 
-			buf= (char *) allocate(((size_t) f->size + 1)
-							* sizeof(buf[0]));
+			buf= (char *) allocate((bsz + 1) * sizeof(buf[0]));
 			addpath(&didx, f->name);
-			r= readlink(path, buf, (int) f->size);
+			r= readlink(path, buf, (int) bsz);
 			delpath(didx);
 			if (r > 0) buf[r] = 0; else r=1, strcpy(buf, "?");
 			printf(" -> ");

@@ -139,13 +139,49 @@ static int proc_follow_link(struct inode * dir, struct inode * inode,
 static int proc_readlink(struct inode * inode, char * buffer, int buflen)
 {
 	int i;
-	unsigned int dev,ino;
-	char buf[64];
+	unsigned int dev, ino, orig_ino, pid, low_ino;
+	char buf[128];
 
 	if (!S_ISLNK(inode->i_mode)) {
 		iput(inode);
 		return -EINVAL;
 	}
+	orig_ino = inode->i_ino;
+	pid = orig_ino >> 16;
+	low_ino = orig_ino & 0xffff;
+#if (SIX)
+	if (low_ino == PROC_PID_EXE) {
+		extern const char *six_get_task_exe(struct task_struct *p);
+		struct task_struct *p = NULL;
+		const char *exe;
+		for (i = 0; i < NR_TASKS; i++) {
+			if (task[i] && task[i]->pid == pid) {
+				p = task[i];
+				break;
+			}
+		}
+		if (p) {
+			exe = six_get_task_exe(p);
+			if (exe && exe[0]) {
+				iput(inode);
+				i = sprintf(buf, "%s", exe);
+				if (buflen > i)
+					buflen = i;
+				for (i = 0; i < buflen; i++)
+					put_user(buf[i], buffer++);
+				return i;
+			} else if (!p->user_mode) {
+				iput(inode);
+				i = sprintf(buf, "[%s]", p->comm);
+				if (buflen > i)
+					buflen = i;
+				for (i = 0; i < buflen; i++)
+					put_user(buf[i], buffer++);
+				return i;
+			}
+		}
+	}
+#endif
 	i = proc_follow_link(NULL, inode, 0, 0, &inode);
 	if (i)
 		return i;
@@ -153,8 +189,39 @@ static int proc_readlink(struct inode * inode, char * buffer, int buflen)
 		return -EIO;
 	dev = kdev_t_to_nr(inode->i_dev);
 	ino = inode->i_ino;
-	iput(inode);
+#if (SIX)
+	if (current->fs && inode == current->fs->root) {
+		i = sprintf(buf, "/");
+	} else if (inode->i_sb && inode->i_sb->s_magic == PROC_SUPER_MAGIC) {
+		if (ino == PROC_ROOT_INO)
+			i = sprintf(buf, "/proc");
+		else if ((ino >> 16) != 0 && (ino & 0xffff) == PROC_PID_INO)
+			i = sprintf(buf, "/proc/%u", ino >> 16);
+		else if ((ino >> 16) != 0 && (ino & 0xffff) == PROC_PID_FD)
+			i = sprintf(buf, "/proc/%u/fd", ino >> 16);
+		else
+			i = sprintf(buf, "[%04x]:%u", dev, ino);
+	} else if (S_ISCHR(inode->i_mode) && MAJOR(inode->i_rdev) == 1 && MINOR(inode->i_rdev) == 3) {
+		i = sprintf(buf, "/dev/null");
+	} else if (S_ISCHR(inode->i_mode) && MAJOR(inode->i_rdev) == 1 && MINOR(inode->i_rdev) == 5) {
+		i = sprintf(buf, "/dev/zero");
+	} else if (S_ISCHR(inode->i_mode) && MAJOR(inode->i_rdev) == 1 && MINOR(inode->i_rdev) == 1) {
+		i = sprintf(buf, "/dev/mem");
+	} else if (S_ISCHR(inode->i_mode) && MAJOR(inode->i_rdev) == 4) {
+		i = sprintf(buf, "/dev/tty%d", MINOR(inode->i_rdev));
+	} else if (S_ISCHR(inode->i_mode) && MAJOR(inode->i_rdev) == 3) {
+		i = sprintf(buf, "/dev/ttyp%d", MINOR(inode->i_rdev));
+	} else if (S_ISCHR(inode->i_mode) && MAJOR(inode->i_rdev) == 10 && MINOR(inode->i_rdev) == 229) {
+		i = sprintf(buf, "/dev/fuse");
+	} else if (S_ISBLK(inode->i_mode) && MAJOR(inode->i_rdev) == 3) {
+		i = sprintf(buf, "/dev/hd%c", MINOR(inode->i_rdev) == 0 ? 'a' : 'b');
+	} else {
+		i = sprintf(buf, "[%04x]:%u", dev, ino);
+	}
+#else
 	i = sprintf(buf,"[%04x]:%u", dev, ino);
+#endif
+	iput(inode);
 	if (buflen > i)
 		buflen = i;
 	i = 0;

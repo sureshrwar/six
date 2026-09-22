@@ -1,10 +1,10 @@
 
 #include <syscall.h>
 #include <linux/errno.h>
-#include <linux/stat.h>
+#include <stat.h>
 
 
-int lstat(char *name, struct old_stat *s)
+int lstat(const char *name, struct stat *s)
 {
 	if (!name || !s)
         	return __syscall_error(EINVAL);

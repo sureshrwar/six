@@ -21,5 +21,8 @@ struct stat {
         unsigned long  st_blocks;
 };      
 
+int stat(const char *name, struct stat *s);
+int lstat(const char *name, struct stat *s);
+int fstat(int fd, struct stat *s);
 
 #endif

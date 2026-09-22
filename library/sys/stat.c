@@ -4,7 +4,7 @@
 #include <stat.h>
 
 
-int stat(char *name, struct stat *s)
+int stat(const char *name, struct stat *s)
 {
 	if (!name || !s)
         	return __syscall_error(EINVAL);

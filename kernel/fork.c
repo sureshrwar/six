@@ -220,6 +220,39 @@ extern unsigned long six_task_saved_pc(struct task_struct *p);
 extern int six_host_sprint_symbol(unsigned long addr, char *buf, int buflen);
 
 static char six_task_cmdline[NR_TASKS][128];
+static char six_task_exe[NR_TASKS][128];
+
+void six_set_task_exe(struct task_struct *tsk, const char *filename)
+{
+	int i;
+
+	if (!tsk)
+		return;
+	for (i = 0; i < NR_TASKS; i++) {
+		if (task[i] == tsk) {
+			if (filename && filename[0]) {
+				strncpy(six_task_exe[i], filename, sizeof(six_task_exe[i]) - 1);
+				six_task_exe[i][sizeof(six_task_exe[i]) - 1] = '\0';
+			} else {
+				six_task_exe[i][0] = '\0';
+			}
+			return;
+		}
+	}
+}
+
+const char *six_get_task_exe(struct task_struct *p)
+{
+	int i;
+
+	if (!p)
+		return NULL;
+	for (i = 0; i < NR_TASKS; i++) {
+		if (task[i] == p && six_task_exe[i][0])
+			return six_task_exe[i];
+	}
+	return NULL;
+}
 
 void six_set_task_cmdline(struct task_struct *tsk, int argc, char **argv)
 {
@@ -405,9 +438,11 @@ int do_fork(unsigned long clone_flags, unsigned long usp, struct pt_regs *regs)
 	{
 		int pi;
 		six_task_cmdline[nr][0] = '\0';
+		six_task_exe[nr][0] = '\0';
 		for (pi = 0; pi < NR_TASKS; pi++) {
 			if (task[pi] == current) {
 				strcpy(six_task_cmdline[nr], six_task_cmdline[pi]);
+				strcpy(six_task_exe[nr], six_task_exe[pi]);
 				break;
 			}
 		}
