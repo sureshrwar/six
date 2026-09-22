@@ -278,9 +278,13 @@ static int _vformat(char *buf, FILE *fp, const char *fmt, va_list args)
                                 
                 /* get the conversion qualifier */
                 qualifier = -1;
-                if (*fmt == 'h' || *fmt == 'l' || *fmt == 'L') {
+                if (*fmt == 'h' || *fmt == 'l' || *fmt == 'L' || *fmt == 'z') {
                         qualifier = *fmt;
                         ++fmt;
+                        if (qualifier == 'l' && *fmt == 'l') {
+                                qualifier = 'q';
+                                ++fmt;
+                        }
                 }       
                 
                 /* default base */
@@ -505,7 +509,10 @@ static int _vformat(char *buf, FILE *fp, const char *fmt, va_list args)
                                 --fmt; 
                         continue;
                 }       
-                if (qualifier == 'l') 
+                if (qualifier == 'q') {
+                        unsigned long long qnum = va_arg(args, unsigned long long);
+                        num = (unsigned long)qnum;
+                } else if (qualifier == 'l' || qualifier == 'z') 
                         num = va_arg(args, unsigned long);
                 else if (qualifier == 'h')
                         if (flags & SIGN)

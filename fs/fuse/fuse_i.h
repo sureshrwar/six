@@ -139,6 +139,9 @@ static inline unsigned int fuse_attr_out_size(struct fuse_conn *fc)
 
 /* dev.c */
 extern struct file_operations fuse_dev_fops;
+extern int fuse_dev_writev(struct inode *inode, struct file *file,
+			   const struct iovec *iov, unsigned long iov_count,
+			   unsigned int count);
 extern struct fuse_conn *fuse_conn_get(struct fuse_conn *fc);
 extern void fuse_conn_put(struct fuse_conn *fc);
 extern void fuse_conn_abort(struct fuse_conn *fc);

@@ -94,8 +94,8 @@ static int show_df(const char *path, int human)
 int main(int argc, char **argv)
 {
 	int human = 0;
-	const char *path = "/";
-	int i;
+	const char *path = NULL;
+	int i, rc;
 
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-h") == 0) human = 1;
@@ -109,5 +109,17 @@ int main(int argc, char **argv)
 		printf("%-15s %9s %9s %9s %5s %s\n",
 		       "Filesystem", "1K-blocks", "Used", "Available", "Use%", "Mounted on");
 
-	return show_df(path, human);
+	if (path)
+		return show_df(path, human);
+
+	rc = show_df("/", human);
+	{
+		struct stat st_root, st_aux;
+		if (stat("/", &st_root) == 0 &&
+		    stat("/aux/storage-1", &st_aux) == 0 &&
+		    st_aux.st_dev != st_root.st_dev) {
+			show_df("/aux/storage-1", human);
+		}
+	}
+	return rc;
 }

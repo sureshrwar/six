@@ -369,25 +369,50 @@ static int fuse_dev_read(struct inode *inode, struct file *file,
 	return 0;
 }
 
-static int fuse_dev_write(struct inode *inode, struct file *file,
-			  const char *buf, int count)
+static void fuse_copy_from_iov(char *dst, const struct iovec *iov,
+			       unsigned long iov_count, unsigned int skip,
+			       unsigned int nbytes)
+{
+	unsigned long i;
+
+	for (i = 0; i < iov_count && nbytes > 0; i++) {
+		unsigned int seg_len = (unsigned int)iov[i].iov_len;
+		const char *seg_base = (const char *)iov[i].iov_base;
+
+		if (skip >= seg_len) {
+			skip -= seg_len;
+			continue;
+		}
+
+		seg_base += skip;
+		seg_len -= skip;
+		skip = 0;
+
+		if (seg_len > nbytes)
+			seg_len = nbytes;
+
+		memcpy_fromfs(dst, seg_base, seg_len);
+		dst += seg_len;
+		nbytes -= seg_len;
+	}
+}
+
+int fuse_dev_writev(struct inode *inode, struct file *file,
+		    const struct iovec *iov, unsigned long iov_count,
+		    unsigned int count)
 {
 	struct fuse_conn *fc = (struct fuse_conn *)file->private_data;
 	struct fuse_out_header oh;
 	struct fuse_req *req, **prev;
 	unsigned int payload_len;
-	int err;
 
+	(void)inode;
 	if (!fc || !fc->connected)
 		return -ENODEV;
-	if (count < (int)sizeof(struct fuse_out_header))
+	if (count < sizeof(struct fuse_out_header))
 		return -EINVAL;
 
-	err = verify_area(VERIFY_READ, buf, count);
-	if (err)
-		return err;
-
-	memcpy_fromfs(&oh, buf, sizeof(oh));
+	fuse_copy_from_iov((char *)&oh, iov, iov_count, 0, sizeof(oh));
 	if (oh.len != (fuse_u32)count)
 		return -EINVAL;
 
@@ -396,7 +421,7 @@ static int fuse_dev_write(struct inode *inode, struct file *file,
 	 * Accept it cleanly so cache-invalidation calls succeed.
 	 */
 	if (oh.unique == 0)
-		return count;
+		return (int)count;
 
 	prev = &fc->processing_head;
 	req = NULL;
@@ -418,14 +443,14 @@ static int fuse_dev_write(struct inode *inode, struct file *file,
 		oh.error = -oh.error;
 
 	req->out = oh;
-	payload_len = (unsigned int)count - sizeof(struct fuse_out_header);
+	payload_len = count - sizeof(struct fuse_out_header);
 	req->out_buf_actual = 0;
 
 	if (oh.error == 0 && payload_len > 0 && req->out_buf) {
 		if (payload_len > req->out_buf_max)
 			payload_len = req->out_buf_max;
-		memcpy_fromfs(req->out_buf, buf + sizeof(struct fuse_out_header),
-			      payload_len);
+		fuse_copy_from_iov((char *)req->out_buf, iov, iov_count,
+				   sizeof(struct fuse_out_header), payload_len);
 		req->out_buf_actual = payload_len;
 	}
 
@@ -435,7 +460,25 @@ static int fuse_dev_write(struct inode *inode, struct file *file,
 	else
 		wake_up(&req->waitq);
 
-	return count;
+	return (int)count;
+}
+
+static int fuse_dev_write(struct inode *inode, struct file *file,
+			  const char *buf, int count)
+{
+	struct iovec iov;
+	int err;
+
+	if (count < (int)sizeof(struct fuse_out_header))
+		return -EINVAL;
+
+	err = verify_area(VERIFY_READ, buf, count);
+	if (err)
+		return err;
+
+	iov.iov_base = (void *)buf;
+	iov.iov_len = (size_t)count;
+	return fuse_dev_writev(inode, file, &iov, 1, (unsigned int)count);
 }
 
 static int fuse_dev_select(struct inode *inode, struct file *file,

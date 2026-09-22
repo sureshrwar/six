@@ -5,6 +5,7 @@
  *  Copyright (C) 1991, 1992  Linus Torvalds
  */
 
+#include <linux/config.h>
 #include <linux/types.h>
 #include <linux/errno.h>
 #include <linux/stat.h>
@@ -252,6 +253,16 @@ static int do_readv_writev(int type, struct inode * inode, struct file * file,
          */
         if (inode->i_sock)
                 return sock_readv_writev(type, inode, file, iov, count, tot_len);        
+#ifdef CONFIG_FUSE_FS
+        {
+                extern struct file_operations fuse_dev_fops;
+                extern int fuse_dev_writev(struct inode *, struct file *,
+                                           const struct iovec *, unsigned long,
+                                           unsigned int);
+                if (type == VERIFY_READ && file->f_op == &fuse_dev_fops)
+                        return fuse_dev_writev(inode, file, iov, count, tot_len);
+        }
+#endif
         
         if (!file->f_op)
                 return -EINVAL;

@@ -17,6 +17,8 @@ struct stat {
         unsigned long  st_atime;
         unsigned long  st_mtime;
         unsigned long  st_ctime;
+        unsigned long  st_blksize;
+        unsigned long  st_blocks;
 };      
 
 
