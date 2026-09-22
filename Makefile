@@ -104,7 +104,8 @@ else
 # a rule's prerequisites at the moment it reads the rule, so a variable used
 # on the right-hand side of "do-it-all:" must already have a value.
 SIX_IMAGE	= disk/x86/root
-do-it-all:	include/asm Version six $(SIX_IMAGE)
+SIX_AUX_IMAGE	= disk/x86/aux_storage-1
+do-it-all:	include/asm Version six $(SIX_IMAGE) $(SIX_AUX_IMAGE)
 	@echo ""
 	@echo "======================================================================"
 	@echo "  Build successful! Your early-2000s time machine is ready."
@@ -445,29 +446,25 @@ image-clean:
 	rm -f $(SIX_IMAGE) $(SIX_IMAGE_STAMP)
 	rm -rf port/image/.stage
 
-# The optional auxiliary disk, which SIX exposes as /dev/hdb.
+# The auxiliary disk, which SIX exposes as /dev/hdb.
 #
-# This is not a prerequisite of anything, and that is deliberate.  Having no
-# auxiliary disk is the normal state: check_root() simply does not open one,
-# hd_geninit() leaves NR_HD at 1, and /dev/hdb answers ENODEV.  Making it
-# part of the default build would mean that path stopped being tested, and
-# it is the path every existing checkout is on.
+# Built by default as a 50 MB NTFS volume (disk/x86/aux_storage-1), and
+# removed by "make clean" (via aux-image-clean).
 #
-# It is also not removed by image-clean, and not by clean.  The root image
-# is reconstructible from the manifest, so deleting it costs nothing; this
-# one holds whatever the user put on it and cannot be rebuilt from the tree.
-# Ask for it explicitly with aux-image-clean.
-#
-#     make aux-image                       # 50 MB ext4
+#     make aux-image                       # 50 MB NTFS (default)
 #     make ext2-aux-image                  # 50 MB ext2
 #     make ext4-aux-image                  # 50 MB ext4
 #     make ntfs-aux-image                  # 50 MB NTFS
 #
-SIX_AUX_TOOL = port/image/mkaux.sh
+SIX_AUX_TOOL   = port/image/mkaux.sh
+SIX_AUX_FSTYPE ?= ntfs
+
+$(SIX_AUX_IMAGE):
+	$(CONFIG_SHELL) $(SIX_AUX_TOOL) --force --fstype $(SIX_AUX_FSTYPE)
 
 .PHONY: aux-image ext2-aux-image ext4-aux-image ntfs-aux-image aux-image-clean
 aux-image:
-	$(CONFIG_SHELL) $(SIX_AUX_TOOL) $(if $(SIX_AUX_FSTYPE),--fstype $(SIX_AUX_FSTYPE),)
+	$(CONFIG_SHELL) $(SIX_AUX_TOOL) --force --fstype $(SIX_AUX_FSTYPE)
 
 ext2-aux-image:
 	$(CONFIG_SHELL) $(SIX_AUX_TOOL) --force --fstype ext2
@@ -594,7 +591,7 @@ modules modules_install: dummy
 endif
 
 ifdef SOLARIS_USER_MODE
-clean:	image-clean
+clean:	image-clean aux-image-clean
 	$(MAKE) -C library clean
 	$(MAKE) -C applications clean
 	find . -name '*.[oa]' -not -path './CVS/*' -delete

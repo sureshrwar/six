@@ -47,7 +47,7 @@ sparc*)      ARCH_DIR=disk/sparc ;;
 esac
 
 OUT="$ARCH_DIR/aux_storage-1"
-FSTYPE="${SIX_AUX_FSTYPE:-ext4}"
+FSTYPE="${SIX_AUX_FSTYPE:-ntfs}"
 FORCE=0
 LABEL="six-aux-1"
 
@@ -55,14 +55,12 @@ usage() {
 	cat <<EOF
 Usage: mkaux.sh [--fstype ext2|ext4|ntfs] [--out PATH] [--force]
 
-Creates the optional auxiliary disk that SIX exposes as /dev/hdb.  Nothing
-mounts it; that is up to /etc/rc or whoever is at the shell:
-
-    mkdir -p /aux/storage-1
-    mount /dev/hdb /aux/storage-1
+Creates the auxiliary disk that SIX exposes as /dev/hdb.  At boot, /etc/rc
+invokes /bin/mount_all to auto-detect the filesystem and mount it on
+/aux/storage-1.
 
 Options:
-  --fstype ext2|ext4|ntfs  on-disk format (default: \$SIX_AUX_FSTYPE, else ext4)
+  --fstype ext2|ext4|ntfs  on-disk format (default: \$SIX_AUX_FSTYPE, else ntfs)
   --out PATH               where to write it (default: $ARCH_DIR/aux_storage-1)
   --force                  overwrite an existing image instead of refusing
 EOF
