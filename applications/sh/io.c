@@ -397,24 +397,29 @@ sh_hist_print()
 }
 
 static void
-rl_replace_line(buf, lenp, newstr)
+rl_replace_line(buf, posp, lenp, newstr)
 char *buf;
+int *posp;
 int *lenp;
 char *newstr;
 {
-	int cur = *lenp;
+	int cur_pos = *posp;
+	int cur_len = *lenp;
 	int nlen = strlen(newstr);
 	if (nlen > HIST_LINE_MAX - 2)
 		nlen = HIST_LINE_MAX - 2;
-	while (cur > 0) {
+	if (cur_pos < cur_len)
+		write(1, &buf[cur_pos], cur_len - cur_pos);
+	while (cur_len > 0) {
 		write(1, "\b \b", 3);
-		cur--;
+		cur_len--;
 	}
 	memcpy(buf, newstr, nlen);
 	buf[nlen] = '\0';
 	if (nlen > 0)
 		write(1, buf, nlen);
 	*lenp = nlen;
+	*posp = nlen;
 }
 
 #include <linux/dirent.h>
@@ -607,9 +612,10 @@ char *outbuf;
 	struct termios raw_tio;
 	char saved_cur[HIST_LINE_MAX];
 	int len = 0;
+	int pos = 0;
 	int hist_idx;
-	int r;
-	unsigned char ch, s1, s2;
+	int r, i;
+	unsigned char ch, s1, s2, s3;
 
 	sh_hist_load();
 	saved_cur[0] = '\0';
@@ -633,7 +639,12 @@ char *outbuf;
 			return 0;
 		}
 		if (ch == '\t') {
+			if (pos < len) {
+				write(1, &outbuf[pos], len - pos);
+				pos = len;
+			}
 			sh_tab_complete(outbuf, &len);
+			pos = len;
 			continue;
 		}
 		if (ch == '\r' || ch == '\n') {
@@ -645,31 +656,86 @@ char *outbuf;
 			sh_restore_tty();
 			return len;
 		}
+		if (ch == 0x01) { /* Ctrl+A: Home */
+			while (pos > 0) {
+				write(1, "\b", 1);
+				pos--;
+			}
+			continue;
+		}
+		if (ch == 0x05) { /* Ctrl+E: End */
+			if (pos < len) {
+				write(1, &outbuf[pos], len - pos);
+				pos = len;
+			}
+			continue;
+		}
+		if (ch == 0x02) { /* Ctrl+B: Left */
+			if (pos > 0) {
+				write(1, "\b", 1);
+				pos--;
+			}
+			continue;
+		}
+		if (ch == 0x06) { /* Ctrl+F: Right */
+			if (pos < len) {
+				write(1, &outbuf[pos], 1);
+				pos++;
+			}
+			continue;
+		}
 		if (ch == 0x04) { /* Ctrl+D */
 			if (len == 0) {
 				write(1, "\n", 1);
 				sh_restore_tty();
 				return 0;
 			}
+			if (pos < len) {
+				for (i = pos; i < len - 1; i++)
+					outbuf[i] = outbuf[i + 1];
+				len--;
+				outbuf[len] = '\0';
+				write(1, &outbuf[pos], len - pos);
+				write(1, " ", 1);
+				for (i = 0; i < (len - pos) + 1; i++)
+					write(1, "\b", 1);
+			}
 			continue;
 		}
 		if (ch == '\b' || ch == 0x7f) { /* Backspace / DEL */
-			if (len > 0) {
+			if (pos > 0) {
+				for (i = pos - 1; i < len - 1; i++)
+					outbuf[i] = outbuf[i + 1];
+				pos--;
 				len--;
 				outbuf[len] = '\0';
-				write(1, "\b \b", 3);
+				write(1, "\b", 1);
+				if (pos < len)
+					write(1, &outbuf[pos], len - pos);
+				write(1, " ", 1);
+				for (i = 0; i < (len - pos) + 1; i++)
+					write(1, "\b", 1);
 			}
 			continue;
 		}
 		if (ch == 0x15) { /* Ctrl+U: kill line */
+			if (pos < len) {
+				write(1, &outbuf[pos], len - pos);
+				pos = len;
+			}
 			while (len > 0) {
 				len--;
 				write(1, "\b \b", 3);
 			}
+			pos = 0;
 			outbuf[0] = '\0';
 			continue;
 		}
 		if (ch == 0x17) { /* Ctrl+W: erase word */
+			if (pos < len) {
+				write(1, &outbuf[pos], len - pos);
+				pos = len;
+			}
 			while (len > 0 && outbuf[len - 1] == ' ') {
 				len--;
 				write(1, "\b \b", 3);
@@ -678,10 +744,11 @@ char *outbuf;
 				len--;
 				write(1, "\b \b", 3);
 			}
+			pos = len;
 			outbuf[len] = '\0';
 			continue;
 		}
-		if (ch == 0x1b) { /* ESC sequence (arrow keys: ESC [ A / B) */
+		if (ch == 0x1b) { /* ESC sequence (arrow keys: ESC [ A / B / C / D / H / F / 3~) */
 			if (read(0, &s1, 1) <= 0)
 				continue;
 			if (s1 == '[' || s1 == 'O') {
@@ -694,15 +761,60 @@ char *outbuf;
 							strcpy(saved_cur, outbuf);
 						}
 						hist_idx--;
-						rl_replace_line(outbuf, &len, hist_lines[hist_idx]);
+						rl_replace_line(outbuf, &pos, &len, hist_lines[hist_idx]);
 					}
 				} else if (s2 == 'B') { /* Down arrow */
 					if (hist_idx < hist_count) {
 						hist_idx++;
 						if (hist_idx == hist_count)
-							rl_replace_line(outbuf, &len, saved_cur);
+							rl_replace_line(outbuf, &pos, &len, saved_cur);
 						else
-							rl_replace_line(outbuf, &len, hist_lines[hist_idx]);
+							rl_replace_line(outbuf, &pos, &len, hist_lines[hist_idx]);
+					}
+				} else if (s2 == 'C') { /* Right arrow */
+					if (pos < len) {
+						write(1, &outbuf[pos], 1);
+						pos++;
+					}
+				} else if (s2 == 'D') { /* Left arrow */
+					if (pos > 0) {
+						write(1, "\b", 1);
+						pos--;
+					}
+				} else if (s2 == 'H') { /* Home */
+					while (pos > 0) {
+						write(1, "\b", 1);
+						pos--;
+					}
+				} else if (s2 == 'F') { /* End */
+					if (pos < len) {
+						write(1, &outbuf[pos], len - pos);
+						pos = len;
+					}
+				} else if (s2 >= '1' && s2 <= '8') {
+					if (read(0, &s3, 1) > 0 && s3 == '~') {
+						if (s2 == '1' || s2 == '7') { /* Home */
+							while (pos > 0) {
+								write(1, "\b", 1);
+								pos--;
+							}
+						} else if (s2 == '4' || s2 == '8') { /* End */
+							if (pos < len) {
+								write(1, &outbuf[pos], len - pos);
+								pos = len;
+							}
+						} else if (s2 == '3') { /* Delete */
+							if (pos < len) {
+								for (i = pos; i < len - 1; i++)
+									outbuf[i] = outbuf[i + 1];
+								len--;
+								outbuf[len] = '\0';
+								write(1, &outbuf[pos], len - pos);
+								write(1, " ", 1);
+								for (i = 0; i < (len - pos) + 1; i++)
+									write(1, "\b", 1);
+							}
+						}
 					}
 				}
 			}
@@ -710,9 +822,15 @@ char *outbuf;
 		}
 		if (ch >= ' ' && ch < 0x7f) {
 			if (len < HIST_LINE_MAX - 2) {
-				outbuf[len++] = ch;
+				for (i = len; i > pos; i--)
+					outbuf[i] = outbuf[i - 1];
+				outbuf[pos] = ch;
+				len++;
+				pos++;
 				outbuf[len] = '\0';
-				write(1, &ch, 1);
+				write(1, &outbuf[pos - 1], len - (pos - 1));
+				for (i = 0; i < len - pos; i++)
+					write(1, "\b", 1);
 			}
 		}
 	}
