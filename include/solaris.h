@@ -41,21 +41,27 @@
 #endif
 
 extern unsigned long _ram_start;
-extern int RAMFD, TERMFD, DISKFD;
+extern int RAMFD, TERMFD;
 
 /*
  * hard disk related stuff
  *
- * HD_HEAD and HD_SECT are the emulated drive's track geometry.  They have
- * to stay compile-time constants because both halves of the CHS<->LBA
- * conversion must agree on them, and one of those halves is an inline
- * function: do_hd_request() in drivers/block/hd.c turns an LBA into
- * C/H/S and writes it to the emulated task-file registers, and outb_p()
- * in <asm/io.h> turns it straight back into an LBA.  The values are
- * otherwise arbitrary -- no real drive is being modelled.
+ * SIX_MAX_DISKS must match MAX_HD in drivers/block/hd.c.  Drive 0 is the
+ * root disk and is mandatory; drive 1 is optional auxiliary storage, and
+ * if its file is absent NR_HD stays 1 and /dev/hdb reports ENODEV.
+ *
+ * HD_HEAD and HD_SECT are the emulated drive's track geometry, shared by
+ * both drives.  They have to stay compile-time constants because both
+ * halves of the CHS<->LBA conversion must agree on them, and one of those
+ * halves is an inline function: do_hd_request() in drivers/block/hd.c
+ * turns an LBA into C/H/S and writes it to the emulated task-file
+ * registers, and outb_p() in <asm/io.h> turns it straight back into an
+ * LBA.  The values are otherwise arbitrary -- no real drive is being
+ * modelled -- so there is nothing to gain from giving the two drives
+ * different track geometry, and a good deal of complexity to lose.
  *
  * The cylinder count is *not* a constant.  It is derived at runtime by
- * check_root() from the actual size of the disk file, so that the
+ * check_root() from the actual size of each disk file, so that the
  * capacity the driver advertises matches the number of sectors that are
  * really backed by that file.  The old fixed 1048 claimed ~516 MB from a
  * 50 MB file; since do_hard_read() ignores short reads, every access past
@@ -66,23 +72,38 @@ extern int RAMFD, TERMFD, DISKFD;
  * HD_CYL_DEFAULT is only the fallback for a disk whose size cannot be
  * determined.
  */
+#define SIX_MAX_DISKS	2
 #define HD_CYL_DEFAULT	1048
 #define HD_HEAD		4
 #define HD_SECT		252
 
 /*
- * six_disk_sectors is the authoritative capacity in 512-byte sectors, and
- * is what hd_geninit() publishes as the device size.  six_hd_cyl is
- * rounded *up* from it purely so that the CHS geometry can still address
- * the final partial cylinder; it is never used as a capacity.
+ * Per-drive state, all indexed by the drive number that outb_p() now
+ * recovers from bit 4 of the device/head register.
+ *
+ * six_disk_fd is the host file descriptor, or -1 for a drive that has no
+ * backing file.  six_disk_sectors is the authoritative capacity in
+ * 512-byte sectors, and is what hd_geninit() publishes as the device
+ * size.  six_hd_cyl is rounded *up* from it purely so that the CHS
+ * geometry can still address the final partial cylinder; it is never used
+ * as a capacity.
  */
-extern int  six_hd_cyl;		/* derived in check_root() */
-extern long six_disk_sectors;	/* derived in check_root() */
+extern int  six_disk_fd[SIX_MAX_DISKS];
+extern int  six_hd_cyl[SIX_MAX_DISKS];		/* derived in check_root() */
+extern long six_disk_sectors[SIX_MAX_DISKS];	/* derived in check_root() */
+
+/*
+ * DISKFD is kept as the root disk's descriptor under its historical name;
+ * drivers/char/keyboard.c closes it on the way out.
+ */
+#define DISKFD		(six_disk_fd[0])
 
 #if (__i386__)
 #define DISKFILE	"./disk/x86/root"
+#define AUXDISKFILE	"./disk/x86/aux_storage-1"
 #else
 #define DISKFILE	"./disk/sparc/root"
+#define AUXDISKFILE	"./disk/sparc/aux_storage-1"
 #endif
 
 struct dummy_drive_struct {

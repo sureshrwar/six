@@ -444,6 +444,31 @@ image-clean:
 	rm -f $(SIX_IMAGE) $(SIX_IMAGE_STAMP)
 	rm -rf port/image/.stage
 
+# The optional auxiliary disk, which SIX exposes as /dev/hdb.
+#
+# This is not a prerequisite of anything, and that is deliberate.  Having no
+# auxiliary disk is the normal state: check_root() simply does not open one,
+# hd_geninit() leaves NR_HD at 1, and /dev/hdb answers ENODEV.  Making it
+# part of the default build would mean that path stopped being tested, and
+# it is the path every existing checkout is on.
+#
+# It is also not removed by image-clean, and not by clean.  The root image
+# is reconstructible from the manifest, so deleting it costs nothing; this
+# one holds whatever the user put on it and cannot be rebuilt from the tree.
+# Ask for it explicitly with aux-image-clean.
+#
+#     make aux-image                       # 50 MB ext4
+#     make aux-image SIX_AUX_FSTYPE=ext2   # 50 MB ext2, under an ext4 root
+#
+SIX_AUX_TOOL = port/image/mkaux.sh
+
+.PHONY: aux-image aux-image-clean
+aux-image:
+	$(CONFIG_SHELL) $(SIX_AUX_TOOL) $(if $(SIX_AUX_FSTYPE),--fstype $(SIX_AUX_FSTYPE),)
+
+aux-image-clean:
+	rm -f disk/x86/aux_storage-1 disk/sparc/aux_storage-1
+
 
 linuxsubdirs: dummy
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

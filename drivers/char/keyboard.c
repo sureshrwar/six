@@ -976,8 +976,19 @@ int TERMFD = -1;
 
 void reset_sun_tty()
 {
+	int drive;
+
 	six_host_tty_restore(TERMFD);
-	close(DISKFD);
+
+	/*
+	 * Close every disk we opened, not just the root one.  Nothing is
+	 * flushed here -- the host's page cache holds the writes and the
+	 * kernel is on its way out either way -- but leaving a descriptor
+	 * behind would be untidy, and there is more than one of them now.
+	 */
+	for (drive = 0; drive < SIX_MAX_DISKS; drive++)
+		if (six_disk_fd[drive] >= 0)
+			close(six_disk_fd[drive]);
 }
 #endif
 

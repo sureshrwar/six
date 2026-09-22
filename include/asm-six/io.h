@@ -11,8 +11,8 @@
  * declaration, which assumed a return type of int -- wrong for
  * get_hard_data(), which really returns unsigned short.
  */
-extern void           do_hard_read(int from, int count);
-extern void           do_hard_write(int from, int count);
+extern void           do_hard_read(int drive, int from, int count);
+extern void           do_hard_write(int drive, int from, int count);
 extern void           raise_hard_int(int cmd);
 extern void           put_hard_data(unsigned short val);
 extern unsigned short get_hard_data(void);
@@ -120,7 +120,19 @@ static inline void outb_p(int val, int port)
 							 * power of two, and would have silently
 							 * folded the head number had it ever
 							 * stopped being one.
+							 *
+							 * Bit 4 selects the drive, and used to be
+							 * discarded along with everything else above
+							 * the head field.  That made a second disk
+							 * impossible: every command, whichever drive
+							 * it named, ended up reading the same file.
+							 * hd_out() writes this register twice -- once
+							 * from controller_ready() on entry and once
+							 * in the register sequence -- with the same
+							 * value both times, and always before the
+							 * command byte at port 503.
 							 */
+							drive = (val >> 4) & 1;
 							head = (val & 0x0f);
 							break;
 		case	503		:	/* command!! */
@@ -130,10 +142,10 @@ static inline void outb_p(int val, int port)
 							sector = track*HD_SECT;
 							sector += (start_sec - 1);
 							if(cmd == 0xc4)
-								do_hard_read(sector, num_sectors);
+								do_hard_read(drive, sector, num_sectors);
 							raise_hard_int(cmd);
 							if(cmd == 0xc5)
-								do_hard_write(sector, num_sectors);
+								do_hard_write(drive, sector, num_sectors);
 							break;
 		default	:
 							break;		

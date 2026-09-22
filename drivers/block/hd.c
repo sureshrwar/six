@@ -81,16 +81,21 @@ static int hd_error = 0;
 #endif
 */
 
-int DISKFD = -1;
-
 /*
- * Emulated drive geometry.  check_root() overwrites both of these as soon
- * as it has opened the disk file and measured it; the initialisers only
- * matter on the path where that measurement fails.  Declared in
- * <solaris.h>.
+ * Per-drive host state.  Declared in <solaris.h>; see the comment there.
+ *
+ * check_root() fills all three in as soon as it has opened each disk file
+ * and measured it.  A drive whose file is absent keeps six_disk_fd == -1,
+ * and hd_geninit() then stops counting drives, so NR_HD reflects only the
+ * disks that really exist and hd_open() reports ENODEV for the others.
+ *
+ * The geometry initialisers only matter on the path where measurement
+ * fails for drive 0; drive 1 is left at zero until check_root() says
+ * otherwise.
  */
-int  six_hd_cyl       = HD_CYL_DEFAULT;
-long six_disk_sectors = (long) HD_CYL_DEFAULT * HD_HEAD * HD_SECT;
+int  six_disk_fd[SIX_MAX_DISKS]      = { -1, -1 };
+int  six_hd_cyl[SIX_MAX_DISKS]       = { HD_CYL_DEFAULT, 0 };
+long six_disk_sectors[SIX_MAX_DISKS] = { (long) HD_CYL_DEFAULT * HD_HEAD * HD_SECT, 0 };
 
 int hd_sect[MAX_HD<<6], hd_head[MAX_HD<<6];
 
@@ -301,8 +306,22 @@ static unsigned int identified  [MAX_HD] = {0,}; /* 1 = drive ID already display
 static unsigned int unmask_intr [MAX_HD] = {0,}; /* 1 = unmask IRQs during I/O       */
 static unsigned int max_mult    [MAX_HD] = {0,}; /* max sectors for MultMode         */
 #if (SIX)
-static unsigned int mult_req    [MAX_HD] = {2,}; 
-static unsigned int mult_count  [MAX_HD] = {2,}; 
+/*
+ * The emulated controller only implements the multi-sector opcodes, and
+ * do_hard_read()/do_hard_write() always move exactly 1024 bytes, so every
+ * drive has to be in 2-sector multiple mode.  hd_request() chooses the
+ * opcode with "mult_count[dev] > 1 ? WIN_MULTREAD : WIN_READ", so a drive
+ * left at zero here issues WIN_READ instead -- and case 503 in
+ * <asm/io.h> has no branch for it.  Nothing is read, raise_hard_int()
+ * calls no completion routine, end_request() never runs, and the request
+ * sits in the queue until the stall watchdog notices.
+ *
+ * The range initialiser matters.  This used to be "= {2,}", which sets
+ * element 0 and zero-fills the rest; that was invisible for twenty years
+ * because there was only ever one drive.
+ */
+static unsigned int mult_req    [MAX_HD] = { [0 ... MAX_HD-1] = 2 };
+static unsigned int mult_count  [MAX_HD] = { [0 ... MAX_HD-1] = 2 };
 #else
 static unsigned int mult_req    [MAX_HD] = {0,}; /* requested MultMode count */
 static unsigned int mult_count  [MAX_HD] = {0,}; /* currently enabled MultMode count */
@@ -1051,36 +1070,46 @@ static struct gendisk hd_gendisk = {
 static void hd_geninit(struct gendisk *ignored)
 {
         int i;
-	struct test {
-		int c, d, e, f, g, h, i, j;
-		} tt;
 #if (SIX)
         if (!NR_HD) {
-                extern struct drive_info_struct { int dummy[8]; }   drive_info;
+                /*
+                 * The simulated BIOS drive table, planted at
+                 * empty_zero_page+0x80 by setup_disk_info().  It holds one
+                 * struct dummy_drive_struct per drive.
+                 *
+                 * The stride used to be a hardcoded 16 while the loop body
+                 * reads six 4-byte fields (24 bytes) out of a 32-byte
+                 * entry, so drive 1 took drive 0's lzone and sect as its
+                 * cyl and head and then ran off the end of the object.
+                 * It never showed because drive 1 was never used.
+                 */
+                extern struct drive_info_struct { int dummy[8*SIX_MAX_DISKS]; } drive_info;
                 unsigned char *BIOS = (unsigned char *) &drive_info;
                 int cmos_disks, drive;
 
-		unsigned int i;
+                for (drive=0 ; drive<MAX_HD ; drive++) {
+                        /*
+                         * Stop at the first drive with no backing file.
+                         * NR_HD is a count rather than a bitmap and
+                         * hd_open() tests "target >= NR_HD", so the drives
+                         * that exist have to be contiguous from zero.
+                         * Drive 0 is always present -- check_root() exits
+                         * if the root disk cannot be opened -- so in
+                         * practice this is what leaves NR_HD at 1 when
+                         * there is no auxiliary disk, and /dev/hdb then
+                         * reports ENODEV.
+                         */
+                        if (six_disk_fd[drive] < 0)
+                                break;
 
-		memcpy(&tt, &drive_info, sizeof(drive_info));
-
-		i = *((unsigned int *)BIOS);
-
-
-                for (drive=0 ; drive<2 ; drive++) {
                         bios_info[drive].cyl   = hd_info[drive].cyl = *(unsigned int *)BIOS;
                         hd_head[drive] = bios_info[drive].head  = hd_info[drive].head = *(unsigned int *)(4+BIOS);
                         bios_info[drive].wpcom = hd_info[drive].wpcom = *(unsigned int *)(8+BIOS);
                         bios_info[drive].ctl   = hd_info[drive].ctl = *(unsigned int *)(12+BIOS);
                         bios_info[drive].lzone = hd_info[drive].lzone = *(unsigned int *)(16+BIOS);
                         hd_sect[drive] = bios_info[drive].sect  = hd_info[drive].sect = *(unsigned int *)(20+BIOS);
-#ifdef does_not_work_for_everybody_with_scsi_but_helps_ibm_vp
-                        if (hd_info[drive].cyl && NR_HD == drive)
-                                NR_HD++;
-#elif (SIX)
-						NR_HD++;
-#endif
-                        BIOS += 16;
+                        NR_HD++;
+                        BIOS += sizeof(struct dummy_drive_struct);
                 }
 
         /*
@@ -1105,11 +1134,31 @@ static void hd_geninit(struct gendisk *ignored)
 
         */
 
+#if (!SIX)
                 if ((cmos_disks = CMOS_READ(0x12)) & 0xf0)
                         if (cmos_disks & 0x0f)
                                 NR_HD = 2;
                         else
                                 NR_HD = 1;
+#else
+                /*
+                 * There is no CMOS under SIX.  CMOS_READ() ends up in
+                 * inb_p() in <asm/io.h>, which has no case for port 0x70 /
+                 * 0x71 and falls through to "default: return 1", so this
+                 * test reads a constant that has nothing to do with how
+                 * many disks exist.
+                 *
+                 * Today that constant happens to fail the & 0xf0, which is
+                 * the only reason the override has been harmless.  But it
+                 * is the last thing to touch NR_HD, so if the stub ever
+                 * returned something else it would overrule the loop above
+                 * and claim two drives -- and the second one would have no
+                 * backing file, so every access to it would read and write
+                 * nothing while reporting success.  The authoritative
+                 * answer is which disk files we managed to open; keep it.
+                 */
+                (void) cmos_disks;
+#endif
         }
 #endif 
 	i = NR_HD;
@@ -1124,18 +1173,19 @@ static void hd_geninit(struct gendisk *ignored)
 		 */
 #if (SIX)
 		/*
-		 * Advertise the true size of the backing file rather than
-		 * the CHS product.  six_hd_cyl is rounded up, so the product
-		 * generally overshoots by up to one cylinder -- and since
-		 * do_hd_request() range-checks against nr_sects while
+		 * Advertise the true size of each backing file rather than
+		 * the CHS product.  six_hd_cyl[] is rounded up, so the
+		 * product generally overshoots by up to one cylinder -- and
+		 * since do_hd_request() range-checks against nr_sects while
 		 * do_hard_read() ignores short reads, anything we advertise
 		 * beyond the end of the file reads back as a stale copy of
 		 * the previous sector instead of failing.
 		 *
-		 * Only drive 0 is backed by a file; NR_HD is 1 here, but be
-		 * explicit about it rather than relying on that.
+		 * The loop only runs over the NR_HD drives that were
+		 * detected, and a drive is only counted if its file opened,
+		 * so every i here has a real size behind it.
 		 */
-		hd[i<<6].nr_sects = i ? 0 : six_disk_sectors;
+		hd[i<<6].nr_sects = six_disk_sectors[i];
 #else
 		hd[i<<6].nr_sects = bios_info[i].head *
 				bios_info[i].sect * bios_info[i].cyl;
@@ -1162,10 +1212,13 @@ static void hd_geninit(struct gendisk *ignored)
 	 *     a time with "bad access".
 	 *   - ll_rw_blk()'s own range check is skipped entirely.
 	 *
-	 * Setting it here keeps the partition scan out of the picture: minor
-	 * 0 is the whole disk, which is all this driver has ever exposed.
+	 * Setting it here keeps the partition scan out of the picture: for
+	 * each drive, minor (drive << 6) is the whole disk, which is all this
+	 * driver has ever exposed.
 	 */
-	hd_sizes[0] = hd[0].nr_sects >> (BLOCK_SIZE_BITS - 9);
+	i = NR_HD;
+	while (i-- > 0)
+		hd_sizes[i<<6] = hd[i<<6].nr_sects >> (BLOCK_SIZE_BITS - 9);
 	blk_size[MAJOR_NR] = hd_sizes;
 #endif
 	if (NR_HD) {
@@ -1301,27 +1354,57 @@ static int revalidate_hddisk(kdev_t dev, int maxusage)
 
 
 #if (SIX)
-void do_hard_write(from, count)
+/*
+ * The bottom of the emulated IDE controller: this is the only place where
+ * the guest's notion of a disk meets a real host file.  outb_p() in
+ * <asm/io.h> recovers `drive' from bit 4 of the device/head register and
+ * has already folded C/H/S back into the linear sector number `from'.
+ *
+ * A drive with no backing file cannot get here -- hd_open() rejects it
+ * with ENODEV, and do_hd_request() rejects it again on nr_sects -- but
+ * check anyway rather than handing a -1 to lseek().
+ */
+void do_hard_write(int drive, int from, int count)
 {
 	int ret;
-	lseek(DISKFD, from*512, 0);
-	ret = write(DISKFD, wdisk_buffer, 1024);
+
+	if (drive < 0 || drive >= SIX_MAX_DISKS || six_disk_fd[drive] < 0)
+		return;
+	lseek(six_disk_fd[drive], from*512, 0);
+	ret = write(six_disk_fd[drive], wdisk_buffer, 1024);
 	wbuf_offset = 0;
 }
 
-void do_hard_read(from, count)
+void do_hard_read(int drive, int from, int count)
 {
-	lseek(DISKFD, from*512, 0);
-	read(DISKFD, disk_buffer, 1024);
+	if (drive < 0 || drive >= SIX_MAX_DISKS || six_disk_fd[drive] < 0)
+		return;
+	lseek(six_disk_fd[drive], from*512, 0);
+	read(six_disk_fd[drive], disk_buffer, 1024);
 	buf_offset = 0;
 }
 
+/*
+ * Deliver the "interrupt".  There is no real one: the completion routine is
+ * called straight from the port write that issued the command, so by the
+ * time outb_p() returns the request is already finished.
+ *
+ * Only the multi-sector opcodes are implemented, because do_hard_read()
+ * and do_hard_write() always move a fixed 1024 bytes.  Anything else has
+ * no completion routine to call, which means end_request() never runs and
+ * the request stays on the queue for ever -- the driver is still waiting
+ * for an interrupt that cannot arrive.  Say so rather than hanging in
+ * silence; that failure mode costs an afternoon to find otherwise.
+ */
 void raise_hard_int(int cmd)
 {
 	if(cmd == 0xc4)
 		read_intr();
 	else if(cmd == 0xc5)
 		write_intr();
+	else
+		printk("hd: emulated controller has no command 0x%02x; "
+		       "this request will never complete\n", cmd);
 }
 
 void put_hard_data(unsigned short val)

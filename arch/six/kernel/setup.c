@@ -33,7 +33,18 @@ int EISA_bus = 0;
 #if (SIX)
 extern void get_kernel_mask(so_sigset_t *);
 extern void sun_handler(int num, void *why, void *context);
-struct drive_info_struct { int dummy[8]; } drive_info;
+/*
+ * The simulated BIOS drive table.  setup_disk_info() fills it in at
+ * PARAM+0x80 before start_kernel() runs, setup_arch() copies it here, and
+ * hd_geninit() reads it back out one struct dummy_drive_struct at a time.
+ *
+ * It has to be wide enough for every drive SIX can emulate: this is a
+ * struct assignment, so its size is what decides how much of PARAM+0x80
+ * actually survives.  At one entry wide the auxiliary disk's geometry was
+ * silently dropped on the floor here, long before hd_geninit() looked for
+ * it.
+ */
+struct drive_info_struct { int dummy[8*SIX_MAX_DISKS]; } drive_info;
 #else
 struct drive_info_struct { char dummy[32]; } drive_info;
 #endif

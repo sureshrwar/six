@@ -269,3 +269,20 @@ node  /dev/ttyp3            0666  c  3  3
 # as root.  Writing to this device while / is mounted read-write will
 # corrupt the filesystem, exactly as it would on real hardware.
 node  /dev/hda              0600  b  3  0
+
+# The auxiliary disk.  Minor 64 rather than 1: the hd driver uses the top
+# two bits of the minor as the drive number and the bottom six as the
+# partition, so DEVICE_NR() in <linux/blk.h> is MINOR(dev) >> 6.
+#
+# The node is here unconditionally, but the disk behind it usually is not.
+# disk/x86/aux_storage-1 is not built by default and is not checked in --
+# run "make aux-image" to create one.  Without it check_root() leaves the
+# drive unopened, hd_geninit() keeps NR_HD at 1, and hd_open() answers
+# ENODEV.  A device node is a name, not an assertion that the hardware
+# exists; /dev/hdb on a real system behaves the same way when the second
+# drive is unplugged.
+#
+# Nothing mounts this.  The kernel deliberately has no opinion on where it
+# belongs -- see check_root() in init/main.c -- so attaching it is a job
+# for /bin/mount, from /etc/rc or from a shell.
+node  /dev/hdb              0600  b  3  64

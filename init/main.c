@@ -507,22 +507,87 @@ void wait_for_key()
 void setup_disk_info()
 {
 	/*
-	 * check_root() runs before us and has already sized the disk, so
-	 * six_hd_cyl is the measured cylinder count by now.
+	 * Publish one simulated BIOS drive table entry per disk at
+	 * PARAM+0x80, where setup_arch() will pick it up into drive_info and
+	 * hd_geninit() will eventually read it back.
+	 *
+	 * check_root() runs before us and has already opened and sized every
+	 * disk, so six_hd_cyl[] holds measured cylinder counts by now.  A
+	 * drive with no backing file is left as a zeroed entry; hd_geninit()
+	 * does not consult it, because it stops at the first drive whose
+	 * six_disk_fd[] is -1, but zeroing keeps the table honest rather
+	 * than leaving whatever empty_zero_page happened to contain.
+	 *
+	 * All drives share the same track geometry -- see the comment in
+	 * <solaris.h> for why that is not worth varying -- so only the
+	 * cylinder count differs between entries.
 	 */
-	struct dummy_drive_struct tmp = { 0, HD_HEAD, 0, 0, 0, HD_SECT, 0, 0 };
+	struct dummy_drive_struct tmp[SIX_MAX_DISKS];
+	int drive;
 
-	tmp.cyl = six_hd_cyl;
-	memcpy(empty_zero_page+0x80, &tmp, sizeof(tmp));
+	memset(tmp, 0, sizeof(tmp));
+
+	for (drive = 0; drive < SIX_MAX_DISKS; drive++) {
+		if (six_disk_fd[drive] < 0)
+			continue;
+		tmp[drive].cyl  = six_hd_cyl[drive];
+		tmp[drive].head = HD_HEAD;
+		tmp[drive].sect = HD_SECT;
+	}
+
+	memcpy(empty_zero_page+0x80, tmp, sizeof(tmp));
 #if 0
 	*(char *)(empty_zero_page+0x1F2) = MS_RDONLY;
 #endif
 }
 
+/*
+ * Measure a disk file and derive the emulated CHS geometry for it.
+ *
+ * lseek() rather than fstat(): this translation unit already pulls in the
+ * kernel's own <linux/fs.h>, whose struct definitions do not coexist with
+ * the host's <sys/stat.h>.  The literal 2 is SEEK_END, spelled out for the
+ * same reason -- and it matches the existing style in
+ * drivers/block/hd.c, which passes a bare 0 for SEEK_SET.
+ *
+ * lseek() has no prototype in scope here so it is taken to return int,
+ * which caps the disk we can measure at 2 GB.  That is far beyond anything
+ * SIX can address anyway: the emulated task-file carries a 16-bit cylinder
+ * number, so the ceiling is 65535 cylinders.
+ */
+static void size_disk(int drive, const char *path)
+{
+	long cyl_bytes = (long) HD_HEAD * HD_SECT * 512;
+	long bytes     = lseek(six_disk_fd[drive], 0L, 2);
+
+	lseek(six_disk_fd[drive], 0L, 0);
+
+	if (bytes <= 0) {
+		fprintf(stderr, "warning: cannot determine the size of %s; "
+				"assuming %d cylinders\n", path, HD_CYL_DEFAULT);
+		six_hd_cyl[drive]       = HD_CYL_DEFAULT;
+		six_disk_sectors[drive] = (long) HD_CYL_DEFAULT * HD_HEAD * HD_SECT;
+		return;
+	}
+
+	six_disk_sectors[drive] = bytes / 512;
+	/* Round up so the last partial cylinder stays addressable. */
+	six_hd_cyl[drive] = (bytes + cyl_bytes - 1) / cyl_bytes;
+
+	if (six_hd_cyl[drive] > 65535) {
+		six_hd_cyl[drive]       = 65535;
+		six_disk_sectors[drive] = (long) six_hd_cyl[drive] * HD_HEAD * HD_SECT;
+		fprintf(stderr, "warning: %s is larger than the emulated "
+				"controller can address; using the first %ld MB\n",
+				path, (six_disk_sectors[drive] * 512) / (1024 * 1024));
+	}
+}
+
 void check_root(const char *disk_arg)
 {
 	const char *root = disk_arg;
-	extern int DISKFD;
+	const char *aux;
+
 	/*
 	 * Precedence: -d/--disk CLI flag -> $DISKFILE environment variable ->
 	 * default DISKFILE (./disk/x86/root).
@@ -530,9 +595,9 @@ void check_root(const char *disk_arg)
 	if (!root && !(root = getenv("DISKFILE")))
 		root = DISKFILE;
 
-        DISKFD = open(root, O_RDWR);
+        six_disk_fd[0] = open(root, O_RDWR);
 
-        if(DISKFD < 0)
+        if(six_disk_fd[0] < 0)
 	{
 		fprintf(stderr, "ERROR : can't locate root disk (%s)\n\n"
 				"The root disk file should be accessible either:\n\n"
@@ -544,42 +609,30 @@ void check_root(const char *disk_arg)
 		exit(1);
 	}
 
+	size_disk(0, root);
+
 	/*
-	 * Size the disk and derive the emulated geometry from it.
+	 * The auxiliary disk, /dev/hdb, is entirely optional.  Unlike the
+	 * root disk there is nothing to complain about if it is missing:
+	 * that is the normal case, and it is what leaves six_disk_fd[1] at
+	 * -1 so that hd_geninit() keeps NR_HD at 1 and hd_open() answers
+	 * ENODEV.  Say nothing at all when it is absent, so that a plain
+	 * checkout boots exactly as it did before, and announce it only when
+	 * it is really there.
 	 *
-	 * lseek() rather than fstat(): this translation unit already pulls in
-	 * the kernel's own <linux/fs.h>, whose struct definitions do not
-	 * coexist with the host's <sys/stat.h>.  The literal 2 is SEEK_END,
-	 * spelled out for the same reason -- and it matches the existing
-	 * style in drivers/block/hd.c, which passes a bare 0 for SEEK_SET.
-	 *
-	 * lseek() has no prototype in scope here so it is taken to return
-	 * int, which caps the disk we can measure at 2 GB.  That is far
-	 * beyond anything SIX can address anyway: the emulated task-file
-	 * carries a 16-bit cylinder number, so the ceiling is 65535 cylinders.
+	 * SIX never mounts this disk itself.  All the kernel does is make the
+	 * device work; deciding where -- or whether -- to attach it is
+	 * userspace policy, expressed with mount(8) from /etc/rc or a shell.
 	 */
-	{
-		long cyl_bytes = (long) HD_HEAD * HD_SECT * 512;
-		long bytes     = lseek(DISKFD, 0L, 2);
+	if (!(aux = getenv("AUXDISKFILE")))
+		aux = AUXDISKFILE;
 
-		lseek(DISKFD, 0L, 0);
+	six_disk_fd[1] = open(aux, O_RDWR);
 
-		if (bytes <= 0) {
-			fprintf(stderr, "warning: cannot determine the size of %s; "
-					"assuming %d cylinders\n", root, HD_CYL_DEFAULT);
-		} else {
-			six_disk_sectors = bytes / 512;
-			/* Round up so the last partial cylinder stays addressable. */
-			six_hd_cyl = (bytes + cyl_bytes - 1) / cyl_bytes;
-
-			if (six_hd_cyl > 65535) {
-				six_hd_cyl       = 65535;
-				six_disk_sectors = (long) six_hd_cyl * HD_HEAD * HD_SECT;
-				fprintf(stderr, "warning: %s is larger than the emulated "
-						"controller can address; using the first %ld MB\n",
-						root, (six_disk_sectors * 512) / (1024 * 1024));
-			}
-		}
+	if (six_disk_fd[1] >= 0) {
+		size_disk(1, aux);
+		fprintf(stderr, "auxiliary disk: %s (%ld MB) as /dev/hdb\n",
+				aux, (six_disk_sectors[1] * 512) / (1024 * 1024));
 	}
 }
 

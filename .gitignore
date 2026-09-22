@@ -33,6 +33,11 @@ disk/x86/root
 disk/sparc/root
 disk/*/root
 
+# The optional auxiliary disk (/dev/hdb), built by port/image/mkaux.sh.
+# Never checked in: it is not reconstructible from the tree, and having it
+# absent is the default state the kernel is expected to cope with.
+disk/*/aux_storage-*
+
 # Guest userland binaries.  These were checked in as 2005 SPARC big-endian
 # ELF executables, which are useless on x86 and were silently being copied
 # into the disk image.  They are build products; port/image/mkimage.sh
