@@ -249,9 +249,10 @@ void six_open(struct pt_regs *u)
 
 void six_alarm(struct pt_regs *u)
 {
-         long secs;
+         long secs, ret;
          grab_args(u, &secs, 0, 0);
-         sys_alarm(secs);
+         ret = sys_alarm(secs);
+         put_ret(u, ret);
 }
 
 void six_time(struct pt_regs *u)
@@ -954,7 +955,7 @@ void six_reboot(struct pt_regs *u)
 
 void enosyscall(struct pt_regs *u)
 {
-	put_ret(u, (long)ENOSYS);
+	put_ret(u, (long)-ENOSYS);
 }
 
 void six_readdir(struct pt_regs *u)
@@ -1069,7 +1070,7 @@ void six_fstatfs(struct pt_regs *u)
 	int fd, ret;
 	struct statfs *s;
 	grab_args(u, (long *)&fd, (long *)&s, 0);
-	ret = sys_statfs(fd, s);
+	ret = sys_fstatfs(fd, s);
 	put_ret(u, (long)ret);
 }
 
@@ -1292,8 +1293,10 @@ void six_sigprocmask(struct pt_regs *u)
 
 void six_getpgid(struct pt_regs *u)
 {
+	pid_t pid;
 	int ret;
-	ret = sys_getpgid();
+	grab_args(u, (long *)&pid, 0, 0);
+	ret = sys_getpgid(pid);
 	put_ret(u, (long)ret);
 }
 
@@ -1346,7 +1349,7 @@ void six_setfsgid(struct pt_regs *u)
 	gid_t g;
 	int ret;
 	grab_args(u, (long *)&g, 0, 0);
-	ret = sys_setfsuid(g);
+	ret = sys_setfsgid(g);
 	put_ret(u, (long)ret);
 }
 
@@ -1506,7 +1509,7 @@ void six_sched_getscheduler(struct pt_regs *u)
 	pid_t p;
 	int ret;
 	grab_args(u, (long *)&p, 0, 0);
-	ret = sys_sched_setscheduler(p);
+	ret = sys_sched_getscheduler(p);
 	put_ret(u, (long)ret);
 }
 

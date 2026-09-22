@@ -303,14 +303,20 @@ node  /dev/ttyp3            0666  c  3  3
 #
 # Minor numbers are the standard Linux ones, and they have to be, because
 # memory_open() switches on exactly these values:
-#   3  null  -- read returns 0 (EOF), write swallows and reports success
-#   5  zero  -- read fills the buffer with zeroes, write behaves as null
-#
-# Mode 0666: these are safe for anyone to use, which is the whole point.
-# Other minors the driver also implements but that are not given nodes
-# here: 1 mem, 2 kmem, 4 port, 7 full, 8 random, 9 urandom.
+#   1  mem     -- physical memory access
+#   2  kmem    -- kernel virtual memory access
+#   3  null    -- read returns 0 (EOF), write swallows and reports success
+#   5  zero    -- read fills the buffer with zeroes, write behaves as null
+#   7  full    -- read fills with zeroes, write always fails with ENOSPC
+#   8  random  -- entropy pool random byte stream
+#   9  urandom -- non-blocking PRNG / entropy pool byte stream
+node  /dev/mem               0600  c  1  1
+node  /dev/kmem              0600  c  1  2
 node  /dev/null              0666  c  1  3
 node  /dev/zero              0666  c  1  5
+node  /dev/full              0666  c  1  7
+node  /dev/random            0666  c  1  8
+node  /dev/urandom           0666  c  1  9
 
 # --- /dev (char major 10 = MISC_MAJOR) -------------------------------------
 # /dev/fuse: standard Linux FUSE device (major 10, minor 229).  Each open()
