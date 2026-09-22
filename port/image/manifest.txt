@@ -157,6 +157,8 @@ file  /bin/env              0755  applications/env/env
 file  /bin/tee              0755  applications/tee/tee
 file  /bin/cut              0755  applications/cut/cut
 file  /bin/xargs            0755  applications/xargs/xargs
+file  /bin/strace           0755  applications/strace/strace
+file  /bin/top              0755  applications/top/top
 file  /bin/mount_all        0755  port/image/rootfs/bin/mount_all
 file  /bin/set_d            0755  port/image/rootfs/bin/set_d
 file  /bin/clear_d          0755  port/image/rootfs/bin/clear_d

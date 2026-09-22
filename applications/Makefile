@@ -112,7 +112,9 @@ SUBDIRS	=	start \
 		env \
 		tee \
 		cut \
-		xargs
+		xargs \
+		strace \
+		top
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

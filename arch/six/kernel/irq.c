@@ -1590,6 +1590,8 @@ void six_mremap(struct pt_regs *u)
 	put_ret(u, (long)ret);
 }
 
+void six_ptrace(struct pt_regs *u);
+
 void (* sys_call_table[])(struct pt_regs *) = {
 		six_setup,
 		six_exit,
@@ -1617,7 +1619,7 @@ void (* sys_call_table[])(struct pt_regs *) = {
 		six_setuid,
 		six_getuid,
 		six_stime,
-		enosyscall,
+		six_ptrace,	// 26
 		six_alarm,
 		six_fstat,
 		six_pause,	// 29
@@ -2422,11 +2424,302 @@ int ftrace_get_snapshot(char *dst, int maxlen)
 	return pos;
 }
 
+#define SIX_STRACE_ATTACH   1
+#define SIX_STRACE_DETACH   2
+#define SIX_STRACE_READ     3
+#define SIX_STRACE_SELF     4
+
+#define SIX_STRACE_RING_MAX 256
+#define SIX_STRACE_MAX_PIDS 32
+
+struct six_strace_event {
+	int pid;
+	int nr;
+	long a1;
+	long a2;
+	long a3;
+	long ret;
+	char str1[64];
+	char str2[64];
+};
+
+static struct six_strace_event six_strace_ring[SIX_STRACE_RING_MAX];
+static unsigned int six_strace_head = 0;
+static unsigned int six_strace_tail = 0;
+static int six_strace_pids[SIX_STRACE_MAX_PIDS];
+static int six_strace_follow_fork = 0;
+static int six_strace_tracer_pid = 0;
+static struct wait_queue *six_strace_wait = NULL;
+
+static int six_strace_is_traced(int pid)
+{
+	int i;
+	if (pid <= 0 || !six_strace_tracer_pid || pid == six_strace_tracer_pid)
+		return 0;
+	for (i = 0; i < SIX_STRACE_MAX_PIDS; i++) {
+		if (six_strace_pids[i] == pid)
+			return 1;
+	}
+	return 0;
+}
+
+static void six_strace_mark(int pid)
+{
+	int i;
+	if (pid <= 0)
+		return;
+	for (i = 0; i < SIX_STRACE_MAX_PIDS; i++) {
+		if (six_strace_pids[i] == pid)
+			return;
+	}
+	for (i = 0; i < SIX_STRACE_MAX_PIDS; i++) {
+		if (six_strace_pids[i] == 0) {
+			six_strace_pids[i] = pid;
+			return;
+		}
+	}
+}
+
+static void six_strace_unmark(int pid)
+{
+	int i;
+	for (i = 0; i < SIX_STRACE_MAX_PIDS; i++) {
+		if (six_strace_pids[i] == pid)
+			six_strace_pids[i] = 0;
+	}
+}
+
+static int six_strace_any_alive(void)
+{
+	int i, j;
+	for (i = 0; i < SIX_STRACE_MAX_PIDS; i++) {
+		int pid = six_strace_pids[i];
+		int found = 0;
+		if (pid <= 0)
+			continue;
+		for (j = 0; j < NR_TASKS; j++) {
+			if (task[j] && task[j]->pid == pid &&
+			    task[j]->state != TASK_ZOMBIE) {
+				found = 1;
+				break;
+			}
+		}
+		if (found)
+			return 1;
+		six_strace_pids[i] = 0;
+	}
+	return 0;
+}
+
+static void six_strace_copy_guest_str(char *dst, unsigned long uaddr, int maxlen)
+{
+	int i;
+	dst[0] = '\0';
+	if (uaddr < 0x03000000UL || uaddr >= TASK_SIZE)
+		return;
+	for (i = 0; i < maxlen - 1; i++) {
+		if (uaddr + i >= TASK_SIZE)
+			break;
+		dst[i] = ((const char *)uaddr)[i];
+		if (dst[i] == '\0')
+			return;
+	}
+	dst[i] = '\0';
+}
+
+static void six_strace_copy_guest_mem(char *dst, unsigned long uaddr, int len, int maxlen)
+{
+	int i, n = len;
+	dst[0] = '\0';
+	if (n <= 0 || uaddr < 0x03000000UL || uaddr >= TASK_SIZE)
+		return;
+	if (n > maxlen - 1)
+		n = maxlen - 1;
+	for (i = 0; i < n; i++) {
+		if (uaddr + i >= TASK_SIZE)
+			break;
+		dst[i] = ((const char *)uaddr)[i];
+	}
+	dst[i] = '\0';
+}
+
+static void six_strace_enter(struct six_strace_event *ev, int nr, long a1, long a2, long a3)
+{
+	int i;
+	for (i = 0; i < 64; i++) {
+		ev->str1[i] = '\0';
+		ev->str2[i] = '\0';
+	}
+	ev->pid = current ? current->pid : 0;
+	ev->nr = nr;
+	if (current && current->one != 0) {
+		ev->a1 = current->one;
+		ev->a2 = current->two;
+		ev->a3 = current->three;
+	} else {
+		ev->a1 = a1;
+		ev->a2 = a2;
+		ev->a3 = a3;
+	}
+	ev->ret = 0;
+
+	switch (nr) {
+	case 5:   /* open */
+	case 8:   /* creat */
+	case 10:  /* unlink */
+	case 12:  /* chdir */
+	case 14:  /* mknod */
+	case 15:  /* chmod */
+	case 16:  /* chown */
+	case 22:  /* umount */
+	case 30:  /* utime */
+	case 33:  /* access */
+	case 39:  /* mkdir */
+	case 40:  /* rmdir */
+	case 61:  /* chroot */
+	case 85:  /* readlink */
+	case 92:  /* truncate */
+	case 99:  /* statfs */
+	case 106: /* stat */
+	case 107: /* lstat */
+		six_strace_copy_guest_str(ev->str1, (unsigned long)ev->a1, sizeof(ev->str1));
+		break;
+	case 9:   /* link */
+	case 38:  /* rename */
+	case 83:  /* symlink */
+		six_strace_copy_guest_str(ev->str1, (unsigned long)ev->a1, sizeof(ev->str1));
+		six_strace_copy_guest_str(ev->str2, (unsigned long)ev->a2, sizeof(ev->str2));
+		break;
+	case 21:  /* mount */
+		six_strace_copy_guest_str(ev->str1, (unsigned long)ev->a1, sizeof(ev->str1));
+		six_strace_copy_guest_str(ev->str2, (unsigned long)ev->a2, sizeof(ev->str2));
+		break;
+	case 11:  /* execve */
+		six_strace_copy_guest_str(ev->str1, (unsigned long)ev->a1, sizeof(ev->str1));
+		if ((unsigned long)ev->a2 >= 0x03000000UL &&
+		    (unsigned long)ev->a2 + 8 <= TASK_SIZE) {
+			unsigned long *av = (unsigned long *)ev->a2;
+			if (av[0] >= 0x03000000UL && av[0] < TASK_SIZE &&
+			    av[1] >= 0x03000000UL && av[1] < TASK_SIZE)
+				six_strace_copy_guest_str(ev->str2, av[1], sizeof(ev->str2));
+		}
+		break;
+	case 4:   /* write */
+		six_strace_copy_guest_mem(ev->str1, (unsigned long)ev->a2, (int)ev->a3, 48);
+		break;
+	}
+}
+
+static void six_strace_leave(struct six_strace_event *ev, int nr, long ret)
+{
+	ev->ret = ret;
+	if (nr == 11 && ret >= 0) {
+		/* do_execve succeeded and loaded the new program */
+		ev->ret = 0;
+	} else if ((nr == 2 || nr == 120) && ret > 0 && six_strace_follow_fork) {
+		six_strace_mark((int)ret);
+	} else if (nr == 3 && ret > 0) {
+		/* read: copy preview of bytes read */
+		six_strace_copy_guest_mem(ev->str1, (unsigned long)ev->a2, (int)ret, 48);
+	} else if (nr == 85 && ret > 0) {
+		/* readlink: copy resolved target */
+		six_strace_copy_guest_mem(ev->str2, (unsigned long)ev->a2, (int)ret, 64);
+	}
+}
+
+static void six_strace_push(const struct six_strace_event *ev)
+{
+	while (six_strace_head - six_strace_tail >= SIX_STRACE_RING_MAX &&
+	       six_strace_tracer_pid > 0) {
+		wake_up_interruptible(&six_strace_wait);
+		schedule();
+	}
+	if (six_strace_head - six_strace_tail < SIX_STRACE_RING_MAX) {
+		six_strace_ring[six_strace_head & (SIX_STRACE_RING_MAX - 1)] = *ev;
+		six_strace_head++;
+	}
+	wake_up_interruptible(&six_strace_wait);
+}
+
+void six_ptrace(struct pt_regs *u)
+{
+	long req = 0, pid = 0, addr = 0;
+	int i;
+
+	grab_args(u, &req, &pid, &addr);
+	switch (req) {
+	case SIX_STRACE_ATTACH:
+		for (i = 0; i < SIX_STRACE_MAX_PIDS; i++)
+			six_strace_pids[i] = 0;
+		six_strace_head = 0;
+		six_strace_tail = 0;
+		six_strace_tracer_pid = current ? current->pid : 0;
+		six_strace_follow_fork = (addr != 0);
+		six_strace_mark((int)pid);
+		put_ret(u, 0);
+		return;
+	case SIX_STRACE_SELF:
+		for (i = 0; i < SIX_STRACE_MAX_PIDS; i++)
+			six_strace_pids[i] = 0;
+		six_strace_head = 0;
+		six_strace_tail = 0;
+		six_strace_tracer_pid = (current && current->p_pptr) ? current->p_pptr->pid : 1;
+		six_strace_follow_fork = (pid != 0);
+		if (current)
+			six_strace_mark(current->pid);
+		put_ret(u, 0);
+		return;
+	case SIX_STRACE_DETACH:
+		for (i = 0; i < SIX_STRACE_MAX_PIDS; i++)
+			six_strace_pids[i] = 0;
+		six_strace_tracer_pid = 0;
+		six_strace_follow_fork = 0;
+		six_strace_head = 0;
+		six_strace_tail = 0;
+		wake_up_interruptible(&six_strace_wait);
+		put_ret(u, 0);
+		return;
+	case SIX_STRACE_READ: {
+		int max_ev = (int)pid;
+		struct six_strace_event *ubuf = (struct six_strace_event *)addr;
+		int copied = 0;
+
+		if (max_ev <= 0 || (unsigned long)ubuf < 0x03000000UL ||
+		    (unsigned long)ubuf + max_ev * sizeof(struct six_strace_event) > TASK_SIZE) {
+			put_ret(u, -EINVAL);
+			return;
+		}
+		while (six_strace_head == six_strace_tail) {
+			if (!six_strace_any_alive()) {
+				put_ret(u, 0);
+				return;
+			}
+			if (current->signal & ~current->blocked) {
+				put_ret(u, -EINTR);
+				return;
+			}
+			interruptible_sleep_on(&six_strace_wait);
+		}
+		while (six_strace_tail != six_strace_head && copied < max_ev) {
+			ubuf[copied++] = six_strace_ring[six_strace_tail & (SIX_STRACE_RING_MAX - 1)];
+			six_strace_tail++;
+		}
+		put_ret(u, copied);
+		return;
+	}
+	default:
+		put_ret(u, -EINVAL);
+		return;
+	}
+}
+
 void system_call(int num, void *why, struct pt_regs *context)
 {
 	int syscallnum;
 #if (__i386__)
 	struct six_guest_call *gc = NULL;
+	int is_traced = 0;
+	struct six_strace_event tev;
 #endif
 
 	/*
@@ -2534,6 +2827,7 @@ void system_call(int num, void *why, struct pt_regs *context)
 	 * SIX has no NR_syscalls of its own -- the table is just however
 	 * many entries the initialiser at line ~1558 happens to have.
 	 */
+
 	if (syscallnum < 0 ||
 	    syscallnum >= (int)(sizeof(sys_call_table) / sizeof(sys_call_table[0])) ||
 	    sys_call_table[syscallnum] == 0) {
@@ -2547,6 +2841,18 @@ void system_call(int num, void *why, struct pt_regs *context)
 #endif
 		return;
 	}
+
+#if (__i386__)
+	if (gc && current && six_strace_is_traced(current->pid)) {
+		is_traced = 1;
+		six_strace_enter(&tev, syscallnum, gc->a1, gc->a2, gc->a3);
+		if (syscallnum == 1) {
+			tev.ret = 0;
+			six_strace_unmark(current->pid);
+			six_strace_push(&tev);
+		}
+	}
+#endif
 
 	/*
 	 * Call the system call worker
@@ -2567,6 +2873,15 @@ void system_call(int num, void *why, struct pt_regs *context)
 	}
 
 #if (__i386__)
+	if (is_traced && syscallnum != 1) {
+		if (!(current && current->one != 0 &&
+		      (syscallnum == 90 || syscallnum == 82 || syscallnum == 21 ||
+		       syscallnum == 114 || syscallnum == 67 || syscallnum == 117 ||
+		       syscallnum == 140 || syscallnum == 163))) {
+			six_strace_leave(&tev, syscallnum, context->g2);
+			six_strace_push(&tev);
+		}
+	}
 	if (gc)
 		gc->ret = context->g2;
 	else

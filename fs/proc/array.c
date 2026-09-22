@@ -613,9 +613,9 @@ static inline char * task_mem(struct task_struct *p, char *buffer)
 			"VmStk:\t%8lu kB\n"
 			"VmExe:\t%8lu kB\n"
 			"VmLib:\t%8lu kB\n",
-			mm->total_vm << (PAGE_SHIFT-10),
+			mm->total_vm ? (mm->total_vm << (PAGE_SHIFT-10)) : (data + exec),
 			mm->locked_vm << (PAGE_SHIFT-10),
-			mm->rss << (PAGE_SHIFT-10),
+			mm->rss ? (mm->rss << (PAGE_SHIFT-10)) : (data + exec),
 			data - stack, stack,
 			exec - lib, lib);
 	}
@@ -724,6 +724,10 @@ static int get_stat(int pid, char * buffer)
 	priority = 20 - (priority * 10 + DEF_PRIORITY / 2) / DEF_PRIORITY;
 	nice = tsk->priority;
 	nice = 20 - (nice * 20 + DEF_PRIORITY / 2) / DEF_PRIORITY;
+	if (nice < -20)
+		nice = -20;
+	if (nice > 19)
+		nice = 19;
 
 	return sprintf(buffer,"%d (%s) %c %d %d %d %d %d %lu %lu \
 %lu %lu %lu %lu %lu %ld %ld %ld %ld %ld %ld %lu %lu %ld %lu %lu %lu %lu %lu \
@@ -751,7 +755,7 @@ static int get_stat(int pid, char * buffer)
 		tsk->it_real_value,
 		tsk->start_time,
 		vsize,
-		tsk->mm ? tsk->mm->rss : 0, /* you might want to shift this left 3 */
+		tsk->mm ? (tsk->mm->rss ? tsk->mm->rss : (long)(vsize >> PAGE_SHIFT)) : 0, /* you might want to shift this left 3 */
 		tsk->rlim ? tsk->rlim[RLIMIT_RSS].rlim_cur : 0,
 		tsk->mm ? tsk->mm->start_code : 0,
 		tsk->mm ? tsk->mm->end_code : 0,
