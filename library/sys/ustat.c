@@ -7,7 +7,7 @@
 int ustat(long dev, struct ustat *u)
 {
 	if (dev<0 || !u)
-                return -EINVAL;
-        return syscall(__NR_ustat, (long)dev, (long)u, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_ustat, (long)dev, (long)u, 0));
 }
 

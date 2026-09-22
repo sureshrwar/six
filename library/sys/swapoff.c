@@ -6,7 +6,7 @@
 int swapoff(char *name)
 {
 	if (!name)
-                return -EINVAL;
-        return syscall(__NR_swapoff, (long)name, 0, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_swapoff, (long)name, 0, 0));
 }
 

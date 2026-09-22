@@ -5,6 +5,6 @@
 
 int setsid()
 {
-        return syscall(__NR_setsid, 0, 0, 0);
+        return __syscall_return(syscall(__NR_setsid, 0, 0, 0));
 }
 

@@ -5,6 +5,6 @@
 
 int bdflush(int func, long data)
 {
-        return syscall(__NR_bdflush, (long)func, data, 0);
+        return __syscall_return(syscall(__NR_bdflush, (long)func, data, 0));
 }
 

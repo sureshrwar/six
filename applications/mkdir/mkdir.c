@@ -9,20 +9,6 @@
 #include <linux/unistd.h>
 #include <stat.h>
 
-/*
- * Report a failed system call.
- *
- * The stubs in library/sys/ return the kernel's negative errno and never
- * assign to errno, so perror() on its own prints whatever happened to be
- * there -- in practice "Error 0", since nothing ever sets it.  Fill it in
- * from the return value first.  Same pattern as applications/rm/rm.c.
- */
-static void fail(const char *what, int rc)
-{
-	errno = (rc < 0) ? -rc : rc;
-	perror(what);
-}
-
 static int make_parents(char *path, int mode)
 {
 	struct stat st;
@@ -37,7 +23,7 @@ static int make_parents(char *path, int mode)
 			if (stat(path, &st) != 0) {
 				rc = mkdir(path, mode);
 				if (rc != 0) {
-					fail(path, rc);
+					perror(path);
 					*p = '/';
 					return 1;
 				}
@@ -58,7 +44,7 @@ static int make_parents(char *path, int mode)
 	if (stat(path, &st) != 0) {
 		rc = mkdir(path, mode);
 		if (rc != 0) {
-			fail(path, rc);
+			perror(path);
 			return 1;
 		}
 	}
@@ -90,7 +76,7 @@ int main(int argc, char **argv)
 		} else {
 			int ret = mkdir(argv[i], mode);
 			if (ret != 0) {
-				fail(argv[i], ret);
+				perror(argv[i]);
 				rc = 1;
 			}
 		}

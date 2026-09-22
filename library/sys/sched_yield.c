@@ -5,6 +5,6 @@
 
 int sched_yield()
 {
-        return syscall(__NR_sched_yield, 0, 0, 0);
+        return __syscall_return(syscall(__NR_sched_yield, 0, 0, 0));
 }
 

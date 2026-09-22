@@ -7,7 +7,7 @@
 int statfs(char *path, struct statfs *s)
 {
 	if (!path || !s)
-                return -EINVAL;
-        return syscall(__NR_statfs, (long)path, (long)s, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_statfs, (long)path, (long)s, 0));
 }
 

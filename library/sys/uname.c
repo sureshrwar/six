@@ -6,6 +6,6 @@
 int uname(struct new_utsname *name)
 {
 	if (!name)
-		return -EINVAL;
-	return syscall(__NR_uname, (long)name, 0, 0);
+		return __syscall_error(EINVAL);
+	return __syscall_return(syscall(__NR_uname, (long)name, 0, 0));
 }

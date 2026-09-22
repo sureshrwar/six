@@ -9,6 +9,6 @@ int adjtimex(struct timex *t)
 {
 	int ret;
         ret =  syscall(__NR_adjtimex, (long)t, 0, 0);
-	return ret;
+	return __syscall_return(ret);
 }
 

@@ -6,6 +6,6 @@
 int __old_readdir(int fd, void *d, int count)
 {
 	if (fd < 0 || !d || count < 0)
-		return -EINVAL;
-	return syscall(__NR_readdir, (long)fd, (long)d, (long)count);
+		return __syscall_error(EINVAL);
+	return __syscall_return(syscall(__NR_readdir, (long)fd, (long)d, (long)count));
 }

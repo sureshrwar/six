@@ -5,6 +5,6 @@
 
 int mlockall(int flags)
 {
-        return syscall(__NR_mlockall, (long)flags, 0, 0);
+        return __syscall_return(syscall(__NR_mlockall, (long)flags, 0, 0));
 }
 

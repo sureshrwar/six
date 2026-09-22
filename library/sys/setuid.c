@@ -6,7 +6,7 @@
 int setuid(int uid)
 {
 	if (uid<0)
-                return -EINVAL;
-        return syscall(__NR_setuid, (long)uid, 0, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_setuid, (long)uid, 0, 0));
 }
 

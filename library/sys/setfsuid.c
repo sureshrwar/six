@@ -6,6 +6,6 @@
 
 int setfsuid(uid_t u)
 {
-        return syscall(__NR_setfsuid, (long)u, 0, 0);
+        return __syscall_return(syscall(__NR_setfsuid, (long)u, 0, 0));
 }
 

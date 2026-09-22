@@ -7,7 +7,7 @@
 int writev(unsigned long fd, struct iovec *vec, long count)
 {
 	if (fd<0 || !vec || count<0)
-                return -EINVAL;
-        return syscall(__NR_writev, (long)fd, (long)vec, count);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_writev, (long)fd, (long)vec, count));
 }
 

@@ -9,6 +9,6 @@ int mmap(unsigned long addr, unsigned long len,
 
 {
         syscall(__NR_mmap, (long)addr, (long)len, (long)prot);
-        return syscall(__NR_mmap, (long)flags, (long)fd, (long)off);
+        return __syscall_return(syscall(__NR_mmap, (long)flags, (long)fd, (long)off));
 }
 

@@ -6,6 +6,6 @@
 
 int sched_setparam(pid_t p, struct sched_param *param)
 {
-        return syscall(__NR_sched_setparam, (long)p, (long)param, 0);
+        return __syscall_return(syscall(__NR_sched_setparam, (long)p, (long)param, 0));
 }
 

@@ -5,6 +5,6 @@
 
 int personality(unsigned long p)
 {
-        return syscall(__NR_personality, (long)p, 0, 0);
+        return __syscall_return(syscall(__NR_personality, (long)p, 0, 0));
 }
 

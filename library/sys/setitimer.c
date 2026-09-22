@@ -6,6 +6,6 @@
 
 int setitimer(int which, struct itimerval *val, struct itimerval *oval)
 {
-        return syscall(__NR_setitimer, (long)which, (long)val, (long)oval);
+        return __syscall_return(syscall(__NR_setitimer, (long)which, (long)val, (long)oval));
 }
 

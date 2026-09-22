@@ -187,7 +187,8 @@ int main(int argc, char **argv)
 		 * report the last errno rather than the first: the earlier
 		 * types are the ones we expected to fail.
 		 */
-		rc = -EINVAL;
+		rc = -1;
+		errno = EINVAL;
 		for (i = 0; autotypes[i]; i++) {
 			rc = mount(dev, dir, (char *)autotypes[i], flags, 0);
 			if (rc == 0) {
@@ -199,16 +200,12 @@ int main(int argc, char **argv)
 
 	if (rc < 0) {
 		/*
-		 * Build the message in one call.  The system call stubs
-		 * return the kernel's negative errno and never touch errno
-		 * themselves, so it has to be set by hand -- but perror()
-		 * writes straight to fd 2 with write(2) while fprintf() on
-		 * stderr goes through the stdio buffer, so using both put
-		 * the prefix on screen *after* the message it introduces.
-		 * strerror() gives the same text without the ordering
-		 * problem.
+		 * Build the message in one call.  perror() writes straight to
+		 * fd 2 with write(2) while fprintf() on stderr goes through
+		 * the stdio buffer, so using both put the prefix on screen
+		 * *after* the message it introduces.  strerror() gives the
+		 * same text without the ordering problem.
 		 */
-		errno = -rc;
 
 		if (type)
 			fprintf(stderr, "mount: %s on %s as %s: %s\n",

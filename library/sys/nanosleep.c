@@ -7,7 +7,7 @@
 int nanosleep(struct timespec *rqtp, struct timespec *rmtp)
 {
         if (!rqtp)
-                return -EINVAL;
-        return syscall(__NR_nanosleep, (long)rqtp, (long)rmtp, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_nanosleep, (long)rqtp, (long)rmtp, 0));
 }
 

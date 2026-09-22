@@ -7,7 +7,7 @@
 int getrusage(int who, struct rusage *r)
 {
 	if (who<0 || !r)
-                return -EINVAL;
-        return syscall(__NR_getrusage, (long)who, (long)r, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_getrusage, (long)who, (long)r, 0));
 }
 

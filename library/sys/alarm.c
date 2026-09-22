@@ -5,7 +5,7 @@
 int alarm(int secs)
 {
 	if(secs >= 0)
-		return syscall(__NR_alarm, (long)secs, 0, 0);
+		return __syscall_return(syscall(__NR_alarm, (long)secs, 0, 0));
 	else
-		return -EINVAL;
+		return __syscall_error(EINVAL);
 }

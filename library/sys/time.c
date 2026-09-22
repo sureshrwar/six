@@ -5,5 +5,5 @@
 
 int time(int *secs)
 {
-	return syscall(__NR_time, (long)secs, 0, 0);
+	return __syscall_return(syscall(__NR_time, (long)secs, 0, 0));
 }

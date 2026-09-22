@@ -5,6 +5,6 @@
 
 int getegid()
 {
-        return syscall(__NR_getegid, 0, 0, 0);
+        return __syscall_return(syscall(__NR_getegid, 0, 0, 0));
 }
 

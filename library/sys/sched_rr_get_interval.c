@@ -8,7 +8,7 @@
 int sched_rr_get_interval(pid_t p, struct timespec *interval)
 {
         if (!interval)
-                return -EINVAL;
-        return syscall(__NR_sched_rr_get_interval, (long)p, (long)interval, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_sched_rr_get_interval, (long)p, (long)interval, 0));
 }
 

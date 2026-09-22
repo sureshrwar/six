@@ -8,7 +8,7 @@
 int six_sleep(int secs)
 {
 	if (secs<0)
-                return -EINVAL;
+                return __syscall_error(EINVAL);
 	alarm(secs);
 	return pause();
 }

@@ -5,6 +5,6 @@
 
 int sgetmask()
 {
-        return syscall(__NR_sgetmask, 0, 0, 0);
+        return __syscall_return(syscall(__NR_sgetmask, 0, 0, 0));
 }
 

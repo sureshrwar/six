@@ -5,6 +5,6 @@
 
 int nice(int incr)
 {
-        return syscall(__NR_nice, (long)incr, 0, 0);
+        return __syscall_return(syscall(__NR_nice, (long)incr, 0, 0));
 }
 

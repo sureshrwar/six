@@ -7,7 +7,7 @@
 int stat(char *name, struct stat *s)
 {
 	if (!name || !s)
-        	return -EINVAL;
-        return syscall(__NR_stat, (long)name, (long)s, 0);
+        	return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_stat, (long)name, (long)s, 0));
 }
 

@@ -6,6 +6,6 @@
 
 int munlock(unsigned long start, size_t len)
 {
-        return syscall(__NR_munlock, (long)start, (long)len, 0);
+        return __syscall_return(syscall(__NR_munlock, (long)start, (long)len, 0));
 }
 

@@ -6,8 +6,8 @@
 int stime(int *t)
 {
 	if (!t)
-                return -EINVAL;
-        return syscall(__NR_stime, (long)t, 0, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_stime, (long)t, 0, 0));
 }
 
 

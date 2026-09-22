@@ -6,7 +6,7 @@ int access(char *filename, int mode)
 {
 	int ret;
 	if (!filename || mode < 0)
-		return -EINVAL;
+		return __syscall_error(EINVAL);
 	ret = syscall(__NR_access, (long)filename, (long)mode, 0);
 	if (ret < 0)
 	{

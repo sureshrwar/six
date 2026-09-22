@@ -6,6 +6,6 @@
 
 int setfsgid(gid_t g)
 {
-        return syscall(__NR_setfsgid, (long)g, 0, 0);
+        return __syscall_return(syscall(__NR_setfsgid, (long)g, 0, 0));
 }
 

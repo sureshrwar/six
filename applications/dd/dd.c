@@ -45,10 +45,9 @@
 
 static char *progname = "dd";
 
-/* Report a failed syscall whose negative return code is in rc. */
-static void fail(const char *what, int rc)
+/* Report a failed syscall and give up. */
+static void fail(const char *what)
 {
-	errno = (rc < 0) ? -rc : rc;
 	perror(what);
 	exit(1);
 }
@@ -217,7 +216,7 @@ int main(int argc, char **argv)
 	if (infile != NULL) {
 		ifd = open((char *)infile, O_RDONLY);
 		if (ifd < 0)
-			fail(infile, ifd);
+			fail(infile);
 	}
 
 	/*
@@ -233,26 +232,26 @@ int main(int argc, char **argv)
 	} else if (outfile != NULL) {
 		ofd = open((char *)outfile, O_WRONLY | O_CREAT, 0644);
 		if (ofd < 0)
-			fail(outfile, ofd);
+			fail(outfile);
 	}
 
 	if (skip > 0) {
 		rc = lseek(ifd, skip * bs, 0);
 		if (rc < 0)
-			fail("lseek on input", rc);
+			fail("lseek on input");
 		offset = (unsigned long)(skip * bs);
 	}
 	if (seek > 0 && !hex) {
 		rc = lseek(ofd, seek * bs, 0);
 		if (rc < 0)
-			fail("lseek on output", rc);
+			fail("lseek on output");
 	}
 
 	while (!have_count || (full_in + part_in) < count) {
 		int n = read(ifd, buf, (size_t) bs);
 
 		if (n < 0)
-			fail("read", n);
+			fail("read");
 		if (n == 0)
 			break;			/* end of input */
 
@@ -276,7 +275,7 @@ int main(int argc, char **argv)
 			int w = write(ofd, buf, (size_t) n);
 
 			if (w < 0)
-				fail("write", w);
+				fail("write");
 			if (w != n) {
 				fprintf(stderr, "%s: short write (%d of %d bytes)\n",
 					progname, w, n);

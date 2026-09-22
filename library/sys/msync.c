@@ -6,6 +6,6 @@
 
 int msync(unsigned long start, size_t len, int flags)
 {
-        return syscall(__NR_msync, (long)start, (long)len, (long)flags);
+        return __syscall_return(syscall(__NR_msync, (long)start, (long)len, (long)flags));
 }
 

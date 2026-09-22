@@ -6,7 +6,7 @@
 int umount(char *name)
 {
 	if (!name)
-                return -EINVAL;
-        return syscall(__NR_umount, (long)name, 0, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_umount, (long)name, 0, 0));
 }
 

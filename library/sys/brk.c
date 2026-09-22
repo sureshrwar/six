@@ -51,6 +51,13 @@ unsigned long brk(unsigned long b)
 		__startbrk = __endbrk = b;
 		return 0;
 	}
+	/*
+	 * The kernel would not move the break.  brk() reports an address,
+	 * not a status, so there is no negative return to hand to
+	 * __syscall_return(); set errno here instead.  A refused brk is
+	 * always a shortage of memory.
+	 */
+	errno = ENOMEM;
 	return -1;
 }
 

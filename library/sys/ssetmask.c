@@ -6,7 +6,7 @@
 int ssetmask(int mask)
 {
 	if (mask<0)
-                return -EINVAL;
-        return syscall(__NR_ssetmask, (long)mask, 0, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_ssetmask, (long)mask, 0, 0));
 }
 

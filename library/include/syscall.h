@@ -171,4 +171,52 @@
 #define __NR_mremap             163
 #define __NR_ps			164
 
+/*
+ * Turning a raw system call result into a POSIX one.
+ *
+ * The SIX kernel has no errno to set on the caller's behalf, so it reports
+ * failure the way every Linux kernel does: by returning the negated error
+ * number.  read() coming back as -9 means EBADF, not that nine bytes went
+ * missing.  POSIX asks for the opposite arrangement -- -1 from the call and
+ * the number left in errno -- and that is what callers, and in particular
+ * perror() and strerror(), expect to find.
+ *
+ * Every wrapper in library/sys funnels its result through __syscall_return()
+ * so that the translation happens in exactly one place.  Wrappers that reject
+ * an argument before ever reaching the kernel use __syscall_error() to report
+ * it in the same form.
+ *
+ * Both are written to return a value rather than to set errno as a statement,
+ * so that a wrapper stays the single "return" it has always been and no
+ * argument check has to grow a pair of braces.
+ *
+ * Historical note: until this was introduced only thirteen of the wrappers
+ * set errno; the remaining hundred and twenty-nine handed the kernel's
+ * negative value straight back to the caller.  Both conventions were in use
+ * at once, so the entirely reasonable
+ *
+ *	if (rmdir(path) != 0)
+ *		perror(path);
+ *
+ * detected the failure correctly and then printed "Error 0", errno never
+ * having been touched.
+ */
+
+extern int errno;
+
+static __inline__ int __syscall_return(int ret)
+{
+	if (ret < 0) {
+		errno = -ret;
+		return -1;
+	}
+	return ret;
+}
+
+static __inline__ int __syscall_error(int err)
+{
+	errno = err;
+	return -1;
+}
+
 #endif

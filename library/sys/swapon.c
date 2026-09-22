@@ -6,7 +6,7 @@
 int swapon(char *name, int flags)
 {
 	if (!name)
-                return -EINVAL;
-        return syscall(__NR_swapon, (long)name, (long)flags, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_swapon, (long)name, (long)flags, 0));
 }
 

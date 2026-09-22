@@ -28,9 +28,8 @@
 #define MS_MGC_MSK	0xffff0000
 
 /*
- * Both return 0, or a negative errno.  They do not set errno themselves:
- * nothing in library/sys/ does.  Callers that want perror() have to do
- * "errno = -rc" first, as applications/rm/rm.c does.
+ * Both return 0, or -1 with errno set, like every other wrapper in
+ * library/sys/.
  */
 extern int mount(char *dev, char *dir, char *type,
 		 unsigned long new_flags, void *data);

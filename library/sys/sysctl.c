@@ -9,7 +9,7 @@
 int sysctl(struct __sysctl_args *args)
 {
         if (!args)
-                return -EINVAL;
-        return syscall(__NR__sysctl, (long)args, 0, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR__sysctl, (long)args, 0, 0));
 }
 

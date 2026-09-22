@@ -6,7 +6,7 @@
 int setdomainname(char *name, int len)
 {
 	if (!name || len<0)
-                return -EINVAL;
-        return syscall(__NR_setdomainname, (long)name, (long)len, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_setdomainname, (long)name, (long)len, 0));
 }
 

@@ -7,7 +7,7 @@
 int fchmod(int fd, mode_t mode)
 {
 	if (fd<0)
-                return -EINVAL;
-        return syscall(__NR_fchmod, (long)fd, (long)mode, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_fchmod, (long)fd, (long)mode, 0));
 }
 

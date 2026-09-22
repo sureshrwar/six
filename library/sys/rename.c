@@ -6,8 +6,8 @@
 int rename(char *old, char *new)
 {
 	if (!old || !new)
-                return -EINVAL;
-        return syscall(__NR_rename, (long)old, (long)new, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_rename, (long)old, (long)new, 0));
 }
 
 

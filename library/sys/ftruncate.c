@@ -6,7 +6,7 @@
 int ftruncate(int fd, unsigned long len)
 {
 	if (fd<0)
-                return -EINVAL;
-        return syscall(__NR_ftruncate, (long)fd, (long)len, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_ftruncate, (long)fd, (long)len, 0));
 }
 

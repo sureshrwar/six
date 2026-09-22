@@ -5,6 +5,6 @@
 
 int sched_get_priority_max(int policy)
 {
-        return syscall(__NR_sched_get_priority_max, (long)policy, 0, 0);
+        return __syscall_return(syscall(__NR_sched_get_priority_max, (long)policy, 0, 0));
 }
 

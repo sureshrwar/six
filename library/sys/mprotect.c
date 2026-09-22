@@ -5,6 +5,6 @@
 
 int mprotect(unsigned long addr, unsigned long len, unsigned long prot)
 {
-        return syscall(__NR_mprotect, (long)addr, (long)len, (long)prot);
+        return __syscall_return(syscall(__NR_mprotect, (long)addr, (long)len, (long)prot));
 }
 

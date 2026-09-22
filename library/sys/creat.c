@@ -5,7 +5,7 @@
 int creat(char *pathname, int mode)
 {
 	if (!pathname || mode<0)
-                return -EINVAL;
-        return syscall(__NR_creat, (long)pathname, (long)mode, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_creat, (long)pathname, (long)mode, 0));
 }
 

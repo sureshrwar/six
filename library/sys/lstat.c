@@ -7,7 +7,7 @@
 int lstat(char *name, struct old_stat *s)
 {
 	if (!name || !s)
-        	return -EINVAL;
-        return syscall(__NR_lstat, (long)name, (long)s, 0);
+        	return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_lstat, (long)name, (long)s, 0));
 }
 

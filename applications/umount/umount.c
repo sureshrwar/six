@@ -35,12 +35,6 @@ int main(int argc, char **argv)
 		int rc = umount(argv[i]);
 
 		if (rc < 0) {
-			/*
-			 * The stubs in library/sys/ return the kernel's
-			 * negative errno and never set errno, so perror()
-			 * needs it filled in by hand.
-			 */
-			errno = -rc;
 			perror(argv[i]);
 			ret = 1;
 		}

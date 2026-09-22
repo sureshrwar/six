@@ -5,6 +5,6 @@
 
 int idle()
 {
-        return syscall(__NR_idle, 0, 0, 0);
+        return __syscall_return(syscall(__NR_idle, 0, 0, 0));
 }
 

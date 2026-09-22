@@ -4,5 +4,5 @@
 
 int test(long func)
 {
-	return syscall(6, (long)func, 0, 0);
+	return __syscall_return(syscall(6, (long)func, 0, 0));
 }

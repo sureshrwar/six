@@ -7,7 +7,7 @@
 int olduname(struct oldold_utsname *name)
 {
 	if (!name)
-        	return -EINVAL;
-        return syscall(__NR_olduname, (long)name, 0, 0);
+        	return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_olduname, (long)name, 0, 0));
 }
 

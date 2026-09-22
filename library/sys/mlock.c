@@ -6,6 +6,6 @@
 
 int mlock(unsigned long start, size_t len)
 {
-        return syscall(__NR_mlock, (long)start, (long)len, 0);
+        return __syscall_return(syscall(__NR_mlock, (long)start, (long)len, 0));
 }
 

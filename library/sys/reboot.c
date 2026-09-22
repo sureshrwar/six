@@ -5,6 +5,6 @@
 
 int reboot()
 {
-        return syscall(__NR_reboot, 0, 0, 0);
+        return __syscall_return(syscall(__NR_reboot, 0, 0, 0));
 }
 

@@ -7,6 +7,6 @@
 int llseek(int fd, unsigned long oh, unsigned long ol, loff_t *result, unsigned int origin)
 {
         syscall(__NR__llseek, (long)fd, (long)oh, (long)ol);
-        return syscall(__NR__llseek, (long)result, (long)origin, 0);
+        return __syscall_return(syscall(__NR__llseek, (long)result, (long)origin, 0));
 }
 

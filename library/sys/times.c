@@ -6,6 +6,6 @@
 
 int times(struct tms *t)
 {
-        return syscall(__NR_times, (long)t, 0, 0);
+        return __syscall_return(syscall(__NR_times, (long)t, 0, 0));
 }
 

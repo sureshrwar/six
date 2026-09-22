@@ -5,6 +5,6 @@
 
 int getppid()
 {
-        return syscall(__NR_getppid, 0, 0, 0);
+        return __syscall_return(syscall(__NR_getppid, 0, 0, 0));
 }
 

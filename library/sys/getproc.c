@@ -6,6 +6,6 @@
 int getproc(void *buf)
 {
 	if (!buf)
-                return -EINVAL;
-	return syscall(__NR_ps, (long)buf, (long)0, (long)0);
+                return __syscall_error(EINVAL);
+	return __syscall_return(syscall(__NR_ps, (long)buf, (long)0, (long)0));
 }

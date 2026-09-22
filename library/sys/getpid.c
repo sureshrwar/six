@@ -4,5 +4,5 @@
 
 int getpid()
 {
-	return syscall(__NR_getpid, 0, 0, 0);
+	return __syscall_return(syscall(__NR_getpid, 0, 0, 0));
 }

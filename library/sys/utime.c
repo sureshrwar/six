@@ -8,7 +8,7 @@
 int utime(char *name, struct utimbuf *t)
 {
 	if (!name || !t)
-                return -EINVAL;
-        return syscall(__NR_utime, (long)name, (long)t, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_utime, (long)name, (long)t, 0));
 }
 

@@ -6,8 +6,8 @@
 int mknod(char *name, int mode, long dev)
 {
 	if (!name || mode<0 || dev<0)
-                return -EINVAL;
-        return syscall(__NR_mknod, (long)name, (long)mode, dev);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_mknod, (long)name, (long)mode, dev));
 }
 
 

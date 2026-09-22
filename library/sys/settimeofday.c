@@ -7,7 +7,7 @@
 int settimeofday(struct timeval *tv, struct timezone *tz)
 {	
 	if (!tv || !tz)
-                return -EINVAL;
-        return syscall(__NR_settimeofday, (long)tv, (long)tz, 0);
+                return __syscall_error(EINVAL);
+        return __syscall_return(syscall(__NR_settimeofday, (long)tv, (long)tz, 0));
 }
 

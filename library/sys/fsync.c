@@ -5,6 +5,6 @@
 
 int fsync(int fd)
 {
-        return syscall(__NR_fsync, (long)fd, 0, 0);
+        return __syscall_return(syscall(__NR_fsync, (long)fd, 0, 0));
 }
 
