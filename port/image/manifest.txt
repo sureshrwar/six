@@ -169,10 +169,11 @@ dir   /aux/storage-1        0755
 # --- /etc (init binary + configuration recovered from the SPARC root disk) -
 file  /etc/init             0755  applications/init/init
 file  /etc/hostname         0644  port/image/rootfs/etc/hostname
-file  /etc/hosts            0644  port/image/rootfs/etc/hosts
-file  /etc/hello.c          0644  applications/tcc/test_hello.c
-file  /etc/pthread_demo.c   0644  applications/tcc/test_pthread.c
-file  /etc/lynx.cfg         0644  applications/lynx23/lynx.cfg
+file  /etc/hosts                  0644  port/image/rootfs/etc/hosts
+dir   /etc/demos                  0755
+file  /etc/demos/hello.c          0644  applications/tcc/test_hello.c
+file  /etc/demos/pthread_demo.c   0644  applications/tcc/test_pthread.c
+file  /etc/lynx.cfg               0644  applications/lynx23/lynx.cfg
 file  /etc/motd             0644  port/image/rootfs/etc/motd
 file  /etc/passwd           0644  port/image/rootfs/etc/passwd
 file  /etc/profile          0644  port/image/rootfs/etc/profile
