@@ -34,7 +34,7 @@ static void format_human(long kbytes, char *out)
  * that is not major 3 gets the major:minor form the kernel itself prints,
  * which is what kdevname() in fs/devices.c does.
  */
-static void device_name(const char *path, char *out, int outlen)
+static void device_name(const char *path, long f_type, char *out, int outlen)
 {
 	struct stat st;
 	int major, minor;
@@ -49,6 +49,8 @@ static void device_name(const char *path, char *out, int outlen)
 
 	if (major == 3)
 		snprintf(out, outlen, "/dev/hd%c", 'a' + (minor >> 6));
+	else if (major == 0 && (unsigned long)f_type == 0x65735546UL)
+		snprintf(out, outlen, "fuse");
 	else
 		snprintf(out, outlen, "%02x:%02x", major, minor);
 }
@@ -65,7 +67,7 @@ static int show_df(const char *path, int human)
 		return 1;
 	}
 
-	device_name(path, dev, sizeof(dev));
+	device_name(path, s.f_type, dev, sizeof(dev));
 
 	total_k = (s.f_blocks * s.f_bsize) / 1024;
 	free_k  = (s.f_bfree * s.f_bsize) / 1024;

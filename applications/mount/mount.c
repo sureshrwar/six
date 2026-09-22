@@ -90,9 +90,11 @@ static int show_mounts(void)
  * ignoring the rest would be worse than refusing them, since the caller
  * would have no way to tell that "ro" had been dropped.
  */
-static int parse_options(char *opts, unsigned long *flags)
+static int parse_options(char *opts, unsigned long *flags,
+			 char *fs_data, int fs_data_max)
 {
 	char *p = opts;
+	int dlen = strlen(fs_data);
 
 	while (*p) {
 		char *end = strchr(p, ',');
@@ -121,8 +123,20 @@ static int parse_options(char *opts, unsigned long *flags)
 		else if (!strcmp(p, "defaults"))
 			;
 		else {
-			fprintf(stderr, "mount: unknown option \"%s\"\n", p);
-			return -1;
+			/*
+			 * Filesystem-specific option (e.g. FUSE's
+			 * "fd=3,rootmode=040755,user_id=0,group_id=0"):
+			 * append it to the data string handed to mount(2).
+			 */
+			if (dlen + (dlen ? 1 : 0) + len + 1 >= fs_data_max) {
+				fprintf(stderr, "mount: option string too long\n");
+				return -1;
+			}
+			if (dlen > 0)
+				fs_data[dlen++] = ',';
+			memcpy(fs_data + dlen, p, len);
+			dlen += len;
+			fs_data[dlen] = '\0';
 		}
 
 		if (!end)
@@ -138,7 +152,11 @@ int main(int argc, char **argv)
 	char *type = 0;
 	char *dev = 0, *dir = 0;
 	unsigned long flags = MS_MGC_VAL;
+	char fs_data[512];
+	void *data_ptr = 0;
 	int i, rc;
+
+	fs_data[0] = '\0';
 
 	for (i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "-t")) {
@@ -152,7 +170,7 @@ int main(int argc, char **argv)
 				usage();
 				return 1;
 			}
-			if (parse_options(argv[i], &flags) != 0)
+			if (parse_options(argv[i], &flags, fs_data, sizeof(fs_data)) != 0)
 				return 1;
 		} else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
 			usage();
@@ -179,8 +197,11 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
+	if (fs_data[0])
+		data_ptr = fs_data;
+
 	if (type) {
-		rc = mount(dev, dir, type, flags, 0);
+		rc = mount(dev, dir, type, flags, data_ptr);
 	} else {
 		/*
 		 * Probe.  Every failed attempt looks the same from here, so
@@ -190,7 +211,7 @@ int main(int argc, char **argv)
 		rc = -1;
 		errno = EINVAL;
 		for (i = 0; autotypes[i]; i++) {
-			rc = mount(dev, dir, (char *)autotypes[i], flags, 0);
+			rc = mount(dev, dir, (char *)autotypes[i], flags, data_ptr);
 			if (rc == 0) {
 				type = (char *)autotypes[i];
 				break;

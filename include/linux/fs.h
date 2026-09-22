@@ -218,6 +218,7 @@ static inline int buffer_protected(struct buffer_head * bh)
 
 #include <linux/pipe_fs_i.h>
 #include <linux/ext2_fs_i.h>
+#include <linux/fuse.h>
 
 /*
  * Attribute flags.  These should be or-ed together to figure out what
@@ -300,6 +301,7 @@ struct inode {
                 struct pipe_inode_info pipe_i;
 		struct socket socket_i;
 		struct ext2_inode_info ext2_i;
+		struct fuse_inode_info fuse_i;
 	} u;
 };
 
@@ -389,6 +391,7 @@ struct super_block {
                 struct minix_sb_info minix_sb;
 		struct ext2_sb_info ext2_sb;
 		struct nfs_sb_info nfs_sb;
+		struct fuse_sb_info fuse_sb;
 	} u;
 };
 

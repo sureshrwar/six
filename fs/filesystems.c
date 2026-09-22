@@ -69,6 +69,10 @@ asmlinkage int sys_setup(void)
         init_ext2_fs();
 #endif
 
+#ifdef CONFIG_FUSE_FS
+        init_fuse_fs();
+#endif
+
 #ifdef CONFIG_XIA_FS
         init_xiafs_fs();
 #endif

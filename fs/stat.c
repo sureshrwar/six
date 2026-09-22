@@ -32,6 +32,8 @@ static void cp_old_stat(struct inode * inode, struct old_stat * statbuf)
         printk("VFS: Warning: %s using old stat() call. Recompile your binary.\n",
                 current->comm);
 #endif
+        if (inode->i_sb && inode->i_sb->s_magic == FUSE_SUPER_MAGIC)
+                fuse_revalidate_stat(inode);
         tmp.st_dev = kdev_t_to_nr(inode->i_dev);
         tmp.st_ino = inode->i_ino;
         tmp.st_mode = inode->i_mode;
@@ -55,6 +57,8 @@ static void cp_new_stat(struct inode * inode, struct new_stat * statbuf)
         struct new_stat tmp;
         unsigned int blocks, indirect;
 
+        if (inode->i_sb && inode->i_sb->s_magic == FUSE_SUPER_MAGIC)
+                fuse_revalidate_stat(inode);
         memset(&tmp, 0, sizeof(tmp));
         tmp.st_dev = kdev_t_to_nr(inode->i_dev);
         tmp.st_ino = inode->i_ino;

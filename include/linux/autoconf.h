@@ -84,6 +84,7 @@
 #undef  CONFIG_HPFS_FS
 #undef  CONFIG_SYSV_FS
 #undef  CONFIG_UFS_FS
+#define CONFIG_FUSE_FS 1
 
 /*
  * Character devices
