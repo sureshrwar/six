@@ -14,10 +14,17 @@
 # with the big-endian SPARC image, if anyone ever wants to diff against it.)
 #
 # This script replaces it.  It reads port/image/manifest.txt, assembles a
-# staging tree, and turns that tree into an ext2 image.
+# staging tree, and turns that tree into a root filesystem image.
+#
+# "--fstype ext4" (the default) produces a real ext4 filesystem for the
+# fs/ext4 driver; "--fstype ext2" produces the original revision-0 ext2
+# filesystem for fs/ext2.  Both come from the same staging tree, so booting
+# one and then the other is an A/B test of the two drivers against identical
+# contents.  The Makefile wraps these as "make ext4-image" and
+# "make ext2-image".
 #
 # ---------------------------------------------------------------------------
-# Why fakeroot, and why revision 0
+# Why fakeroot, and why revision 0 for ext2
 # ---------------------------------------------------------------------------
 # Two constraints shape the implementation:
 #
@@ -65,15 +72,27 @@ OUT="disk/x86/root"
 STAGE="port/image/.stage"
 STRICT=0
 
+# Which on-disk format to pack the staging tree into.  ext4 is the default;
+# ext2 is kept so fs/ext2 stays testable and so the pre-ext4 image can be
+# reproduced byte for byte.  See the mke2fs block near the end for what each
+# one actually asks for.
+FSTYPE=ext4
+
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--strict)   STRICT=1 ;;
 	--out)      OUT="$2"; shift ;;
 	--manifest) MANIFEST="$2"; shift ;;
+	--fstype)   FSTYPE="$2"; shift ;;
 	*) echo "mkimage: unknown option $1" >&2; exit 2 ;;
 	esac
 	shift
 done
+
+case "$FSTYPE" in
+ext2|ext4) ;;
+*) echo "mkimage: --fstype must be ext2 or ext4 (got '$FSTYPE')" >&2; exit 2 ;;
+esac
 
 # Geometry: 50 MB ext2 image (51200 x 1 KB blocks, 12800 inodes).
 # Can be overridden via environment variables BLOCK_COUNT and INODE_COUNT.
@@ -152,7 +171,7 @@ fi
 rm -rf "$STAGE"
 mkdir -p "$STAGE" "$(dirname "$OUT")"
 
-export SRCROOT STAGE MANIFEST OUT BLOCK_SIZE BLOCK_COUNT INODE_COUNT
+export SRCROOT STAGE MANIFEST OUT BLOCK_SIZE BLOCK_COUNT INODE_COUNT FSTYPE
 
 fakeroot -- bash -s <<'FAKEROOT_SCRIPT'
 set -u
@@ -206,51 +225,88 @@ chmod 0755 "$STAGE"
 
 rm -f "$OUT"
 
+# Common to both formats:
 # -q        quiet
 # -F        don't complain that the target is a plain file
-# -t ext4   build a real ext4 filesystem, read by SIX's fs/ext4 driver
 # -b 1024   block size, matching the 2005 image
 # -N 1280   inode count, matching the 2005 image
-# -I 256    256-byte inodes.  ext4 needs these for i_extra_isize (the driver
-#           writes extra_isize = 32); they also leave room for the nanosecond
-#           and crtime fields that debugfs shows.
 # -m 5      5% reserved, matching the 256-of-5120 blocks the 2005 image had
 # -U        a fixed UUID, so two builds of the same tree are identical
 # -d        populate from the staging tree
-#
-# The three features we must turn OFF, and why:
-#   ^metadata_csum  SIX has no crc32c implementation, so it can neither verify
-#                   nor maintain group-descriptor/inode/extent checksums.  A
-#                   single guest write would leave every touched structure
-#                   with a stale checksum and e2fsck would reject the image.
-#   ^64bit          64bit widens group descriptors from 32 to 64 bytes and adds
-#                   the *_hi halves.  SIX is strictly 32-bit and its
-#                   ext2_group_desc is the 32-byte layout.
-#   ^orphan_file    a recent INCOMPAT feature; an unknown incompat bit makes
-#                   ext4_read_super() refuse the mount outright.
-#
-# Everything else mke2fs enables by default is kept, and is genuinely
-# exercised by the driver: extents (the B+tree in fs/ext4/extents.c),
-# flex_bg (which is why ext4_check_descriptors() relaxes its per-group
-# containment check), dir_index, sparse_super, filetype, large_file,
-# huge_file, dir_nlink and extra_isize.
-#
-# Note there is no longer any revision demotion here.  The old ext2 image was
-# demoted to revision 0 with "debugfs -w -R 'ssv rev_level 0'" because the 2.0
-# driver only understood the original layout; ext4 requires revision 1 (it is
-# where s_inode_size, s_first_ino and the feature masks live), so that step
-# has been removed.  e2fsck -fn afterwards confirms the result is coherent.
-mke2fs -q -F \
-	-t ext4 \
-	-b "$BLOCK_SIZE" \
-	-N "$INODE_COUNT" \
-	-I 256 \
-	-O ^metadata_csum,^64bit,^orphan_file -m 5 \
-	-U 13bcf00c-78b2-11d9-8fdf-f213c4292cfb \
-	-d "$STAGE" \
-	"$OUT" "$BLOCK_COUNT"
+if [ "$FSTYPE" = ext4 ]; then
+	# -I 256  ext4 needs 256-byte inodes for i_extra_isize (the driver
+	#         writes extra_isize = 32); they also leave room for the
+	#         nanosecond and crtime fields that debugfs shows.
+	#
+	# The three features we must turn OFF, and why:
+	#   ^metadata_csum  SIX has no crc32c implementation, so it can neither
+	#                   verify nor maintain group-descriptor/inode/extent
+	#                   checksums.  A single guest write would leave every
+	#                   touched structure with a stale checksum and e2fsck
+	#                   would reject the image.
+	#   ^64bit          64bit widens group descriptors from 32 to 64 bytes
+	#                   and adds the *_hi halves.  SIX is strictly 32-bit
+	#                   and its ext2_group_desc is the 32-byte layout.
+	#   ^orphan_file    a recent INCOMPAT feature; an unknown incompat bit
+	#                   makes ext4_read_super() refuse the mount outright.
+	#
+	# Everything else mke2fs enables by default is kept, and is genuinely
+	# exercised by the driver: extents (the B+tree in fs/ext4/extents.c),
+	# flex_bg (which is why ext4_check_descriptors() relaxes its per-group
+	# containment check), dir_index, sparse_super, filetype, large_file,
+	# huge_file, dir_nlink and extra_isize.
+	#
+	# Note there is no revision demotion in this branch.  ext4 requires
+	# revision 1 -- it is where s_inode_size, s_first_ino and the feature
+	# masks live.
+	mke2fs -q -F \
+		-t ext4 \
+		-b "$BLOCK_SIZE" \
+		-N "$INODE_COUNT" \
+		-I 256 \
+		-O ^metadata_csum,^64bit,^orphan_file -m 5 \
+		-U 13bcf00c-78b2-11d9-8fdf-f213c4292cfb \
+		-d "$STAGE" \
+		"$OUT" "$BLOCK_COUNT"
 
-[ -s "$OUT" ] || { echo "mkimage: mke2fs produced nothing" >&2; exit 1; }
+	[ -s "$OUT" ] || { echo "mkimage: mke2fs produced nothing" >&2; exit 1; }
+else
+	# -I 128  128-byte inodes; this is what the 2.0 driver assumes and it
+	#         is also mandatory for the revision-0 demotion below.  mke2fs
+	#         warns that 128-byte inodes cannot represent dates past 2038,
+	#         which is a problem this filesystem will not live to have.
+	# -O none clear every feature the mke2fs defaults would otherwise
+	#         enable (sparse_super, large_file, filetype, resize_inode,
+	#         dir_index, ext_attr).  filetype is INCOMPAT and
+	#         dir_index/ext_attr/resize_inode are COMPAT, but the 2.0
+	#         driver understands none of them and sparse_super alone would
+	#         change the block-group layout.
+	#
+	# Note what is NOT here: there is no way to ask mke2fs 1.47 for a
+	# revision-0 filesystem.  "-r 0" was removed and the suggested
+	# replacement, "-E revision=0", fails with "Filesystem features not
+	# supported with revision 0 filesystems" even when -O none has cleared
+	# every feature -- the check runs against a feature set that has not
+	# been zeroed yet.  So we build a feature-free revision-1 filesystem,
+	# which differs from revision 0 only in three superblock fields that
+	# the old driver does not read, and then demote the revision number in
+	# place.  e2fsck -fn afterwards confirms the result is coherent.
+	mke2fs -q -F \
+		-b "$BLOCK_SIZE" \
+		-N "$INODE_COUNT" \
+		-I 128 \
+		-O none -m 5 \
+		-U 13bcf00c-78b2-11d9-8fdf-f213c4292cfb \
+		-d "$STAGE" \
+		"$OUT" "$BLOCK_COUNT" 2>&1 | grep -v '128-byte inodes cannot handle dates'
+
+	[ -s "$OUT" ] || { echo "mkimage: mke2fs produced nothing" >&2; exit 1; }
+
+	debugfs -w -R "ssv rev_level 0" "$OUT" >/dev/null 2>&1 || {
+		echo "mkimage: could not demote the filesystem to revision 0" >&2
+		exit 1
+	}
+fi
 FAKEROOT_SCRIPT
 
 rc=$?
@@ -272,5 +328,5 @@ if [ -n "${SOURCE_DATE_EPOCH:-}" ] && command -v debugfs >/dev/null 2>&1; then
 	debugfs -w -R "ssv lastcheck @$SOURCE_DATE_EPOCH" "$OUT" >/dev/null 2>&1
 fi
 
-echo "mkimage: wrote $OUT ($(stat -c %s "$OUT") bytes, $present file(s), $missing missing)"
+echo "mkimage: wrote $OUT as $FSTYPE ($(stat -c %s "$OUT") bytes, $present file(s), $missing missing)"
 exit 0

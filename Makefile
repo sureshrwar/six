@@ -389,17 +389,59 @@ SIX_IMAGE_TOOL	= port/image/mkimage.sh
 SIX_IMAGE_FILES	= $(wildcard $(shell sed 's/\#.*//' $(SIX_IMAGE_MANIFEST) | \
 		    $(AWK) '$$1 == "file" { print $$4 }'))
 
+# Which on-disk format the root image is packed into.  Override on the command
+# line, or use the ext2-image / ext4-image targets below:
+#
+#     make ext4-image     # default: real ext4, driven by fs/ext4
+#     make ext2-image     # revision-0 ext2, driven by fs/ext2
+#     make image SIX_IMAGE_FSTYPE=ext2
+#
+# Both formats are built from the same staging tree and the same manifest, so
+# this is a genuine A/B: the only thing that changes is which driver in the
+# kernel ends up claiming the root filesystem.  fs/ext4's ext4_read_super()
+# refuses anything without INCOMPAT_EXTENTS, so an ext2 image falls straight
+# through to fs/ext2.
+SIX_IMAGE_STAMP   = port/image/.fstype
+
+# The choice is sticky.  If it were not, then after "make ext2-image" the very
+# next plain "make" -- say to pick up a kernel edit -- would quietly rewrite
+# the image back to ext4 and you would be testing the wrong driver without
+# being told.  So when SIX_IMAGE_FSTYPE is not given explicitly we take last
+# time's answer from the stamp, falling back to ext4 for a fresh tree.
+# ifndef is false for command-line and environment variables, so an explicit
+# setting still wins and the shell runs at most once.
+ifndef SIX_IMAGE_FSTYPE
+SIX_IMAGE_FSTYPE := $(shell cat $(SIX_IMAGE_STAMP) 2>/dev/null || echo ext4)
+endif
+
 # The order-only dependency on "six" keeps the image from being assembled in
 # parallel with the kernel link under make -j; the guest binaries are built
 # by linuxsubdirs, which is a prerequisite of six.
-$(SIX_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_IMAGE_FILES) | six
-	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict
+$(SIX_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_IMAGE_FILES) $(SIX_IMAGE_STAMP) | six
+	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict --fstype $(SIX_IMAGE_FSTYPE)
 
-.PHONY: image image-clean
+# Both formats are written to the same path, so the image's own timestamp
+# cannot tell us which one is currently on disk.  Record it in a stamp file
+# and hang the image off that -- the same trick arch/six/kernel/Makefile uses
+# for SIX_TRACE_GUEST_SYSCALLS.  "dummy" makes the rule run every time; cmp
+# keeps the stamp's timestamp still unless the value actually changed, so
+# "make ext2-image" rebuilds but a second plain "make" stays a no-op.
+$(SIX_IMAGE_STAMP): dummy
+	@mkdir -p $(dir $@)
+	@echo '$(SIX_IMAGE_FSTYPE)' | cmp -s - $@ 2>/dev/null || \
+		echo '$(SIX_IMAGE_FSTYPE)' > $@
+
+.PHONY: image image-clean ext2-image ext4-image
 image: $(SIX_IMAGE)
 
+ext2-image:
+	@$(MAKE) --no-print-directory SIX_IMAGE_FSTYPE=ext2 image
+
+ext4-image:
+	@$(MAKE) --no-print-directory SIX_IMAGE_FSTYPE=ext4 image
+
 image-clean:
-	rm -f $(SIX_IMAGE)
+	rm -f $(SIX_IMAGE) $(SIX_IMAGE_STAMP)
 	rm -rf port/image/.stage
 
 
