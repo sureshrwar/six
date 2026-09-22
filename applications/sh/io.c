@@ -605,6 +605,45 @@ int *lenp;
 	write(1, outbuf, *lenp);
 }
 
+int sh_vi_mode = 0;
+
+static void
+rl_delete_range(outbuf, posp, lenp, start, end)
+char *outbuf;
+int *posp;
+int *lenp;
+int start;
+int end;
+{
+	int pos = *posp;
+	int len = *lenp;
+	int count, i;
+
+	if (start < 0) start = 0;
+	if (end > len) end = len;
+	if (start >= end) return;
+	count = end - start;
+
+	while (pos > start) {
+		write(1, "\b", 1);
+		pos--;
+	}
+	for (i = start; i < len - count; i++)
+		outbuf[i] = outbuf[i + count];
+	len -= count;
+	outbuf[len] = '\0';
+
+	if (len > start)
+		write(1, &outbuf[start], len - start);
+	for (i = 0; i < count; i++)
+		write(1, " ", 1);
+	for (i = 0; i < (len - start) + count; i++)
+		write(1, "\b", 1);
+
+	*posp = start;
+	*lenp = len;
+}
+
 static int
 sh_readline(outbuf)
 char *outbuf;
@@ -613,6 +652,7 @@ char *outbuf;
 	char saved_cur[HIST_LINE_MAX];
 	int len = 0;
 	int pos = 0;
+	int vi_cmd_mode = 0;
 	int hist_idx;
 	int r, i;
 	unsigned char ch, s1, s2, s3;
@@ -638,15 +678,6 @@ char *outbuf;
 			sh_restore_tty();
 			return 0;
 		}
-		if (ch == '\t') {
-			if (pos < len) {
-				write(1, &outbuf[pos], len - pos);
-				pos = len;
-			}
-			sh_tab_complete(outbuf, &len);
-			pos = len;
-			continue;
-		}
 		if (ch == '\r' || ch == '\n') {
 			write(1, "\n", 1);
 			outbuf[len] = '\0';
@@ -656,101 +687,26 @@ char *outbuf;
 			sh_restore_tty();
 			return len;
 		}
-		if (ch == 0x01) { /* Ctrl+A: Home */
-			while (pos > 0) {
-				write(1, "\b", 1);
-				pos--;
-			}
-			continue;
-		}
-		if (ch == 0x05) { /* Ctrl+E: End */
-			if (pos < len) {
-				write(1, &outbuf[pos], len - pos);
-				pos = len;
-			}
-			continue;
-		}
-		if (ch == 0x02) { /* Ctrl+B: Left */
-			if (pos > 0) {
-				write(1, "\b", 1);
-				pos--;
-			}
-			continue;
-		}
-		if (ch == 0x06) { /* Ctrl+F: Right */
-			if (pos < len) {
-				write(1, &outbuf[pos], 1);
-				pos++;
-			}
-			continue;
-		}
-		if (ch == 0x04) { /* Ctrl+D */
-			if (len == 0) {
-				write(1, "\n", 1);
-				sh_restore_tty();
-				return 0;
-			}
-			if (pos < len) {
-				for (i = pos; i < len - 1; i++)
-					outbuf[i] = outbuf[i + 1];
-				len--;
-				outbuf[len] = '\0';
-				write(1, &outbuf[pos], len - pos);
-				write(1, " ", 1);
-				for (i = 0; i < (len - pos) + 1; i++)
-					write(1, "\b", 1);
-			}
-			continue;
-		}
-		if (ch == '\b' || ch == 0x7f) { /* Backspace / DEL */
-			if (pos > 0) {
-				for (i = pos - 1; i < len - 1; i++)
-					outbuf[i] = outbuf[i + 1];
-				pos--;
-				len--;
-				outbuf[len] = '\0';
-				write(1, "\b", 1);
-				if (pos < len)
-					write(1, &outbuf[pos], len - pos);
-				write(1, " ", 1);
-				for (i = 0; i < (len - pos) + 1; i++)
-					write(1, "\b", 1);
-			}
-			continue;
-		}
-		if (ch == 0x15) { /* Ctrl+U: kill line */
-			if (pos < len) {
-				write(1, &outbuf[pos], len - pos);
-				pos = len;
-			}
-			while (len > 0) {
-				len--;
-				write(1, "\b \b", 3);
-			}
-			pos = 0;
-			outbuf[0] = '\0';
-			continue;
-		}
-		if (ch == 0x17) { /* Ctrl+W: erase word */
-			if (pos < len) {
-				write(1, &outbuf[pos], len - pos);
-				pos = len;
-			}
-			while (len > 0 && outbuf[len - 1] == ' ') {
-				len--;
-				write(1, "\b \b", 3);
-			}
-			while (len > 0 && outbuf[len - 1] != ' ') {
-				len--;
-				write(1, "\b \b", 3);
-			}
-			pos = len;
-			outbuf[len] = '\0';
-			continue;
-		}
-		if (ch == 0x1b) { /* ESC sequence (arrow keys: ESC [ A / B / C / D / H / F / 3~) */
-			if (read(0, &s1, 1) <= 0)
+		if (ch == 0x1b) { /* ESC or arrow/function key sequence */
+			raw_tio.c_cc[VMIN] = 0;
+			raw_tio.c_cc[VTIME] = 1;
+			tcsetattr(0, &raw_tio);
+			r = read(0, &s1, 1);
+			raw_tio.c_cc[VMIN] = 1;
+			raw_tio.c_cc[VTIME] = 0;
+			tcsetattr(0, &raw_tio);
+
+			if (r <= 0) {
+				/* Bare ESC key press */
+				if (sh_vi_mode && !vi_cmd_mode) {
+					vi_cmd_mode = 1;
+					if (pos > 0 && pos == len) {
+						write(1, "\b", 1);
+						pos--;
+					}
+				}
 				continue;
+			}
 			if (s1 == '[' || s1 == 'O') {
 				if (read(0, &s2, 1) <= 0)
 					continue;
@@ -804,20 +760,251 @@ char *outbuf;
 								pos = len;
 							}
 						} else if (s2 == '3') { /* Delete */
-							if (pos < len) {
-								for (i = pos; i < len - 1; i++)
-									outbuf[i] = outbuf[i + 1];
-								len--;
-								outbuf[len] = '\0';
-								write(1, &outbuf[pos], len - pos);
-								write(1, " ", 1);
-								for (i = 0; i < (len - pos) + 1; i++)
-									write(1, "\b", 1);
-							}
+							if (pos < len)
+								rl_delete_range(outbuf, &pos, &len, pos, pos + 1);
 						}
 					}
 				}
+				continue;
 			}
+			/* ESC followed immediately by a non-'[' key in vi mode */
+			if (sh_vi_mode) {
+				if (!vi_cmd_mode) {
+					vi_cmd_mode = 1;
+					if (pos > 0 && pos == len) {
+						write(1, "\b", 1);
+						pos--;
+					}
+				}
+				ch = s1;
+			} else {
+				continue;
+			}
+		}
+
+		if (sh_vi_mode && vi_cmd_mode) {
+			if (ch == 'i') {
+				vi_cmd_mode = 0;
+			} else if (ch == 'a') {
+				if (pos < len) {
+					write(1, &outbuf[pos], 1);
+					pos++;
+				}
+				vi_cmd_mode = 0;
+			} else if (ch == 'I') {
+				while (pos > 0) {
+					write(1, "\b", 1);
+					pos--;
+				}
+				vi_cmd_mode = 0;
+			} else if (ch == 'A') {
+				if (pos < len) {
+					write(1, &outbuf[pos], len - pos);
+					pos = len;
+				}
+				vi_cmd_mode = 0;
+			} else if (ch == 'h' || ch == '\b' || ch == 0x7f) {
+				if (pos > 0) {
+					write(1, "\b", 1);
+					pos--;
+				}
+			} else if (ch == 'l' || ch == ' ') {
+				if (pos < len) {
+					write(1, &outbuf[pos], 1);
+					pos++;
+				}
+			} else if (ch == '0') {
+				while (pos > 0) {
+					write(1, "\b", 1);
+					pos--;
+				}
+			} else if (ch == '^') {
+				while (pos > 0) {
+					write(1, "\b", 1);
+					pos--;
+				}
+				while (pos < len && outbuf[pos] == ' ') {
+					write(1, &outbuf[pos], 1);
+					pos++;
+				}
+			} else if (ch == '$') {
+				if (pos < len) {
+					write(1, &outbuf[pos], len - pos);
+					pos = len;
+				}
+				if (pos > 0) {
+					write(1, "\b", 1);
+					pos--;
+				}
+			} else if (ch == 'w' || ch == 'W') {
+				while (pos < len && outbuf[pos] != ' ') {
+					write(1, &outbuf[pos], 1);
+					pos++;
+				}
+				while (pos < len && outbuf[pos] == ' ') {
+					write(1, &outbuf[pos], 1);
+					pos++;
+				}
+			} else if (ch == 'b' || ch == 'B') {
+				if (pos > 0) {
+					write(1, "\b", 1);
+					pos--;
+				}
+				while (pos > 0 && outbuf[pos] == ' ') {
+					write(1, "\b", 1);
+					pos--;
+				}
+				while (pos > 0 && outbuf[pos - 1] != ' ') {
+					write(1, "\b", 1);
+					pos--;
+				}
+			} else if (ch == 'e' || ch == 'E') {
+				if (pos + 1 < len) {
+					write(1, &outbuf[pos], 1);
+					pos++;
+				}
+				while (pos < len && outbuf[pos] == ' ') {
+					write(1, &outbuf[pos], 1);
+					pos++;
+				}
+				while (pos + 1 < len && outbuf[pos + 1] != ' ') {
+					write(1, &outbuf[pos], 1);
+					pos++;
+				}
+			} else if (ch == 'k' || ch == '-') {
+				if (hist_idx > 0) {
+					if (hist_idx == hist_count) {
+						outbuf[len] = '\0';
+						strcpy(saved_cur, outbuf);
+					}
+					hist_idx--;
+					rl_replace_line(outbuf, &pos, &len, hist_lines[hist_idx]);
+				}
+			} else if (ch == 'j' || ch == '+') {
+				if (hist_idx < hist_count) {
+					hist_idx++;
+					if (hist_idx == hist_count)
+						rl_replace_line(outbuf, &pos, &len, saved_cur);
+					else
+						rl_replace_line(outbuf, &pos, &len, hist_lines[hist_idx]);
+				}
+			} else if (ch == 'x') {
+				if (pos < len) {
+					rl_delete_range(outbuf, &pos, &len, pos, pos + 1);
+					if (pos >= len && pos > 0) {
+						write(1, "\b", 1);
+						pos--;
+					}
+				}
+			} else if (ch == 'X') {
+				if (pos > 0)
+					rl_delete_range(outbuf, &pos, &len, pos - 1, pos);
+			} else if (ch == 'D') {
+				rl_delete_range(outbuf, &pos, &len, pos, len);
+				if (pos > 0) {
+					write(1, "\b", 1);
+					pos--;
+				}
+			} else if (ch == 'C') {
+				rl_delete_range(outbuf, &pos, &len, pos, len);
+				vi_cmd_mode = 0;
+			} else if (ch == 'S') {
+				rl_replace_line(outbuf, &pos, &len, "");
+				vi_cmd_mode = 0;
+			} else if (ch == 'r') {
+				if (read(0, &s1, 1) > 0 && s1 >= ' ' && s1 < 0x7f && pos < len) {
+					outbuf[pos] = s1;
+					write(1, &s1, 1);
+					write(1, "\b", 1);
+				}
+			} else if (ch == 'd' || ch == 'c') {
+				if (read(0, &s1, 1) > 0) {
+					if (s1 == ch) { /* dd or cc */
+						rl_replace_line(outbuf, &pos, &len, "");
+					} else if (s1 == '$') {
+						rl_delete_range(outbuf, &pos, &len, pos, len);
+					} else if (s1 == '0') {
+						rl_delete_range(outbuf, &pos, &len, 0, pos);
+					} else if (s1 == 'w' || s1 == 'W') {
+						int wend = pos;
+						while (wend < len && outbuf[wend] != ' ')
+							wend++;
+						if (ch == 'd') {
+							while (wend < len && outbuf[wend] == ' ')
+								wend++;
+						}
+						rl_delete_range(outbuf, &pos, &len, pos, wend);
+					}
+					if (ch == 'c')
+						vi_cmd_mode = 0;
+				}
+			}
+			continue;
+		}
+
+		if (ch == '\t') {
+			if (pos < len) {
+				write(1, &outbuf[pos], len - pos);
+				pos = len;
+			}
+			sh_tab_complete(outbuf, &len);
+			pos = len;
+			continue;
+		}
+		if (ch == 0x01) { /* Ctrl+A: Home */
+			while (pos > 0) {
+				write(1, "\b", 1);
+				pos--;
+			}
+			continue;
+		}
+		if (ch == 0x05) { /* Ctrl+E: End */
+			if (pos < len) {
+				write(1, &outbuf[pos], len - pos);
+				pos = len;
+			}
+			continue;
+		}
+		if (ch == 0x02) { /* Ctrl+B: Left */
+			if (pos > 0) {
+				write(1, "\b", 1);
+				pos--;
+			}
+			continue;
+		}
+		if (ch == 0x06) { /* Ctrl+F: Right */
+			if (pos < len) {
+				write(1, &outbuf[pos], 1);
+				pos++;
+			}
+			continue;
+		}
+		if (ch == 0x04) { /* Ctrl+D */
+			if (len == 0) {
+				write(1, "\n", 1);
+				sh_restore_tty();
+				return 0;
+			}
+			if (pos < len)
+				rl_delete_range(outbuf, &pos, &len, pos, pos + 1);
+			continue;
+		}
+		if (ch == '\b' || ch == 0x7f) { /* Backspace / DEL */
+			if (pos > 0)
+				rl_delete_range(outbuf, &pos, &len, pos - 1, pos);
+			continue;
+		}
+		if (ch == 0x15) { /* Ctrl+U: kill line */
+			rl_replace_line(outbuf, &pos, &len, "");
+			continue;
+		}
+		if (ch == 0x17) { /* Ctrl+W: erase word */
+			int wstart = pos;
+			while (wstart > 0 && outbuf[wstart - 1] == ' ')
+				wstart--;
+			while (wstart > 0 && outbuf[wstart - 1] != ' ')
+				wstart--;
+			rl_delete_range(outbuf, &pos, &len, wstart, pos);
 			continue;
 		}
 		if (ch >= ' ' && ch < 0x7f) {

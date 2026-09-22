@@ -433,6 +433,28 @@ register struct op *t;
 			varput(vp->name, 1);
 		return(0);
 	}
+	if (strcmp(cp, "-o") == 0 || strcmp(cp, "+o") == 0) {
+		extern int sh_vi_mode;
+		int enable = (cp[0] == '-');
+		char *opt = t->words[2];
+		if (opt == NULL) {
+			prs("vi\t\t");
+			prs(sh_vi_mode ? "on\n" : "off\n");
+			prs("emacs\t\t");
+			prs(sh_vi_mode ? "off\n" : "on\n");
+			return(0);
+		}
+		if (strcmp(opt, "vi") == 0) {
+			sh_vi_mode = enable ? 1 : 0;
+			return(0);
+		}
+		if (strcmp(opt, "emacs") == 0) {
+			sh_vi_mode = enable ? 0 : 1;
+			return(0);
+		}
+		err("set: unknown option");
+		return(1);
+	}
 	if (*cp == '-') {
 		/* bad: t->words++; */
 		for(n = 0; (t->words[n]=t->words[n+1]) != NULL; n++)

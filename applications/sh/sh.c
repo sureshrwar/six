@@ -148,6 +148,9 @@ register char **argv;
                         next(remap(f));
                 if ((f = open("/etc/profile", 0)) >= 0)
                         next(remap(f));
+        } else if (talking) {
+                if ((f = open("/.bashrc", 0)) >= 0)
+                        next(remap(f));
         }
         if (talking) {
                 signal(SIGTERM, sig);

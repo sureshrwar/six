@@ -150,7 +150,10 @@ file  /etc/hello.c          0644  applications/tcc/test_hello.c
 file  /etc/lynx.cfg         0644  applications/lynx23/lynx.cfg
 file  /etc/motd             0644  port/image/rootfs/etc/motd
 file  /etc/passwd           0644  port/image/rootfs/etc/passwd
+file  /etc/profile          0644  port/image/rootfs/etc/profile
 file  /etc/rc               0755  port/image/rootfs/etc/rc
+file  /.profile             0644  port/image/rootfs/root/.profile
+file  /.bashrc              0644  port/image/rootfs/root/.bashrc
 file  /etc/shadow           0600  port/image/rootfs/etc/shadow
 file  /etc/shelp.txt        0644  port/image/rootfs/etc/shelp.txt
 file  /etc/termcap          0644  port/image/rootfs/etc/termcap

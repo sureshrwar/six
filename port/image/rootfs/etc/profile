@@ -1,0 +1,4 @@
+PATH=/bin:/usr/bin:/etc
+TERM=linux
+export PATH TERM
+set -o vi
