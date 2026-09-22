@@ -93,7 +93,26 @@ SUBDIRS	=	start \
 		weather \
 		ext4info \
 		ntfs-3g \
-		file
+		file \
+		uname \
+		dmesg \
+		free \
+		uptime \
+		lsof \
+		ln \
+		chmod \
+		stat \
+		readlink \
+		du \
+		hexdump \
+		strings \
+		nm \
+		size \
+		diff \
+		env \
+		tee \
+		cut \
+		xargs
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

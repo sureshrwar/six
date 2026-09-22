@@ -816,7 +816,7 @@ void six_symlink(struct pt_regs *u)
 {
 	char *new, *old;
 	int ret;
-	grab_args(u, (long *)&new, (long *)&old, 0);
+	grab_args(u, (long *)&old, (long *)&new, 0);
 	ret = sys_symlink(old, new);
 	put_ret(u, (long)ret);
 }

@@ -346,8 +346,12 @@ void mem_init(unsigned long start_mem, unsigned long end_mem)
 #endif
                 pg0[0] = 0;
                 flush_tlb();
+#if (SIX)
+                wp_works_ok = 1;
+#else
                 if (wp_works_ok < 0)
                         wp_works_ok = 0;
+#endif
         }
         return;
 }

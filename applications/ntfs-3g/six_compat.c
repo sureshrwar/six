@@ -507,6 +507,11 @@ void vsyslog(int priority, const char *format, va_list ap)
 	(void)priority; (void)format; (void)ap;
 }
 
+void syslog(int priority, const char *format, ...)
+{
+	(void)priority; (void)format;
+}
+
 void closelog(void)
 {
 }

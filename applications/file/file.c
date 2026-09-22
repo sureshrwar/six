@@ -27,19 +27,21 @@ read_u32(const unsigned char *p, int msb)
 }
 
 static void
-describe_elf(const unsigned char *buf, int n, char *out, int outsz)
+describe_elf(int fd, const unsigned char *buf, int n, char *out, int outsz)
 {
 	int cls = buf[4];
 	int data = buf[5];
 	int ver = buf[6];
 	int msb = (data == 2);
 	unsigned short e_type = 0, e_machine = 0, e_phentsize = 0, e_phnum = 0;
-	unsigned int e_phoff = 0;
+	unsigned short e_shentsize = 0, e_shnum = 0;
+	unsigned int e_phoff = 0, e_shoff = 0;
 	const char *cls_str = (cls == 1) ? "32-bit" : (cls == 2) ? "64-bit" : "unknown-class";
 	const char *end_str = (data == 1) ? "LSB" : (data == 2) ? "MSB" : "unknown-endian";
 	const char *type_str = "object";
 	const char *mach_str = "unknown architecture";
 	const char *link_str = "";
+	const char *strip_str = "";
 
 	if (n >= 20) {
 		e_type = read_u16(buf + 16, msb);
@@ -63,29 +65,56 @@ describe_elf(const unsigned char *buf, int n, char *out, int outsz)
 	case 243: mach_str = "RISC-V"; break;
 	}
 
-	if (cls == 1 && e_type == 2 && n >= 44) {
-		int dynamic = 0;
+	if (cls == 1 && n >= 52) {
 		unsigned int i;
 		e_phoff = read_u32(buf + 28, msb);
+		e_shoff = read_u32(buf + 32, msb);
 		e_phentsize = read_u16(buf + 42, msb);
 		e_phnum = read_u16(buf + 44, msb);
-		if (e_phentsize >= 32 && e_phnum > 0 && e_phnum < 32) {
-			for (i = 0; i < e_phnum; i++) {
-				unsigned int off = e_phoff + i * e_phentsize;
-				if (off + 4 <= (unsigned int)n) {
-					unsigned int p_type = read_u32(buf + off, msb);
-					if (p_type == 2 || p_type == 3) { /* PT_DYNAMIC or PT_INTERP */
-						dynamic = 1;
-						break;
+		e_shentsize = read_u16(buf + 46, msb);
+		e_shnum = read_u16(buf + 48, msb);
+
+		if (e_type == 2) {
+			int dynamic = 0;
+			if (e_phentsize >= 32 && e_phnum > 0 && e_phnum < 32) {
+				for (i = 0; i < e_phnum; i++) {
+					unsigned int off = e_phoff + i * e_phentsize;
+					if (off + 4 <= (unsigned int)n) {
+						unsigned int p_type = read_u32(buf + off, msb);
+						if (p_type == 2 || p_type == 3) {
+							dynamic = 1;
+							break;
+						}
 					}
 				}
 			}
+			link_str = dynamic ? ", dynamically linked" : ", statically linked";
 		}
-		link_str = dynamic ? ", dynamically linked" : ", statically linked";
+
+		if (fd >= 0 && (e_type == 1 || e_type == 2 || e_type == 3)) {
+			if (e_shoff > 0 && e_shentsize >= 40 && e_shnum > 0 && e_shnum < 128) {
+				int has_symtab = 0;
+				unsigned char shbuf[64];
+				int rlen = (e_shentsize < sizeof(shbuf)) ? e_shentsize : sizeof(shbuf);
+				for (i = 0; i < e_shnum; i++) {
+					if (lseek(fd, (off_t)(e_shoff + i * e_shentsize), SEEK_SET) >= 0 &&
+					    read(fd, (char *)shbuf, rlen) == rlen) {
+						unsigned int sh_type = read_u32(shbuf + 4, msb);
+						if (sh_type == 2) { /* SHT_SYMTAB */
+							has_symtab = 1;
+							break;
+						}
+					}
+				}
+				strip_str = has_symtab ? ", not stripped" : ", stripped";
+			} else {
+				strip_str = ", stripped";
+			}
+		}
 	}
 
-	snprintf(out, outsz, "ELF %s %s %s, %s, version %d (SYSV)%s",
-	         cls_str, end_str, type_str, mach_str, ver ? ver : 1, link_str);
+	snprintf(out, outsz, "ELF %s %s %s, %s, version %d (SYSV)%s%s",
+	         cls_str, end_str, type_str, mach_str, ver ? ver : 1, link_str, strip_str);
 }
 
 static int
@@ -96,12 +125,12 @@ has_prefix(const char *s, int slen, const char *pfx)
 }
 
 static void
-classify_buffer(const unsigned char *buf, int n, char *out, int outsz)
+classify_buffer(int fd, const unsigned char *buf, int n, char *out, int outsz)
 {
 	int i, printable = 0, high = 0, nul = 0, has_nl = 0;
 
 	if (n >= 4 && buf[0] == 0x7f && buf[1] == 'E' && buf[2] == 'L' && buf[3] == 'F') {
-		describe_elf(buf, n, out, outsz);
+		describe_elf(fd, buf, n, out, outsz);
 		return;
 	}
 	if (n >= 8 && memcmp(buf, "!<arch>\n", 8) == 0) {
@@ -254,11 +283,11 @@ inspect_file(const char *path)
 				snprintf(desc, sizeof(desc), "regular file, no read permission");
 		} else {
 			n = read(fd, (char *)buf, sizeof(buf) - 1);
-			close(fd);
 			if (n <= 0)
 				snprintf(desc, sizeof(desc), "empty");
 			else
-				classify_buffer(buf, n, desc, sizeof(desc));
+				classify_buffer(fd, buf, n, desc, sizeof(desc));
+			close(fd);
 		}
 	}
 

@@ -387,6 +387,7 @@ endif
 # which rebuilds the image.
 #
 # SIX_IMAGE itself is defined near the top of this file, next to do-it-all.
+AWK		?= awk
 SIX_IMAGE_MANIFEST = port/image/manifest.txt
 SIX_IMAGE_TOOL	= port/image/mkimage.sh
 SIX_IMAGE_FILES	= $(wildcard $(shell sed 's/\#.*//' $(SIX_IMAGE_MANIFEST) | \
