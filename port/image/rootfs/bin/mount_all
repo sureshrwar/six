@@ -1,6 +1,9 @@
 #!/bin/sh
 # /bin/mount_all - detect and mount primary and secondary storage
 
+mkdir -p /proc
+mount -t proc proc /proc
+
 primary_fs=`ext4info -t /dev/hda`
 case "$primary_fs" in
 ext4|ext2)

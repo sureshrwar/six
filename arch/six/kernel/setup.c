@@ -234,6 +234,28 @@ int register_interrupt_handler(int t, void (* func)(int, void *, void *))
 {
 	return six_host_install_handler(t, (six_host_handler_t) func);
 }
+
+extern unsigned long loops_per_sec;
+
+int get_cpuinfo(char *buffer)
+{
+	return sprintf(buffer,
+		"processor\t: 0\n"
+		"cpu\t\t: 586\n"
+		"model\t\t: SIX User-Mode Linux 2.0.11 (i386)\n"
+		"vendor_id\t: GenuineSIX\n"
+		"stepping\t: 1\n"
+		"fdiv_bug\t: no\n"
+		"hlt_bug\t\t: no\n"
+		"fpu\t\t: yes\n"
+		"fpu_exception\t: yes\n"
+		"cpuid\t\t: yes\n"
+		"wp\t\t: yes\n"
+		"flags\t\t: fpu vme de pse tsc msr mce cx8\n"
+		"bogomips\t: %lu.%02lu\n",
+		(loops_per_sec + 2500) / 500000,
+		((loops_per_sec + 2500) / 5000) % 100);
+}
 #endif
 
 

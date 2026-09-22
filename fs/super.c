@@ -297,6 +297,21 @@ static struct proc_nfs_info {
         { 0, NULL }
 };
 
+int get_filesystem_list(char * buf)
+{
+        int len = 0;
+        struct file_system_type * tmp;
+
+        tmp = file_systems;
+        while (tmp && len < PAGE_SIZE - 80) {
+                len += sprintf(buf+len, "%s\t%s\n",
+                        tmp->requires_dev ? "" : "nodev",
+                        tmp->name);
+                tmp = tmp->next;
+        }
+        return len;
+}
+
 int get_filesystem_info( char *buf )
 {
         struct vfsmount *tmp = vfsmntlist;

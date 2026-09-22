@@ -302,6 +302,7 @@ struct inode {
 		struct socket socket_i;
 		struct ext2_inode_info ext2_i;
 		struct fuse_inode_info fuse_i;
+		void *generic_ip;
 	} u;
 };
 

@@ -2159,6 +2159,29 @@ int request_irq(unsigned int irq,
         return retval;
 }
 
+int get_irq_list(char *buf)
+{
+        int i, len = 0;
+        struct irqaction * action;
+
+        for (i = 0 ; i < NR_IRQS ; i++) {
+                action = irq_action[i];
+                if (!action)
+                        continue;
+                len += sprintf(buf+len, "%2d: %10u   %c %s",
+                        i, kstat.interrupts[i],
+                        (action->flags & SA_INTERRUPT) ? '+' : ' ',
+                        action->name);
+                for (action = action->next; action; action = action->next) {
+                        len += sprintf(buf+len, ",%s %s",
+                                (action->flags & SA_INTERRUPT) ? " +" : "",
+                                action->name);
+                }
+                len += sprintf(buf+len, "\n");
+        }
+        return len;
+}
+
 void ret_from_sys_call(struct pt_regs *context)
 {
 	if (bh_mask & bh_active)

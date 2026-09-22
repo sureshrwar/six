@@ -22,6 +22,7 @@
 dir   /bin                  0755
 dir   /etc                  0755
 dir   /dev                  0755
+dir   /proc                 0555
 dir   /lib                  0755
 dir   /tmp                  1777
 dir   /usr                  0755

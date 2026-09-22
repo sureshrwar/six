@@ -70,8 +70,7 @@ static int show_mounts(void)
 
 	if (!f) {
 		fprintf(stderr,
-			"mount: no mount table available -- this kernel is built\n"
-			"       without CONFIG_PROC_FS, so there is no /proc/mounts.\n");
+			"mount: cannot open /proc/mounts (try: mount -t proc proc /proc)\n");
 		return 1;
 	}
 

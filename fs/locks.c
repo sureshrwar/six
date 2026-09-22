@@ -1025,5 +1025,26 @@ void show_locks(void)
         }
 }
 #endif
+
+int get_locks_status(char *buffer)
+{
+        struct file_lock *fl;
+        int len = 0, i = 1;
+
+        for (fl = file_lock_table; fl != NULL && len < PAGE_SIZE - 120; fl = fl->fl_nextlink, i++) {
+                len += sprintf(buffer + len, "%d: %s %s %s %d %02x:%02x:%ld %ld %ld\n",
+                               i,
+                               (fl->fl_flags & F_POSIX) ? "POSIX " : "FLOCK ",
+                               "ADVISORY ",
+                               (fl->fl_type == F_WRLCK) ? "WRITE" : "READ ",
+                               fl->fl_owner ? fl->fl_owner->pid : 0,
+                               fl->fl_file && fl->fl_file->f_inode ? MAJOR(fl->fl_file->f_inode->i_dev) : 0,
+                               fl->fl_file && fl->fl_file->f_inode ? MINOR(fl->fl_file->f_inode->i_dev) : 0,
+                               fl->fl_file && fl->fl_file->f_inode ? (long)fl->fl_file->f_inode->i_ino : 0L,
+                               (long)fl->fl_start,
+                               (long)fl->fl_end);
+        }
+        return len;
+}
        
 

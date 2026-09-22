@@ -7,6 +7,7 @@ int main(void)
 	chdir("/");
 	sync();
 	umount("/aux/storage-1");
+	umount("/proc");
 	umount("/");
 	sync();
 	kill(1, SIGTERM);

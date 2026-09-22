@@ -177,6 +177,7 @@ struct inode_operations proc_profile_inode_operations = {
 static int get_loadavg(char * buffer)
 {
 	int a, b, c;
+	extern int last_pid;
 
 	a = avenrun[0] + (FIXED_1/200);
 	b = avenrun[1] + (FIXED_1/200);
@@ -415,7 +416,12 @@ static unsigned long get_wchan(struct task_struct *p)
 {
 	if (!p || p == current || p->state == TASK_RUNNING)
 		return 0;
-#if defined(__i386__)
+#if (SIX)
+	{
+		extern unsigned long six_task_saved_pc(struct task_struct *p);
+		return six_task_saved_pc(p);
+	}
+#elif defined(__i386__)
 	{
 		unsigned long ebp, eip;
 		unsigned long stack_page;
@@ -460,7 +466,10 @@ static unsigned long get_wchan(struct task_struct *p)
 	return 0;
 }
 
-#if defined(__i386__)
+#if (SIX)
+# define KSTK_EIP(tsk)	((unsigned long)(tsk)->ucontext.pc)
+# define KSTK_ESP(tsk)	((unsigned long)(tsk)->ucontext.kesp)
+#elif defined(__i386__)
 # define KSTK_EIP(tsk)	(((unsigned long *)tsk->kernel_stack_page)[1019])
 # define KSTK_ESP(tsk)	(((unsigned long *)tsk->kernel_stack_page)[1022])
 #elif defined(__alpha__)

@@ -293,7 +293,11 @@ int mem_mmap(struct inode * inode, struct file * file,
 			return -ENOMEM;
 
 		if (!pte_present(*src_table))
+#if (SIX)
+			return -EINVAL;
+#else
 			do_no_page(tsk, src_vma, stmp, 1);
+#endif
 
 		if ((vma->vm_flags & VM_WRITE) && !pte_write(*src_table))
 			do_wp_page(tsk, src_vma, stmp, 1);

@@ -149,8 +149,19 @@ struct proc_dir_entry proc_sys_root = {
 	NULL, NULL				/* parent, subdir */
 };
 
+extern int _end;
+static struct proc_dir_entry proc_static_pool[128];
+static int proc_static_pool_used = 0;
+
 int proc_register(struct proc_dir_entry * dir, struct proc_dir_entry * dp)
 {
+	if ((unsigned long)dp >= (unsigned long)&_end) {
+		if (proc_static_pool_used < (int)(sizeof(proc_static_pool) / sizeof(proc_static_pool[0]))) {
+			struct proc_dir_entry *copy = &proc_static_pool[proc_static_pool_used++];
+			*copy = *dp;
+			dp = copy;
+		}
+	}
 	dp->next = dir->subdir;
 	dp->parent = dir;
 	dir->subdir = dp;

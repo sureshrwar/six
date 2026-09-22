@@ -96,3 +96,16 @@ void reserve_setup(char *str, int *ints)
                 request_region(ints[i], ints[i+1], "reserved");
 }
 
+int get_ioport_list(char *buf)
+{
+        resource_entry_t *p;
+        int len = 0;
+
+        for (p = iolist.next; (p) && (len < 4000); p = p->next)
+                len += sprintf(buf+len, "%04lx-%04lx : %s\n",
+                           p->from, p->from+p->num-1, p->name);
+        if (p)
+                len += sprintf(buf+len, "4K limit reached!\n");
+        return len;
+}
+

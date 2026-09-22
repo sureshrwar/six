@@ -78,7 +78,7 @@
 #undef  CONFIG_MSDOS_FS
 #undef  CONFIG_VFAT_FS
 #undef  CONFIG_UMSDOS_FS
-#undef  CONFIG_PROC_FS
+#define CONFIG_PROC_FS 1
 #undef  CONFIG_NCP_FS
 #undef  CONFIG_ISO9660_FS
 #undef  CONFIG_HPFS_FS
