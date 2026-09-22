@@ -649,37 +649,72 @@ void rand_initialize_irq(int irq)
 }
 
 static int
-random_read(struct inode * inode, struct file * file, char * buf, int nbytes)
-{
-
-}
-
-static int
 random_read_unlimited(struct inode * inode, struct file * file,
                       char * buf, int nbytes)
 {
+        static __u32 prng_state = 0x9e3779b9U;
+        struct timeval tv;
+        int i, err;
 
+        if (nbytes <= 0)
+                return 0;
+        err = verify_area(VERIFY_WRITE, buf, nbytes);
+        if (err)
+                return err;
+
+        do_gettimeofday(&tv);
+        fast_add_entropy_word(&random_state, (__u32)tv.tv_sec ^ (__u32)jiffies);
+        fast_add_entropy_word(&random_state, (__u32)tv.tv_usec);
+        prng_state ^= (__u32)tv.tv_usec ^ (__u32)jiffies ^ 0x85ebca6bU;
+
+        for (i = 0; i < nbytes; i++) {
+                __u32 w = random_state.pool[(random_state.add_ptr + i) & (POOLWORDS - 1)];
+                prng_state ^= prng_state << 13;
+                prng_state ^= prng_state >> 17;
+                prng_state ^= prng_state << 5;
+                w ^= prng_state;
+                put_user((unsigned char)((w >> ((i & 3) * 8)) & 0xff), buf + i);
+        }
+        fast_add_entropy_word(&random_state, prng_state);
+        return nbytes;
+}
+
+static int
+random_read(struct inode * inode, struct file * file, char * buf, int nbytes)
+{
+        return random_read_unlimited(inode, file, buf, nbytes);
 }
 
 static int
 random_select(struct inode *inode, struct file *file,
                       int sel_type, select_table * wait)
 {
-
+        if (sel_type == SEL_IN || sel_type == SEL_OUT)
+                return 1;
+        return 0;
 }
 
 static int
 random_write(struct inode * inode, struct file * file,
              const char * buffer, int count)
 {
+        int i, err;
 
+        if (count <= 0)
+                return 0;
+        err = verify_area(VERIFY_READ, buffer, count);
+        if (err)
+                return err;
+        for (i = 0; i < count; i++)
+                fast_add_entropy_word(&random_state, (unsigned char)get_user(buffer + i));
+        return count;
 }
 
 static int
 random_ioctl(struct inode * inode, struct file * file,
              unsigned int cmd, unsigned long arg)
 {
-
+        return -EINVAL;
 }
 
 struct file_operations random_fops = {

@@ -101,6 +101,11 @@ asmlinkage int sys_setup(void)
         init_proc_fs();
 #endif
 
+        {
+                extern int init_tmpfs_fs(void);
+                init_tmpfs_fs();
+        }
+
 #ifdef CONFIG_NFS_FS
         init_nfs_fs();
 #endif

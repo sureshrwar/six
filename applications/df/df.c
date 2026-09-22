@@ -51,6 +51,8 @@ static void device_name(const char *path, long f_type, char *out, int outlen)
 		snprintf(out, outlen, "/dev/hd%c", 'a' + (minor >> 6));
 	else if (major == 0 && (unsigned long)f_type == 0x65735546UL)
 		snprintf(out, outlen, "fuse");
+	else if ((unsigned long)f_type == 0x01021994UL)
+		snprintf(out, outlen, "tmpfs");
 	else
 		snprintf(out, outlen, "%02x:%02x", major, minor);
 }
@@ -114,11 +116,16 @@ int main(int argc, char **argv)
 
 	rc = show_df("/", human);
 	{
-		struct stat st_root, st_aux;
-		if (stat("/", &st_root) == 0 &&
-		    stat("/aux/storage-1", &st_aux) == 0 &&
-		    st_aux.st_dev != st_root.st_dev) {
-			show_df("/aux/storage-1", human);
+		struct stat st_root, st_tmp, st_aux;
+		if (stat("/", &st_root) == 0) {
+			if (stat("/tmp", &st_tmp) == 0 &&
+			    st_tmp.st_dev != st_root.st_dev) {
+				show_df("/tmp", human);
+			}
+			if (stat("/aux/storage-1", &st_aux) == 0 &&
+			    st_aux.st_dev != st_root.st_dev) {
+				show_df("/aux/storage-1", human);
+			}
 		}
 	}
 	return rc;

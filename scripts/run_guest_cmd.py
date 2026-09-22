@@ -24,7 +24,7 @@ import sys
 import time
 
 
-def run_guest_commands(commands, six_bin="./six", timeout=20.0, show_boot=False):
+def run_guest_commands(commands, six_bin="./six", timeout=60.0, show_boot=False):
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     pid, master = pty.fork()
     if pid == 0:
@@ -53,14 +53,18 @@ def run_guest_commands(commands, six_bin="./six", timeout=20.0, show_boot=False)
             if not sent_login and "login:" in buf:
                 os.write(master, b"root\r")
                 sent_login = True
+                start = time.time()
                 continue
 
             if sent_login and cmd_queue:
-                prompt_pos = buf.rfind("# ")
-                if prompt_pos > last_prompt_pos and "root@" in buf[:prompt_pos]:
-                    last_prompt_pos = prompt_pos
-                    next_cmd = cmd_queue.pop(0)
-                    os.write(master, (next_cmd + "\r").encode("utf-8"))
+                if buf.endswith("# "):
+                    prompt_pos = buf.rfind("# ")
+                    if prompt_pos > last_prompt_pos and "root@" in buf[:prompt_pos]:
+                        last_prompt_pos = prompt_pos
+                        next_cmd = cmd_queue.pop(0)
+                        time.sleep(0.05)
+                        os.write(master, (next_cmd + "\r").encode("utf-8"))
+                        start = time.time()
     finally:
         try:
             os.close(master)
@@ -95,8 +99,8 @@ def main():
     parser.add_argument(
         "--timeout",
         type=float,
-        default=20.0,
-        help="Timeout in seconds (default: 20.0).",
+        default=60.0,
+        help="Per-command timeout in seconds (default: 60.0).",
     )
     parser.add_argument(
         "--boot-log",

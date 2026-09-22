@@ -393,6 +393,7 @@ struct super_block {
 		struct ext2_sb_info ext2_sb;
 		struct nfs_sb_info nfs_sb;
 		struct fuse_sb_info fuse_sb;
+		void *generic_sbp;
 	} u;
 };
 

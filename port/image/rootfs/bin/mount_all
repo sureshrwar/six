@@ -4,6 +4,9 @@
 mkdir -p /proc
 mount -t proc proc /proc
 
+mkdir -p /tmp
+mount -t tmpfs tmpfs /tmp
+
 primary_fs=`ext4info -t /dev/hda`
 case "$primary_fs" in
 ext4|ext2)
