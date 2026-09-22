@@ -50,6 +50,8 @@ SUBDIRS	=	start \
 		sl \
 		cp \
 		dd \
+		mount \
+		umount \
 		mv \
 		mkdir \
 		rmdir \

@@ -79,6 +79,8 @@ applications/*/cowsay
 applications/*/sl
 applications/*/cp
 applications/*/dd
+applications/*/mount
+applications/*/umount
 applications/*/mv
 applications/*/mkdir
 applications/*/rmdir

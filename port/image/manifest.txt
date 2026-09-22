@@ -85,6 +85,8 @@ file  /bin/lynx23           0755  applications/lynx23/lynx23
 file  /bin/mail             0755  applications/mail/mail
 file  /bin/matrix           0755  applications/matrix/matrix
 file  /bin/mkdir            0755  applications/mkdir/mkdir
+file  /bin/mount            0755  applications/mount/mount
+file  /bin/umount           0755  applications/umount/umount
 file  /bin/mv               0755  applications/mv/mv
 file  /bin/nettest          0755  applications/nettest/nettest
 file  /bin/ps               0755  applications/ps/ps
