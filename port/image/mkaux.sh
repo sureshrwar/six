@@ -53,7 +53,7 @@ LABEL="six-aux-1"
 
 usage() {
 	cat <<EOF
-Usage: mkaux.sh [--fstype ext2|ext4] [--out PATH] [--force]
+Usage: mkaux.sh [--fstype ext2|ext4|ntfs] [--out PATH] [--force]
 
 Creates the optional auxiliary disk that SIX exposes as /dev/hdb.  Nothing
 mounts it; that is up to /etc/rc or whoever is at the shell:
@@ -62,9 +62,9 @@ mounts it; that is up to /etc/rc or whoever is at the shell:
     mount /dev/hdb /aux/storage-1
 
 Options:
-  --fstype ext2|ext4   on-disk format (default: \$SIX_AUX_FSTYPE, else ext4)
-  --out PATH           where to write it (default: $ARCH_DIR/aux_storage-1)
-  --force              overwrite an existing image instead of refusing
+  --fstype ext2|ext4|ntfs  on-disk format (default: \$SIX_AUX_FSTYPE, else ext4)
+  --out PATH               where to write it (default: $ARCH_DIR/aux_storage-1)
+  --force                  overwrite an existing image instead of refusing
 EOF
 }
 
@@ -80,8 +80,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "$FSTYPE" in
-ext2|ext4) ;;
-*) echo "mkaux: --fstype must be ext2 or ext4 (got '$FSTYPE')" >&2; exit 2 ;;
+ext2|ext4|ntfs) ;;
+*) echo "mkaux: --fstype must be ext2, ext4, or ntfs (got '$FSTYPE')" >&2; exit 2 ;;
 esac
 
 # Same geometry as the root disk: 50 MB in 1 KB blocks.  There is no reason
@@ -91,12 +91,21 @@ BLOCK_SIZE=1024
 BLOCK_COUNT=${BLOCK_COUNT:-51200}
 INODE_COUNT=${INODE_COUNT:-$((BLOCK_COUNT / 4))}
 
-for tool in fakeroot mke2fs; do
-	command -v "$tool" >/dev/null 2>&1 || {
-		echo "mkaux: $tool not found -- install it (Debian: e2fsprogs, fakeroot)" >&2
+if [ "$FSTYPE" = "ntfs" ]; then
+	MKNTFS=$(command -v mkntfs || command -v /usr/sbin/mkntfs || command -v /sbin/mkntfs || true)
+	NTFSCP=$(command -v ntfscp || command -v /usr/sbin/ntfscp || command -v /sbin/ntfscp || true)
+	if [ -z "$MKNTFS" ] || [ -z "$NTFSCP" ]; then
+		echo "mkaux: mkntfs/ntfscp not found -- install ntfs-3g" >&2
 		exit 1
-	}
-done
+	fi
+else
+	for tool in fakeroot mke2fs; do
+		command -v "$tool" >/dev/null 2>&1 || {
+			echo "mkaux: $tool not found -- install it (Debian: e2fsprogs, fakeroot)" >&2
+			exit 1
+		}
+	done
+fi
 
 # Refuse by default.  Unlike the root disk, this one is expected to hold
 # things the user put there, and it is not reconstructible from the tree --
@@ -135,7 +144,15 @@ EOF
 
 rm -f "$OUT"
 
-if [ "$FSTYPE" = "ext4" ]; then
+if [ "$FSTYPE" = "ntfs" ]; then
+	# 50 MB flat image with BPB geometry matching SIX's emulated IDE
+	# drive (512-byte sectors, 16 heads, 63 sectors/track, start sector 0).
+	dd if=/dev/zero of="$OUT" bs="$BLOCK_SIZE" count="$BLOCK_COUNT" status=none
+	"$MKNTFS" -q -F -s 512 -p 0 -H 16 -S 63 -L "$LABEL" "$OUT" 2>&1 | \
+		grep -v 'is not a block device\|mkntfs forced anyway' || true
+	[ -s "$OUT" ] || { echo "mkaux: mkntfs produced nothing" >&2; exit 1; }
+	"$NTFSCP" -f "$OUT" "$STAGE/README" README
+elif [ "$FSTYPE" = "ext4" ]; then
 	# The same three features have to be off as for the root image, for
 	# the same reasons -- see the long comment in mkimage.sh:
 	#   ^metadata_csum  SIX has no crc32c, so it can neither verify nor
@@ -173,16 +190,18 @@ else
 	}
 fi
 
-[ -s "$OUT" ] || { echo "mkaux: mke2fs produced nothing" >&2; exit 1; }
+[ -s "$OUT" ] || { echo "mkaux: produced nothing" >&2; exit 1; }
 
-# -m 0 above: no reserved blocks.  The 5% root reservation on the root disk
-# exists so the system can still be repaired when userland fills the disk.
-# Nothing is ever repaired from this one, so the space is better given back.
-e2fsck -fn "$OUT" >/dev/null 2>&1 || {
-	echo "mkaux: e2fsck is unhappy with the image just created" >&2
-	e2fsck -fn "$OUT" >&2 || true
-	exit 1
-}
+if [ "$FSTYPE" != "ntfs" ]; then
+	# -m 0 above: no reserved blocks.  The 5% root reservation on the root disk
+	# exists so the system can still be repaired when userland fills the disk.
+	# Nothing is ever repaired from this one, so the space is better given back.
+	e2fsck -fn "$OUT" >/dev/null 2>&1 || {
+		echo "mkaux: e2fsck is unhappy with the image just created" >&2
+		e2fsck -fn "$OUT" >&2 || true
+		exit 1
+	}
+fi
 
 size_mb=$(( BLOCK_COUNT * BLOCK_SIZE / 1024 / 1024 ))
 echo "mkaux: wrote $OUT ($FSTYPE, ${size_mb} MB)"

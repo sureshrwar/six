@@ -459,13 +459,24 @@ image-clean:
 # Ask for it explicitly with aux-image-clean.
 #
 #     make aux-image                       # 50 MB ext4
-#     make aux-image SIX_AUX_FSTYPE=ext2   # 50 MB ext2, under an ext4 root
+#     make ext2-aux-image                  # 50 MB ext2
+#     make ext4-aux-image                  # 50 MB ext4
+#     make ntfs-aux-image                  # 50 MB NTFS
 #
 SIX_AUX_TOOL = port/image/mkaux.sh
 
-.PHONY: aux-image aux-image-clean
+.PHONY: aux-image ext2-aux-image ext4-aux-image ntfs-aux-image aux-image-clean
 aux-image:
 	$(CONFIG_SHELL) $(SIX_AUX_TOOL) $(if $(SIX_AUX_FSTYPE),--fstype $(SIX_AUX_FSTYPE),)
+
+ext2-aux-image:
+	$(CONFIG_SHELL) $(SIX_AUX_TOOL) --force --fstype ext2
+
+ext4-aux-image:
+	$(CONFIG_SHELL) $(SIX_AUX_TOOL) --force --fstype ext4
+
+ntfs-aux-image:
+	$(CONFIG_SHELL) $(SIX_AUX_TOOL) --force --fstype ntfs
 
 aux-image-clean:
 	rm -f disk/x86/aux_storage-1 disk/sparc/aux_storage-1
