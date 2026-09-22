@@ -259,6 +259,28 @@ node  /dev/ttyp2            0666  c  3  2
 node  /dev/ptyp3            0666  c  2  3
 node  /dev/ttyp3            0666  c  3  3
 
+# --- /dev (character major 1 = MEM_MAJOR) ----------------------------------
+# The memory devices.  drivers/char/mem.c has been registering major 1 since
+# the 2005 import -- device_setup() calls chr_dev_init(), which does
+# register_chrdev(MEM_MAJOR, "mem", &memory_fops) -- and memory_open()
+# dispatches on the minor to a set of file_operations that are all intact.
+# There were simply never any nodes, so nothing could reach them.
+#
+# The consequence was quiet and bad: "cmd > /dev/null" does not fail when
+# /dev/null is absent.  The shell creates it, so the output was written to
+# a regular file called /dev/null that grew on every boot.
+#
+# Minor numbers are the standard Linux ones, and they have to be, because
+# memory_open() switches on exactly these values:
+#   3  null  -- read returns 0 (EOF), write swallows and reports success
+#   5  zero  -- read fills the buffer with zeroes, write behaves as null
+#
+# Mode 0666: these are safe for anyone to use, which is the whole point.
+# Other minors the driver also implements but that are not given nodes
+# here: 1 mem, 2 kmem, 4 port, 7 full, 8 random, 9 urandom.
+node  /dev/null              0666  c  1  3
+node  /dev/zero              0666  c  1  5
+
 # --- /dev (block major 3 = HD_MAJOR) ---------------------------------------
 # The raw root disk.  The kernel has always registered this device --
 # hd_init() does register_blkdev(3, "hd", ...) and ROOT_DEV is hardcoded to
