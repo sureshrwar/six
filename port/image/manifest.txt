@@ -65,6 +65,7 @@ file  /bin/df               0755  applications/df/df
 file  /bin/dhrystone        0755  applications/dhrystone/dhrystone
 file  /bin/echo             0755  applications/echo/echo
 file  /bin/eliza            0755  applications/eliza/eliza
+file  /bin/file             0755  applications/file/file
 file  /bin/fortune          0755  applications/fortune/fortune
 file  /bin/getty            0755  applications/getty/getty
 file  /bin/gomoku           0755  applications/gomoku/gomoku

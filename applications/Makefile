@@ -92,7 +92,8 @@ SUBDIRS	=	start \
 		sysctl \
 		weather \
 		ext4info \
-		ntfs-3g
+		ntfs-3g \
+		file
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

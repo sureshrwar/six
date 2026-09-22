@@ -121,6 +121,7 @@ applications/*/panic
 applications/*/sysctl
 applications/*/weather
 applications/*/ext4info
+applications/*/file
 applications/ntfs-3g/ntfs-3g
 applications/ntfs-3g/ntfs-3g.probe
 applications/advent/advent
