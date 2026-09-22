@@ -134,9 +134,12 @@ file  /bin/weather          0755  applications/weather/weather
 file  /bin/ext4info         0755  applications/ext4info/ext4info
 file  /bin/ntfs-3g          0755  applications/ntfs-3g/ntfs-3g
 file  /bin/ntfs-3g.probe    0755  applications/ntfs-3g/ntfs-3g.probe
+file  /bin/mount_all        0755  port/image/rootfs/bin/mount_all
 file  /bin/set_d            0755  port/image/rootfs/bin/set_d
 file  /bin/clear_d          0755  port/image/rootfs/bin/clear_d
 file  /bin/hang_and_panic   0755  port/image/rootfs/bin/hang_and_panic
+dir   /aux                  0755
+dir   /aux/storage-1        0755
 
 # --- /etc (init binary + configuration recovered from the SPARC root disk) -
 file  /etc/init             0755  applications/init/init

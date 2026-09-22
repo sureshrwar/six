@@ -126,18 +126,11 @@ This is the SIX auxiliary disk, /dev/hdb.
 
 It is a $FSTYPE filesystem in a flat file, $ARCH_DIR/aux_storage-1 on the
 host, reached through the emulated IDE controller exactly as the root disk
-is.  Nothing mounts it for you.  To attach it:
+is.  At boot, /etc/rc runs /bin/mount_all, which detects the filesystem type
+on /dev/hdb (NTFS, ext4, or ext2) and mounts it on /aux/storage-1.
 
-    mkdir -p /aux/storage-1
-    mount /dev/hdb /aux/storage-1
-
-and before halting:
-
-    umount /aux/storage-1
-
-The umount matters.  halt(8) does not sync and sys_reboot() does not
-either, so without it the superblock stays marked dirty and e2fsck on the
-host reports the filesystem as not cleanly unmounted.
+When shutting down with halt(8), /aux/storage-1 is cleanly unmounted and
+synced before reboot().
 
 If you are reading this file, the mount worked.
 EOF
@@ -205,5 +198,4 @@ fi
 
 size_mb=$(( BLOCK_COUNT * BLOCK_SIZE / 1024 / 1024 ))
 echo "mkaux: wrote $OUT ($FSTYPE, ${size_mb} MB)"
-echo "mkaux: it is NOT mounted at boot -- see /README on the disk, or run"
-echo "mkaux:     mkdir -p /aux/storage-1 && mount /dev/hdb /aux/storage-1"
+echo "mkaux: /etc/rc will auto-detect $FSTYPE via /bin/mount_all and mount it on /aux/storage-1"

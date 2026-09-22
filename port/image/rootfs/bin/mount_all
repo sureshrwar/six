@@ -1,0 +1,37 @@
+#!/bin/sh
+# /bin/mount_all - detect and mount primary and secondary storage
+
+primary_fs=`ext4info -t /dev/hda`
+case "$primary_fs" in
+ext4|ext2)
+	echo "Mounting primary storage: $primary_fs filesystem detected"
+	;;
+*)
+	echo "Mounting primary storage: $primary_fs"
+	;;
+esac
+
+secondary_fs=`ext4info -t /dev/hdb`
+case "$secondary_fs" in
+none)
+	echo "Mounting secondary storage: not detected"
+	;;
+NTFS)
+	echo "Mounting secondary storage: NTFS filesystem detected"
+	mkdir -p /aux/storage-1
+	ntfs-3g /dev/hdb /aux/storage-1
+	;;
+ext4)
+	echo "Mounting secondary storage: ext4 filesystem detected"
+	mkdir -p /aux/storage-1
+	mount -t ext4 /dev/hdb /aux/storage-1
+	;;
+ext2)
+	echo "Mounting secondary storage: ext2 filesystem detected"
+	mkdir -p /aux/storage-1
+	mount -t ext2 /dev/hdb /aux/storage-1
+	;;
+*)
+	echo "Mounting secondary storage: unknown filesystem"
+	;;
+esac

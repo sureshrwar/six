@@ -256,6 +256,7 @@ static void fuse_put_super(struct super_block *sb)
 			req.in.opcode = FUSE_DESTROY;
 			req.in.nodeid = 0;
 			fuse_request_send(fc, &req);
+			fsync_dev(0);
 		}
 		fuse_conn_abort(fc);
 		fc->mounted = 0;

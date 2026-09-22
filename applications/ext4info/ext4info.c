@@ -14,7 +14,48 @@
 
 extern int open(const char *pathname, int flags, ...);
 extern int close(int fd);
+extern int read(int fd, void *buf, int count);
 extern int ioctl(int fd, int request, ...);
+
+static int detect_fs_type(const char *dev_path)
+{
+	unsigned char buf[2048];
+	int fd, n;
+	unsigned short s_magic;
+	unsigned int s_rev_level;
+	unsigned int s_feature_incompat;
+
+	fd = open(dev_path, O_RDONLY);
+	if (fd < 0) {
+		printf("none\n");
+		return 1;
+	}
+
+	memset(buf, 0, sizeof(buf));
+	n = read(fd, buf, sizeof(buf));
+	close(fd);
+
+	if (n >= 512 && memcmp(buf + 3, "NTFS    ", 8) == 0) {
+		printf("NTFS\n");
+		return 0;
+	}
+
+	if (n >= 1024 + 100) {
+		s_magic = *(unsigned short *)(buf + 1024 + 0x38);
+		s_rev_level = *(unsigned int *)(buf + 1024 + 0x4c);
+		s_feature_incompat = *(unsigned int *)(buf + 1024 + 0x60);
+		if (s_magic == 0xEF53) {
+			if (s_rev_level != 0 && (s_feature_incompat & 0x0040))
+				printf("ext4\n");
+			else
+				printf("ext2\n");
+			return 0;
+		}
+	}
+
+	printf("unknown\n");
+	return 2;
+}
 
 static void print_incompat_flags(unsigned int f)
 {
@@ -121,8 +162,11 @@ int main(int argc, char **argv)
 {
 	int i, rc = 0;
 
+	if (argc == 3 && strcmp(argv[1], "-t") == 0)
+		return detect_fs_type(argv[2]);
+
 	if (argc < 2) {
-		printf("Usage: ext4info <path> [path2 ...]\n");
+		printf("Usage: ext4info [-t <dev>] <path> [path2 ...]\n");
 		printf("Inspect live on-disk ext4 256-byte inode & extent B+tree structures.\n");
 		return 1;
 	}

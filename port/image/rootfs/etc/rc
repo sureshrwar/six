@@ -5,6 +5,10 @@ echo Executing /etc/rc.
 
 sleep 0.25
 
+/bin/mount_all
+
+sleep 0.25
+
 # Hostname is initialized by kernel (-H flag, SIX_HOSTNAME env, or default 'black')
 echo Setting hostname to `hostname`
 

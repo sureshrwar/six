@@ -1,7 +1,15 @@
 #include <linux/signal.h>
+#include <linux/unistd.h>
+#include <sys/mount.h>
 
-main()
+int main(void)
 {
+	chdir("/");
+	sync();
+	umount("/aux/storage-1");
+	umount("/");
+	sync();
 	kill(1, SIGTERM);
 	reboot();
+	return 0;
 }
