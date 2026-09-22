@@ -96,13 +96,32 @@ static inline void outb_p(int val, int port)
 		case	499		:	/* which sector starting */
 							start_sec = val;
 							break;
-		case	500		:	/* now the cylinder */
-							cyl = val;
+		case	500		:	/* HD_LCYL: low byte of the cylinder */
+							cyl = (cyl & 0xff00) | (val & 0xff);
 							break;
-		case	501		:	/* cyl >> 8 */
+		case	501		:	/*
+							 * HD_HCYL: high byte of the cylinder.
+							 * This used to be discarded, which
+							 * silently truncated the cylinder to 8
+							 * bits: any access above cylinder 255
+							 * (~131 MB at this geometry) aliased back
+							 * into the low part of the disk.  hd_out()
+							 * always writes HD_LCYL before HD_HCYL,
+							 * and both before the command byte at
+							 * port 503, so merging here is safe.
+							 */
+							cyl = (cyl & 0x00ff) | ((val & 0xff) << 8);
 							break;
-		case	502		:	/*	head */
-							head = (val & (HD_HEAD-1));
+		case	502		:	/*
+							 * HD_CURRENT: 101dhhhh, d=drive, hhhh=head.
+							 * The head field is four bits wide by
+							 * definition; masking with HD_HEAD-1 instead
+							 * happened to work only because HD_HEAD is a
+							 * power of two, and would have silently
+							 * folded the head number had it ever
+							 * stopped being one.
+							 */
+							head = (val & 0x0f);
 							break;
 		case	503		:	/* command!! */
 							cmd = val;

@@ -506,7 +506,13 @@ void wait_for_key()
 
 void setup_disk_info()
 {
-	struct dummy_drive_struct tmp = { HD_CYL, HD_HEAD, 0, 0, 0, HD_SECT, 0, 0 };
+	/*
+	 * check_root() runs before us and has already sized the disk, so
+	 * six_hd_cyl is the measured cylinder count by now.
+	 */
+	struct dummy_drive_struct tmp = { 0, HD_HEAD, 0, 0, 0, HD_SECT, 0, 0 };
+
+	tmp.cyl = six_hd_cyl;
 	memcpy(empty_zero_page+0x80, &tmp, sizeof(tmp));
 #if 0
 	*(char *)(empty_zero_page+0x1F2) = MS_RDONLY;
@@ -536,6 +542,44 @@ void check_root(const char *disk_arg)
 				"* through the environment variable DISKFILE\n",
 				root);
 		exit(1);
+	}
+
+	/*
+	 * Size the disk and derive the emulated geometry from it.
+	 *
+	 * lseek() rather than fstat(): this translation unit already pulls in
+	 * the kernel's own <linux/fs.h>, whose struct definitions do not
+	 * coexist with the host's <sys/stat.h>.  The literal 2 is SEEK_END,
+	 * spelled out for the same reason -- and it matches the existing
+	 * style in drivers/block/hd.c, which passes a bare 0 for SEEK_SET.
+	 *
+	 * lseek() has no prototype in scope here so it is taken to return
+	 * int, which caps the disk we can measure at 2 GB.  That is far
+	 * beyond anything SIX can address anyway: the emulated task-file
+	 * carries a 16-bit cylinder number, so the ceiling is 65535 cylinders.
+	 */
+	{
+		long cyl_bytes = (long) HD_HEAD * HD_SECT * 512;
+		long bytes     = lseek(DISKFD, 0L, 2);
+
+		lseek(DISKFD, 0L, 0);
+
+		if (bytes <= 0) {
+			fprintf(stderr, "warning: cannot determine the size of %s; "
+					"assuming %d cylinders\n", root, HD_CYL_DEFAULT);
+		} else {
+			six_disk_sectors = bytes / 512;
+			/* Round up so the last partial cylinder stays addressable. */
+			six_hd_cyl = (bytes + cyl_bytes - 1) / cyl_bytes;
+
+			if (six_hd_cyl > 65535) {
+				six_hd_cyl       = 65535;
+				six_disk_sectors = (long) six_hd_cyl * HD_HEAD * HD_SECT;
+				fprintf(stderr, "warning: %s is larger than the emulated "
+						"controller can address; using the first %ld MB\n",
+						root, (six_disk_sectors * 512) / (1024 * 1024));
+			}
+		}
 	}
 }
 

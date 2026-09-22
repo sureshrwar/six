@@ -152,8 +152,15 @@ int block_write(struct inode * inode, struct file * filp, const char * buf, int 
                         brelse(bufferlist[i]);
                 }
         }
-
-
+        /*
+         * Missing in the original tree, exactly as in block_read() below:
+         * the function computed write_error and written and then fell off
+         * the end without returning either.
+         */
+        filp->f_reada = 0;
+        if (write_error)
+                return -EIO;
+        return written;
 }
 
 
@@ -186,11 +193,23 @@ int block_read(struct inode * inode, struct file * filp, char * buf, int count)
                 blocksize_bits++;
                 i >>= 1;
         }
-        blocksize_bits = 0;
-        while (i != 1) {
-                blocksize_bits++;
-                i >>= 1;
-        }
+        /*
+         * There used to be a second, identical copy of the loop above
+         * here.  It re-zeroed blocksize_bits and then did nothing, because
+         * the first loop had already shifted i down to 1 -- so block_read()
+         * always ran with a shift of 0.  That makes "block = offset >>
+         * blocksize_bits" use the byte offset as a block number and
+         * "offset & (blocksize-1)" select the wrong bytes within the
+         * block, and the copy loop then returns whatever was already in
+         * the user's buffer.
+         *
+         * The duplication dates from the original 2005 tree and never
+         * mattered, because reading a block device requires a node under
+         * /dev and there wasn't one until /dev/hda was added: mount_root()
+         * reaches the disk through the buffer cache, not through
+         * block_read().  block_write() below has always had just the one
+         * copy.
+         */
 
         offset = filp->f_pos;
         if (blk_size[MAJOR(dev)])
@@ -291,23 +310,18 @@ int block_read(struct inode * inode, struct file * filp, char * buf, int count)
                         filp->f_pos += chars;
                         left -= chars;
                         read += chars;
-                        if (*bhe) {
-                                wait_on_buffer(*bhe);
-                                if (!buffer_uptodate(*bhe)) {   /* read error? */
-                                        brelse(*bhe);
-                                        if (++bhe == &buflist[NBUF])
-                                          bhe = buflist;
-                                        left = 0;
-                                        break;
-                                }
-                        }
-                        if (left < blocksize - offset)
-                                chars = left;
-                        else
-                                chars = blocksize - offset;
-                        filp->f_pos += chars;
-                        left -= chars;
-                        read += chars;
+                        /*
+                         * A second, identical copy of the wait-and-account
+                         * sequence above used to sit here, between the
+                         * accounting and the memcpy_tofs() that consumes
+                         * chars.  It advanced f_pos, drained left and added
+                         * to read a second time while only one block was
+                         * ever copied, so the byte count this function
+                         * reported ran at twice the truth and f_pos skipped
+                         * every other block.  Compare fs/sysv/file.c:155-184
+                         * and fs/ext/file.c, which carry the same loop
+                         * undamaged.
+                         */
                         if (*bhe) {
                                 memcpy_tofs(buf,offset+(*bhe)->b_data,chars);
                                 brelse(*bhe);
@@ -322,13 +336,41 @@ int block_read(struct inode * inode, struct file * filp, char * buf, int count)
                 } while (left > 0 && bhe != bhb && (!*bhe || !buffer_locked(*bhe)));
         } while (left > 0);
 
-
-
+/*
+ * Release the read-ahead blocks, then report how much was copied.
+ *
+ * Everything from here down was simply absent: the function ran its loop
+ * and then fell off the end without a return statement, so callers got
+ * whatever happened to be in the return register.  That is why the first
+ * read() of /dev/hda appeared to succeed with an enormous byte count while
+ * leaving the caller's buffer untouched.  It went unnoticed for twenty
+ * years because nothing could reach block_read() -- there was no block
+ * device node in the image, and the root filesystem talks to the buffer
+ * cache directly.  The identical loop in fs/sysv/file.c:187-200 and
+ * fs/ext/file.c:186-195 shows what belongs here.
+ *
+ * The read-ahead loop matters as much as the return: without it, every
+ * buffer that was requested but not consumed keeps its reference forever
+ * and is never returned to the free list.
+ */
+        while (bhe != bhb) {
+                brelse(*bhe);
+                if (++bhe == &buflist[NBUF])
+                        bhe = buflist;
+        };
+        if (!read)
+                return -EIO;
+        filp->f_reada = 1;
+        return read;
 }
 
 
 int block_fsync(struct inode *inode, struct file *filp)
 {
-
-
+        /*
+         * Also empty in the original tree, and also missing its return.
+         * Flushing the device is the whole point of the method: it is what
+         * fsync(2) on /dev/hda, and BLKFLSBUF's fsync_dev() call, rely on.
+         */
+        return fsync_dev(inode->i_rdev);
 }

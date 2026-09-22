@@ -45,10 +45,39 @@ extern int RAMFD, TERMFD, DISKFD;
 
 /*
  * hard disk related stuff
+ *
+ * HD_HEAD and HD_SECT are the emulated drive's track geometry.  They have
+ * to stay compile-time constants because both halves of the CHS<->LBA
+ * conversion must agree on them, and one of those halves is an inline
+ * function: do_hd_request() in drivers/block/hd.c turns an LBA into
+ * C/H/S and writes it to the emulated task-file registers, and outb_p()
+ * in <asm/io.h> turns it straight back into an LBA.  The values are
+ * otherwise arbitrary -- no real drive is being modelled.
+ *
+ * The cylinder count is *not* a constant.  It is derived at runtime by
+ * check_root() from the actual size of the disk file, so that the
+ * capacity the driver advertises matches the number of sectors that are
+ * really backed by that file.  The old fixed 1048 claimed ~516 MB from a
+ * 50 MB file; since do_hard_read() ignores short reads, every access past
+ * EOF quietly returned whatever the previous sector had left behind in
+ * disk_buffer.  Nothing noticed while the root filesystem was the only
+ * thing touching the disk, but /dev/hda makes the whole range reachable.
+ *
+ * HD_CYL_DEFAULT is only the fallback for a disk whose size cannot be
+ * determined.
  */
-#define HD_CYL		1048
+#define HD_CYL_DEFAULT	1048
 #define HD_HEAD		4
 #define HD_SECT		252
+
+/*
+ * six_disk_sectors is the authoritative capacity in 512-byte sectors, and
+ * is what hd_geninit() publishes as the device size.  six_hd_cyl is
+ * rounded *up* from it purely so that the CHS geometry can still address
+ * the final partial cylinder; it is never used as a capacity.
+ */
+extern int  six_hd_cyl;		/* derived in check_root() */
+extern long six_disk_sectors;	/* derived in check_root() */
 
 #if (__i386__)
 #define DISKFILE	"./disk/x86/root"

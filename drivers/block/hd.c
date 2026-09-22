@@ -83,6 +83,15 @@ static int hd_error = 0;
 
 int DISKFD = -1;
 
+/*
+ * Emulated drive geometry.  check_root() overwrites both of these as soon
+ * as it has opened the disk file and measured it; the initialisers only
+ * matter on the path where that measurement fails.  Declared in
+ * <solaris.h>.
+ */
+int  six_hd_cyl       = HD_CYL_DEFAULT;
+long six_disk_sectors = (long) HD_CYL_DEFAULT * HD_HEAD * HD_SECT;
+
 int hd_sect[MAX_HD<<6], hd_head[MAX_HD<<6];
 
 unsigned short disk_buffer[512];
@@ -1113,13 +1122,52 @@ static void hd_geninit(struct gendisk *ignored)
 		 * what's happening here, we'll find out and correct
 		 * it later when "identifying" the drive.
 		 */
+#if (SIX)
+		/*
+		 * Advertise the true size of the backing file rather than
+		 * the CHS product.  six_hd_cyl is rounded up, so the product
+		 * generally overshoots by up to one cylinder -- and since
+		 * do_hd_request() range-checks against nr_sects while
+		 * do_hard_read() ignores short reads, anything we advertise
+		 * beyond the end of the file reads back as a stale copy of
+		 * the previous sector instead of failing.
+		 *
+		 * Only drive 0 is backed by a file; NR_HD is 1 here, but be
+		 * explicit about it rather than relying on that.
+		 */
+		hd[i<<6].nr_sects = i ? 0 : six_disk_sectors;
+#else
 		hd[i<<6].nr_sects = bios_info[i].head *
 				bios_info[i].sect * bios_info[i].cyl;
+#endif
 		hd_ident_info[i] = (struct hd_driveid *) kmalloc(512,GFP_KERNEL);
 #if (!SIX)
 		special_op[i] = 1;
 #endif
 	}
+#if (SIX)
+	/*
+	 * Publish the device size, in 1K units, to the generic block layer.
+	 *
+	 * Normally setup_dev() in drivers/block/genhd.c does this after
+	 * scanning the partition table, but SIX compiles that loop out (see
+	 * the "#if (!SIX)" in device_setup()) because its disk is a bare
+	 * filesystem image with no partition table to scan.  The side effect
+	 * was that blk_size[HD_MAJOR] stayed NULL, and every consumer of it
+	 * treats NULL as "no size known":
+	 *
+	 *   - block_read() falls back to INT_MAX, so reading /dev/hda runs
+	 *     off the end of the disk instead of returning EOF, and the
+	 *     read-ahead asks for blocks the hd driver then rejects one at
+	 *     a time with "bad access".
+	 *   - ll_rw_blk()'s own range check is skipped entirely.
+	 *
+	 * Setting it here keeps the partition scan out of the picture: minor
+	 * 0 is the whole disk, which is all this driver has ever exposed.
+	 */
+	hd_sizes[0] = hd[0].nr_sects >> (BLOCK_SIZE_BITS - 9);
+	blk_size[MAJOR_NR] = hd_sizes;
+#endif
 	if (NR_HD) {
 		if (request_irq(HD_IRQ, hd_interrupt, SA_INTERRUPT, "hd", NULL)) {
 			printk("hd: unable to get IRQ%d for the harddisk driver\n",HD_IRQ);
