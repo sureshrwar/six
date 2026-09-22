@@ -49,6 +49,7 @@ SUBDIRS	=	start \
 		cowsay \
 		sl \
 		cp \
+		dd \
 		mv \
 		mkdir \
 		rmdir \

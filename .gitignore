@@ -73,6 +73,7 @@ applications/*/eliza
 applications/*/cowsay
 applications/*/sl
 applications/*/cp
+applications/*/dd
 applications/*/mv
 applications/*/mkdir
 applications/*/rmdir

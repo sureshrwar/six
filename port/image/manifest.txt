@@ -59,6 +59,7 @@ file  /bin/clear            0755  applications/clear/clear
 file  /bin/cowsay           0755  applications/cowsay/cowsay
 file  /bin/cp               0755  applications/cp/cp
 file  /bin/date             0755  applications/date/date
+file  /bin/dd               0755  applications/dd/dd
 file  /bin/df               0755  applications/df/df
 file  /bin/dhrystone        0755  applications/dhrystone/dhrystone
 file  /bin/echo             0755  applications/echo/echo
@@ -255,3 +256,16 @@ node  /dev/ptyp2            0666  c  2  2
 node  /dev/ttyp2            0666  c  3  2
 node  /dev/ptyp3            0666  c  2  3
 node  /dev/ttyp3            0666  c  3  3
+
+# --- /dev (block major 3 = HD_MAJOR) ---------------------------------------
+# The raw root disk.  The kernel has always registered this device --
+# hd_init() does register_blkdev(3, "hd", ...) and ROOT_DEV is hardcoded to
+# 3:0 by parse_root_dev() -- but mount_root() reaches it by fabricating an
+# inode rather than by resolving a path, so nothing ever required a node
+# here.  This one exists purely so that userland (/bin/dd) can read the
+# disk directly.
+#
+# Mode 0600 is conventional rather than protective: everything in SIX runs
+# as root.  Writing to this device while / is mounted read-write will
+# corrupt the filesystem, exactly as it would on real hardware.
+node  /dev/hda              0600  b  3  0
