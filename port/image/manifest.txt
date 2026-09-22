@@ -128,6 +128,7 @@ sym   /bin/dungeon          -     zork
 file  /bin/panic            0755  applications/panic/panic
 file  /bin/sysctl           0755  applications/sysctl/sysctl
 file  /bin/weather          0755  applications/weather/weather
+file  /bin/ext4info         0755  applications/ext4info/ext4info
 file  /bin/set_d            0755  port/image/rootfs/bin/set_d
 file  /bin/clear_d          0755  port/image/rootfs/bin/clear_d
 file  /bin/hang_and_panic   0755  port/image/rootfs/bin/hang_and_panic

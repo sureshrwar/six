@@ -87,7 +87,8 @@ SUBDIRS	=	start \
 		zork \
 		panic \
 		sysctl \
-		weather
+		weather \
+		ext4info
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

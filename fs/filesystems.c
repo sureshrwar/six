@@ -15,6 +15,7 @@
 #include <linux/minix_fs.h>
 #include <linux/ext_fs.h>
 #include <linux/ext2_fs.h>
+#include <linux/ext4_fs.h>
 #include <linux/xia_fs.h>
 #include <linux/msdos_fs.h>
 #include <linux/umsdos_fs.h>
@@ -64,6 +65,7 @@ asmlinkage int sys_setup(void)
 #endif
 
 #ifdef CONFIG_EXT2_FS
+        init_ext4_fs();
         init_ext2_fs();
 #endif
 

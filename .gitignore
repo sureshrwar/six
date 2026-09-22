@@ -112,6 +112,7 @@ applications/*/zork
 applications/*/panic
 applications/*/sysctl
 applications/*/weather
+applications/*/ext4info
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h
