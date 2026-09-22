@@ -784,12 +784,59 @@ static int copy_mount_options (const void * data, unsigned long *where)
 {
         int i;
         unsigned long page;
+#if (!SIX)
         struct vm_area_struct * vma;
+#endif
 
         *where = 0;
         if (!data)
                 return 0;
 
+#if (SIX)
+        /*
+         * SIX cannot use the VMA walk below, and the reason is worth
+         * stating because it is not obvious and it fails in a way that
+         * looks like anything but the truth.
+         *
+         * do_six_load_elf_binary() in fs/binfmt_elf.c does not build the
+         * guest's argument vector on the guest's stack.  It leaves the
+         * strings where the exec path put them -- in bprm->page[0], a page
+         * obtained from __get_free_page() -- and passes that address to
+         * makecontext() as argv.  So a guest's argv[] points into kernel
+         * memory, which is harmless here because there is no address-space
+         * separation at all (memcpy_fromfs is a plain memcpy, see
+         * <asm/segment.h>), but it means argv is in no user VMA.
+         *
+         * find_vma() therefore returns NULL for it and this function
+         * answers -EFAULT.  Every other path that takes a user string goes
+         * through getname(), which only range-checks against TASK_SIZE and
+         * so never noticed.  The visible symptom was that
+         * "mount -t ext4 /dev/hdb /aux" failed with "Bad address" while
+         * the identical mount with the type taken from a string constant
+         * in the program's own .rodata -- which *is* in a VMA, the one
+         * do_mmap()ed for text and data -- succeeded.
+         *
+         * Copy as a NUL-terminated string instead.  That needs no VMA
+         * bookkeeping, and it is strictly safer than the memcpy below,
+         * which reads on to the end of the VMA whether the caller's data
+         * was that long or not.  Every filesystem SIX can mount takes a
+         * comma-separated option string here; the one in-tree caller that
+         * passes a structure is NFS, which is compiled out.
+         */
+        if (!(page = __get_free_page(GFP_KERNEL)))
+                return -ENOMEM;
+
+        for (i = 0; i < PAGE_SIZE - 1; i++) {
+                char c = ((const char *) data)[i];
+                ((char *) page)[i] = c;
+                if (!c)
+                        break;
+        }
+        ((char *) page)[PAGE_SIZE - 1] = '\0';
+
+        *where = page;
+        return 0;
+#else
         vma = find_vma(current, (unsigned long) data);
         if (!vma || (unsigned long) data < vma->vm_start)
                 return -EFAULT;
@@ -804,6 +851,7 @@ static int copy_mount_options (const void * data, unsigned long *where)
         memcpy_fromfs((void *) page,data,i);
         *where = page;
         return 0;
+#endif
 }
 
 /*
