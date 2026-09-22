@@ -313,9 +313,50 @@ int *pforked;
 	shcom = NULL;
 	rv = -1;	/* system-detected error */
 	if (t->type == TCOM) {
+		extern char *sh_lookup_alias(const char *name);
 		while ((cp = *wp++) != NULL)
 			;
 		cp = *wp;
+
+		if (cp != NULL) {
+			char *aval = sh_lookup_alias(cp);
+			if (aval != NULL) {
+				static char abuf[128];
+				char *atoks[16];
+				int natoks = 0, orig_cnt = 0, k;
+				char *p = abuf;
+				char **nwp;
+
+				strncpy(abuf, aval, sizeof(abuf) - 1);
+				abuf[sizeof(abuf) - 1] = '\0';
+				while (*p && natoks < 15) {
+					while (*p == ' ' || *p == '\t')
+						p++;
+					if (!*p)
+						break;
+					atoks[natoks++] = p;
+					while (*p && *p != ' ' && *p != '\t')
+						p++;
+					if (*p)
+						*p++ = '\0';
+				}
+				if (natoks > 0) {
+					while (wp[orig_cnt] != NULL)
+						orig_cnt++;
+					nwp = (char **)space((natoks + orig_cnt + 2) * sizeof(char *));
+					if (nwp != NULL) {
+						nwp[0] = NULL;
+						nwp++;
+						for (k = 0; k < natoks; k++)
+							nwp[k] = strsave(atoks[k], areanum);
+						for (k = 1; k <= orig_cnt; k++)
+							nwp[natoks + k - 1] = wp[k];
+						wp = nwp;
+						cp = *wp;
+					}
+				}
+			}
+		}
 
 		/* strip all initial assignments */
 		/* not correct wrt PATH=yyy command  etc */

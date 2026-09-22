@@ -534,6 +534,295 @@ extern int dojobs(struct op *t);
 extern int dofg(struct op *t);
 extern int dobg(struct op *t);
 
+#include <stat.h>
+
+#define MAX_ALIASES 32
+#define ALIAS_NAME_MAX 32
+#define ALIAS_VAL_MAX 128
+
+static struct sh_alias {
+	char name[ALIAS_NAME_MAX];
+	char val[ALIAS_VAL_MAX];
+	int  used;
+} sh_aliases[MAX_ALIASES];
+
+char *
+sh_lookup_alias(name)
+const char *name;
+{
+	int i;
+	if (!name || !name[0])
+		return NULL;
+	for (i = 0; i < MAX_ALIASES; i++) {
+		if (sh_aliases[i].used && strcmp(sh_aliases[i].name, name) == 0)
+			return sh_aliases[i].val;
+	}
+	return NULL;
+}
+
+static void
+sh_set_alias(name, val)
+const char *name;
+const char *val;
+{
+	int i, free_idx = -1;
+	for (i = 0; i < MAX_ALIASES; i++) {
+		if (sh_aliases[i].used && strcmp(sh_aliases[i].name, name) == 0) {
+			strncpy(sh_aliases[i].val, val, ALIAS_VAL_MAX - 1);
+			sh_aliases[i].val[ALIAS_VAL_MAX - 1] = '\0';
+			return;
+		}
+		if (!sh_aliases[i].used && free_idx < 0)
+			free_idx = i;
+	}
+	if (free_idx >= 0) {
+		sh_aliases[free_idx].used = 1;
+		strncpy(sh_aliases[free_idx].name, name, ALIAS_NAME_MAX - 1);
+		sh_aliases[free_idx].name[ALIAS_NAME_MAX - 1] = '\0';
+		strncpy(sh_aliases[free_idx].val, val, ALIAS_VAL_MAX - 1);
+		sh_aliases[free_idx].val[ALIAS_VAL_MAX - 1] = '\0';
+	}
+}
+
+int
+doalias(t)
+register struct op *t;
+{
+	int i, w;
+	if (t->words[1] == NULL) {
+		for (i = 0; i < MAX_ALIASES; i++) {
+			if (sh_aliases[i].used) {
+				prs("alias ");
+				prs(sh_aliases[i].name);
+				prs("='");
+				prs(sh_aliases[i].val);
+				prs("'\n");
+			}
+		}
+		return 0;
+	}
+	for (w = 1; t->words[w] != NULL; w++) {
+		char *arg = t->words[w];
+		char *eq = strchr(arg, '=');
+		if (eq) {
+			char nbuf[ALIAS_NAME_MAX];
+			int nlen = (int)(eq - arg);
+			if (nlen <= 0)
+				continue;
+			if (nlen >= ALIAS_NAME_MAX)
+				nlen = ALIAS_NAME_MAX - 1;
+			memcpy(nbuf, arg, nlen);
+			nbuf[nlen] = '\0';
+			sh_set_alias(nbuf, eq + 1);
+		} else {
+			char *val = sh_lookup_alias(arg);
+			if (val) {
+				prs("alias ");
+				prs(arg);
+				prs("='");
+				prs(val);
+				prs("'\n");
+			} else {
+				prs("alias: ");
+				prs(arg);
+				prs(": not found\n");
+				return 1;
+			}
+		}
+	}
+	return 0;
+}
+
+int
+dounalias(t)
+register struct op *t;
+{
+	int i, w;
+	if (t->words[1] == NULL) {
+		err("unalias: usage: unalias [-a] name ...");
+		return 1;
+	}
+	if (strcmp(t->words[1], "-a") == 0) {
+		for (i = 0; i < MAX_ALIASES; i++)
+			sh_aliases[i].used = 0;
+		return 0;
+	}
+	for (w = 1; t->words[w] != NULL; w++) {
+		for (i = 0; i < MAX_ALIASES; i++) {
+			if (sh_aliases[i].used && strcmp(sh_aliases[i].name, t->words[w]) == 0)
+				sh_aliases[i].used = 0;
+		}
+	}
+	return 0;
+}
+
+static int
+sh_find_in_path(cmd, outpath, outsz)
+const char *cmd;
+char *outpath;
+int outsz;
+{
+	struct stat st;
+	const char *pstr;
+	const char *p;
+
+	if (!cmd || !cmd[0])
+		return 0;
+	if (strchr(cmd, '/')) {
+		if (stat((char *)cmd, &st) == 0 && !S_ISDIR(st.st_mode)) {
+			strncpy(outpath, cmd, outsz - 1);
+			outpath[outsz - 1] = '\0';
+			return 1;
+		}
+		return 0;
+	}
+	pstr = (path && path->value && path->value[0]) ? path->value : "/bin:/usr/bin:/etc";
+	p = pstr;
+	while (*p) {
+		char dir[128];
+		int dlen = 0;
+		while (*p && *p != ':' && dlen < (int)sizeof(dir) - 1)
+			dir[dlen++] = *p++;
+		dir[dlen] = '\0';
+		if (*p == ':')
+			p++;
+		if (dlen == 0)
+			strcpy(dir, ".");
+		snprintf(outpath, outsz, "%s/%s", dir, cmd);
+		if (stat(outpath, &st) == 0 && !S_ISDIR(st.st_mode))
+			return 1;
+	}
+	return 0;
+}
+
+int
+dotype(t)
+register struct op *t;
+{
+	int w, rc = 0;
+	int is_which = (t->words[0] && strcmp(t->words[0], "which") == 0);
+
+	if (t->words[1] == NULL)
+		return 1;
+	for (w = 1; t->words[w] != NULL; w++) {
+		char *arg = t->words[w];
+		char *aval = sh_lookup_alias(arg);
+		char fullpath[256];
+		if (aval) {
+			if (is_which) {
+				prs("alias "); prs(arg); prs("='"); prs(aval); prs("'\n");
+			} else {
+				prs(arg); prs(" is aliased to `"); prs(aval); prs("'\n");
+			}
+		} else if (inbuilt(arg) != NULL) {
+			if (is_which) {
+				prs(arg); prs(": shell built-in command\n");
+			} else {
+				prs(arg); prs(" is a shell builtin\n");
+			}
+		} else if (sh_find_in_path(arg, fullpath, sizeof(fullpath))) {
+			if (is_which) {
+				prs(fullpath); prs("\n");
+			} else {
+				prs(arg); prs(" is "); prs(fullpath); prs("\n");
+			}
+		} else {
+			prs(arg); prs(": not found\n");
+			rc = 1;
+		}
+	}
+	return rc;
+}
+
+int
+dotest(t)
+register struct op *t;
+{
+	int argc = 0;
+	char **argv;
+	int neg = 0;
+	struct stat st;
+
+	while (t->words[argc] != NULL)
+		argc++;
+	if (t->words[0] && strcmp(t->words[0], "[") == 0) {
+		if (argc < 2 || strcmp(t->words[argc - 1], "]") != 0) {
+			err("[: missing `]'");
+			return 2;
+		}
+		argc--; /* strip trailing ']' */
+	}
+	argv = &t->words[1];
+	argc--;
+
+	while (argc > 0 && strcmp(argv[0], "!") == 0) {
+		neg = !neg;
+		argv++;
+		argc--;
+	}
+
+	if (argc <= 0)
+		return neg ? 0 : 1;
+
+	if (argc == 1) {
+		int res = (argv[0] && argv[0][0] != '\0');
+		return (res ^ neg) ? 0 : 1;
+	}
+
+	if (argc == 2) {
+		char *op = argv[0];
+		char *arg = argv[1];
+		int res = 0;
+		if (strcmp(op, "-z") == 0)
+			res = (arg[0] == '\0');
+		else if (strcmp(op, "-n") == 0)
+			res = (arg[0] != '\0');
+		else if (strcmp(op, "-e") == 0 || strcmp(op, "-a") == 0)
+			res = (stat(arg, &st) == 0);
+		else if (strcmp(op, "-f") == 0)
+			res = (stat(arg, &st) == 0 && S_ISREG(st.st_mode));
+		else if (strcmp(op, "-d") == 0)
+			res = (stat(arg, &st) == 0 && S_ISDIR(st.st_mode));
+		else if (strcmp(op, "-s") == 0)
+			res = (stat(arg, &st) == 0 && st.st_size > 0);
+		else if (strcmp(op, "-L") == 0 || strcmp(op, "-h") == 0)
+			res = (lstat(arg, &st) == 0 && S_ISLNK(st.st_mode));
+		else if (strcmp(op, "-r") == 0)
+			res = (access(arg, 4) == 0);
+		else if (strcmp(op, "-w") == 0)
+			res = (access(arg, 2) == 0);
+		else if (strcmp(op, "-x") == 0)
+			res = (access(arg, 1) == 0);
+		return (res ^ neg) ? 0 : 1;
+	}
+
+	if (argc >= 3) {
+		char *s1 = argv[0];
+		char *op = argv[1];
+		char *s2 = argv[2];
+		int res = 0;
+		if (strcmp(op, "=") == 0 || strcmp(op, "==") == 0)
+			res = (strcmp(s1, s2) == 0);
+		else if (strcmp(op, "!=") == 0)
+			res = (strcmp(s1, s2) != 0);
+		else if (strcmp(op, "-eq") == 0)
+			res = (atoi(s1) == atoi(s2));
+		else if (strcmp(op, "-ne") == 0)
+			res = (atoi(s1) != atoi(s2));
+		else if (strcmp(op, "-lt") == 0)
+			res = (atoi(s1) < atoi(s2));
+		else if (strcmp(op, "-le") == 0)
+			res = (atoi(s1) <= atoi(s2));
+		else if (strcmp(op, "-gt") == 0)
+			res = (atoi(s1) > atoi(s2));
+		else if (strcmp(op, "-ge") == 0)
+			res = (atoi(s1) >= atoi(s2));
+		return (res ^ neg) ? 0 : 1;
+	}
+
+	return 1;
+}
+
 struct	builtin {
 	char	*command;
 	int	(*fn)();
@@ -554,6 +843,7 @@ static struct	builtin	builtin[] = {
 	"readonly",	doreadonly,
 	"set",		doset,
 	".",		dodot,
+	"source",	dodot,
 	"umask",	doumask,
 	"login",	dologin,
 	"newgrp",	dologin,
@@ -562,6 +852,12 @@ static struct	builtin	builtin[] = {
 	"jobs",		dojobs,
 	"fg",		dofg,
 	"bg",		dobg,
+	"alias",	doalias,
+	"unalias",	dounalias,
+	"type",		dotype,
+	"which",	dotype,
+	"test",		dotest,
+	"[",		dotest,
 	0,
 };
 

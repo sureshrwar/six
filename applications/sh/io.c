@@ -644,6 +644,105 @@ int end;
 	*lenp = len;
 }
 
+static char vi_last_search[64];
+
+static int
+sh_expand_bang(buf, lenp)
+char *buf;
+int *lenp;
+{
+	char out[HIST_LINE_MAX];
+	int olen = 0, i = 0, changed = 0;
+	int in_sq = 0;
+
+	buf[*lenp] = '\0';
+	while (buf[i] != '\0' && olen < HIST_LINE_MAX - 2) {
+		if (buf[i] == '\'')
+			in_sq = !in_sq;
+		if (!in_sq && buf[i] == '!' && buf[i + 1] != '\0' &&
+		    buf[i + 1] != ' ' && buf[i + 1] != '\t' && buf[i + 1] != '=') {
+			const char *rep = NULL;
+			char last_arg[128];
+			int skip = 0;
+
+			if (buf[i + 1] == '!') {
+				if (hist_count > 0)
+					rep = hist_lines[hist_count - 1];
+				skip = 2;
+			} else if (buf[i + 1] == '$') {
+				if (hist_count > 0) {
+					const char *prev = hist_lines[hist_count - 1];
+					int plen = strlen(prev);
+					while (plen > 0 && (prev[plen - 1] == ' ' || prev[plen - 1] == '\t'))
+						plen--;
+					int ws = plen;
+					while (ws > 0 && prev[ws - 1] != ' ' && prev[ws - 1] != '\t')
+						ws--;
+					int alen = plen - ws;
+					if (alen >= (int)sizeof(last_arg))
+						alen = sizeof(last_arg) - 1;
+					memcpy(last_arg, prev + ws, alen);
+					last_arg[alen] = '\0';
+					rep = last_arg;
+				}
+				skip = 2;
+			} else if ((buf[i + 1] >= '0' && buf[i + 1] <= '9') ||
+			           (buf[i + 1] == '-' && buf[i + 2] >= '0' && buf[i + 2] <= '9')) {
+				int neg = (buf[i + 1] == '-');
+				int j = i + 1 + (neg ? 1 : 0);
+				int num = 0;
+				while (buf[j] >= '0' && buf[j] <= '9') {
+					num = num * 10 + (buf[j] - '0');
+					j++;
+				}
+				skip = j - i;
+				if (neg) {
+					int idx = hist_count - num;
+					if (idx >= 0 && idx < hist_count)
+						rep = hist_lines[idx];
+				} else {
+					if (num >= 1 && num <= hist_count)
+						rep = hist_lines[num - 1];
+				}
+			} else {
+				char pfx[64];
+				int j = i + 1, plen = 0, k;
+				while (buf[j] != '\0' && buf[j] != ' ' && buf[j] != '\t' &&
+				       buf[j] != ';' && buf[j] != '|' && buf[j] != '&' &&
+				       plen < (int)sizeof(pfx) - 1) {
+					pfx[plen++] = buf[j++];
+				}
+				pfx[plen] = '\0';
+				skip = j - i;
+				for (k = hist_count - 1; k >= 0; k--) {
+					if (strncmp(hist_lines[k], pfx, plen) == 0) {
+						rep = hist_lines[k];
+						break;
+					}
+				}
+			}
+
+			if (rep != NULL) {
+				int rlen = strlen(rep);
+				if (olen + rlen < HIST_LINE_MAX - 2) {
+					memcpy(&out[olen], rep, rlen);
+					olen += rlen;
+					i += skip;
+					changed = 1;
+					continue;
+				}
+			}
+		}
+		out[olen++] = buf[i++];
+	}
+	out[olen] = '\0';
+	if (changed) {
+		strcpy(buf, out);
+		*lenp = olen;
+	}
+	return changed;
+}
+
 static int
 sh_readline(outbuf)
 char *outbuf;
@@ -678,9 +777,22 @@ char *outbuf;
 			sh_restore_tty();
 			return 0;
 		}
+		if (ch == 0x0c) { /* Ctrl+L: clear screen and redraw */
+			write(1, "\033[2J\033[H", 7);
+			prs_prompt();
+			if (len > 0)
+				write(1, outbuf, len);
+			for (i = 0; i < len - pos; i++)
+				write(1, "\b", 1);
+			continue;
+		}
 		if (ch == '\r' || ch == '\n') {
 			write(1, "\n", 1);
 			outbuf[len] = '\0';
+			if (sh_expand_bang(outbuf, &len)) {
+				write(1, outbuf, len);
+				write(1, "\n", 1);
+			}
 			sh_hist_add(outbuf);
 			outbuf[len++] = '\n';
 			outbuf[len] = '\0';
@@ -938,6 +1050,108 @@ char *outbuf;
 					if (ch == 'c')
 						vi_cmd_mode = 0;
 				}
+			} else if (ch == '/') {
+				char pat[64];
+				int plen = 0, k;
+				rl_replace_line(outbuf, &pos, &len, "/");
+				while (read(0, &s1, 1) > 0) {
+					if (s1 == '\r' || s1 == '\n' || s1 == 0x1b)
+						break;
+					if ((s1 == '\b' || s1 == 0x7f) && plen > 0) {
+						plen--;
+						rl_delete_range(outbuf, &pos, &len, pos - 1, pos);
+					} else if (s1 >= ' ' && s1 < 0x7f && plen < (int)sizeof(pat) - 1) {
+						pat[plen++] = s1;
+						outbuf[len++] = s1;
+						pos = len;
+						outbuf[len] = '\0';
+						write(1, &s1, 1);
+					}
+				}
+				pat[plen] = '\0';
+				if (plen > 0)
+					strcpy(vi_last_search, pat);
+				if (vi_last_search[0]) {
+					int found = -1;
+					for (k = hist_idx - 1; k >= 0; k--) {
+						if (strstr(hist_lines[k], vi_last_search) != NULL) {
+							found = k;
+							break;
+						}
+					}
+					if (found >= 0) {
+						hist_idx = found;
+						rl_replace_line(outbuf, &pos, &len, hist_lines[hist_idx]);
+					} else {
+						rl_replace_line(outbuf, &pos, &len, saved_cur);
+					}
+				} else {
+					rl_replace_line(outbuf, &pos, &len, saved_cur);
+				}
+			} else if (ch == 'n' || ch == 'N') {
+				if (vi_last_search[0]) {
+					int k, found = -1;
+					if (ch == 'n') {
+						for (k = hist_idx - 1; k >= 0; k--) {
+							if (strstr(hist_lines[k], vi_last_search) != NULL) {
+								found = k;
+								break;
+							}
+						}
+					} else {
+						for (k = hist_idx + 1; k < hist_count; k++) {
+							if (strstr(hist_lines[k], vi_last_search) != NULL) {
+								found = k;
+								break;
+							}
+						}
+					}
+					if (found >= 0) {
+						hist_idx = found;
+						rl_replace_line(outbuf, &pos, &len, hist_lines[hist_idx]);
+					}
+				}
+			}
+			continue;
+		}
+
+		if (ch == 0x12) { /* Ctrl+R: reverse history search */
+			char pat[64];
+			int plen = 0, k;
+			strcpy(saved_cur, outbuf);
+			rl_replace_line(outbuf, &pos, &len, "/");
+			while (read(0, &s1, 1) > 0) {
+				if (s1 == '\r' || s1 == '\n' || s1 == 0x1b)
+					break;
+				if ((s1 == '\b' || s1 == 0x7f) && plen > 0) {
+					plen--;
+					rl_delete_range(outbuf, &pos, &len, pos - 1, pos);
+				} else if (s1 >= ' ' && s1 < 0x7f && plen < (int)sizeof(pat) - 1) {
+					pat[plen++] = s1;
+					outbuf[len++] = s1;
+					pos = len;
+					outbuf[len] = '\0';
+					write(1, &s1, 1);
+				}
+			}
+			pat[plen] = '\0';
+			if (plen > 0) {
+				int found = -1;
+				strcpy(vi_last_search, pat);
+				for (k = hist_count - 1; k >= 0; k--) {
+					if (strstr(hist_lines[k], pat) != NULL) {
+						found = k;
+						break;
+					}
+				}
+				if (found >= 0) {
+					hist_idx = found;
+					rl_replace_line(outbuf, &pos, &len, hist_lines[hist_idx]);
+				} else {
+					rl_replace_line(outbuf, &pos, &len, saved_cur);
+				}
+			} else {
+				rl_replace_line(outbuf, &pos, &len, saved_cur);
 			}
 			continue;
 		}
