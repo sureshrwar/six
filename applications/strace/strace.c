@@ -311,6 +311,20 @@ format_event(FILE *out, const struct six_strace_event *ev, int show_pid)
 	case 2:  /* fork */
 		fprintf(out, "%s()", name);
 		break;
+	case 120: { /* clone */
+		unsigned long fl = (unsigned long)ev->a1;
+		int any = 0;
+		fprintf(out, "clone(child_stack=0x%lx, flags=", (unsigned long)ev->a2);
+		if (fl & 0x00000100UL) { fprintf(out, "%sCLONE_VM", any++ ? "|" : ""); }
+		if (fl & 0x00000200UL) { fprintf(out, "%sCLONE_FS", any++ ? "|" : ""); }
+		if (fl & 0x00000400UL) { fprintf(out, "%sCLONE_FILES", any++ ? "|" : ""); }
+		if (fl & 0x00000800UL) { fprintf(out, "%sCLONE_SIGHAND", any++ ? "|" : ""); }
+		if ((fl & 0xffUL) == SIGCHLD || (fl & 0xffUL) == 17) { fprintf(out, "%sSIGCHLD", any++ ? "|" : ""); }
+		else if (fl & 0xffUL) { fprintf(out, "%s0x%lx", any++ ? "|" : "", fl & 0xffUL); }
+		if (!any) fprintf(out, "0");
+		fputc(')', out);
+		break;
+	}
 	default:
 		fprintf(out, "%s(0x%lx, 0x%lx, 0x%lx)",
 		        name, (unsigned long)ev->a1,

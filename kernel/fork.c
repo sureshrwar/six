@@ -477,7 +477,11 @@ int do_fork(unsigned long clone_flags, unsigned long usp, struct pt_regs *regs)
         p->pid = get_pid(clone_flags);
         p->next_run = NULL;
         p->prev_run = NULL;
-        p->p_pptr = p->p_opptr = current;
+        if ((clone_flags & CLONE_VM) && current->p_pptr &&
+            current->p_pptr->mm == current->mm && current->mm != &init_mm)
+                p->p_pptr = p->p_opptr = current->p_pptr;
+        else
+                p->p_pptr = p->p_opptr = current;
         p->p_cptr = NULL;
         p->signal = 0;
         p->it_real_value = p->it_virt_value = p->it_prof_value = 0;

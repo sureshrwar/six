@@ -37,4 +37,16 @@ extern int sched_yield(void);
 extern int sched_get_priority_max(int policy);
 extern int sched_get_priority_min(int policy);
 
+/*
+ * Cloning flags (must match include/linux/sched.h)
+ */
+#define CSIGNAL                 0x000000ff
+#define CLONE_VM                0x00000100
+#define CLONE_FS                0x00000200
+#define CLONE_FILES             0x00000400
+#define CLONE_SIGHAND           0x00000800
+#define CLONE_PID               0x00001000
+
+extern int clone(int (*fn)(void *), void *child_stack, int flags, void *arg);
+
 #endif /* _SCHED_H */

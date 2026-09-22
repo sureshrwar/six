@@ -184,9 +184,14 @@ void put_ret(struct pt_regs *u, long retval)
 
 void six_clone(struct pt_regs *u)
 {
-	int ret, cloneflags;
-        grab_args(u, (long *)&cloneflags, 0, 0);
-	ret = do_fork(cloneflags, 0, u);
+	long cloneflags = 0, newsp = 0;
+	int ret;
+
+	if (current && current->is_mapped)
+		grab_args(u, &cloneflags, &newsp, 0);
+	else
+		grab_args(u, &cloneflags, 0, 0);
+	ret = do_fork((unsigned long)cloneflags, (unsigned long)newsp, u);
 	put_ret(u, (long)ret);
 }
 

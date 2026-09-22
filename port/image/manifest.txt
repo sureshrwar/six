@@ -171,6 +171,7 @@ file  /etc/init             0755  applications/init/init
 file  /etc/hostname         0644  port/image/rootfs/etc/hostname
 file  /etc/hosts            0644  port/image/rootfs/etc/hosts
 file  /etc/hello.c          0644  applications/tcc/test_hello.c
+file  /etc/pthread_demo.c   0644  applications/tcc/test_pthread.c
 file  /etc/lynx.cfg         0644  applications/lynx23/lynx.cfg
 file  /etc/motd             0644  port/image/rootfs/etc/motd
 file  /etc/passwd           0644  port/image/rootfs/etc/passwd
@@ -198,6 +199,7 @@ file  /usr/lib/starwars.txt   0644  applications/starwars/starwars.txt
 # --- /usr/lib (development objects & libraries for in-guest compilation) ----
 file  /usr/lib/cstart.o         0644  applications/start/cstart.o
 file  /usr/lib/libc.a           0644  library/libc/lib/libc.a
+sym   /usr/lib/libpthread.a     -     libc.a
 file  /usr/lib/libcurses.a      0644  library/curses/lib/libcurses.a
 file  /usr/lib/tcc/include/stdarg.h   0644  applications/tcc/include/stdarg.h
 file  /usr/lib/tcc/include/stddef.h   0644  applications/tcc/include/stddef.h
@@ -216,6 +218,7 @@ file  /usr/include/grp.h        0644  library/include/grp.h
 file  /usr/include/inttypes.h   0644  library/include/inttypes.h
 file  /usr/include/math.h       0644  library/include/math.h
 file  /usr/include/netdb.h      0644  library/include/netdb.h
+file  /usr/include/pthread.h    0644  library/include/pthread.h
 file  /usr/include/pwd.h        0644  library/include/pwd.h
 file  /usr/include/regexp.h     0644  library/include/regexp.h
 file  /usr/include/sched.h      0644  library/include/sched.h

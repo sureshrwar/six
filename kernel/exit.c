@@ -30,10 +30,18 @@ int smp_num_cpus = 1;
 
 void notify_parent(struct task_struct * tsk)
 {
+        struct task_struct *p;
         if (tsk->p_pptr == task[smp_num_cpus])          /* Init */
                 tsk->exit_signal = SIGCHLD;
-        send_sig(tsk->exit_signal, tsk->p_pptr, 1);
+        if (tsk->exit_signal)
+                send_sig(tsk->exit_signal, tsk->p_pptr, 1);
         wake_up_interruptible(&tsk->p_pptr->wait_chldexit);
+        if (tsk->p_pptr && tsk->p_pptr->mm != &init_mm) {
+                for_each_task(p) {
+                        if (p->mm == tsk->p_pptr->mm && p != tsk->p_pptr)
+                                wake_up_interruptible(&p->wait_chldexit);
+                }
+        }
 }
 
 
@@ -248,6 +256,11 @@ static inline void __exit_mm(struct task_struct * tsk)
                 flush_tlb_mm(mm);
                 tsk->mm = &init_mm;
                 tsk->swappable = 0;
+#if (SIX)
+                tsk->is_mapped = 0;
+                if (mapped_proc == tsk)
+                        mapped_proc = NULL;
+#endif
                 SET_PAGE_DIR(tsk, swapper_pg_dir);
                 /* free the old state - not used any more */
                 if (!--mm->count) {
@@ -644,7 +657,12 @@ asmlinkage int sys_wait4(pid_t pid,unsigned int * stat_addr, int options, struct
         add_wait_queue(&current->wait_chldexit,&wait);
 repeat:
         flag=0;
-        for (p = current->p_cptr ; p ; p = p->p_osptr) {
+        {
+        struct task_struct *wait_root = current;
+        if (current->p_pptr && current->p_pptr->mm == current->mm &&
+            current->mm != &init_mm)
+                wait_root = current->p_pptr;
+        for (p = wait_root->p_cptr ; p ; p = p->p_osptr) {
                 if (pid>0) {
                         if (p->pid != pid)
                                 continue;
@@ -655,8 +673,8 @@ repeat:
                         if (p->pgrp != -pid)
                                 continue;
                 }
-                /* wait for cloned processes iff the __WCLONE flag is set */
-                if ((p->exit_signal != SIGCHLD) ^ ((options & __WCLONE) != 0))
+                /* wait for cloned processes iff the __WCLONE flag is set (unless explicit pid > 0) */
+                if (pid <= 0 && ((p->exit_signal != SIGCHLD) ^ ((options & __WCLONE) != 0)))
                         continue;
                 flag = 1;
                 switch (p->state) {
@@ -696,6 +714,7 @@ repeat:
                                 continue;
                 }                       
         }                       
+        }
         if (flag) {                     
                 retval = 0;     
                 if (options & WNOHANG)  

@@ -144,7 +144,8 @@ unsigned long six_task_saved_pc(struct task_struct *p)
 		return 0;
 	ebp = p->kcontext.ebp;
 	get_task_stack_bounds(p, ebp, &stack_low, &stack_high);
-	if (stack_low && ebp >= stack_low && (ebp + 8) <= stack_high && (ebp & 3) == 0) {
+	if (stack_low && ebp >= _ram_start && (ebp + 8) <= high_memory &&
+	    ebp >= stack_low && (ebp + 8) <= stack_high && (ebp & 3) == 0) {
 		unsigned long ret_pc = ((unsigned long *)ebp)[1];
 		if (ret_pc)
 			return ret_pc;
@@ -461,10 +462,27 @@ void copy_thread(int nr, unsigned long clone_flags, unsigned long esp, struct ta
 	else
 	{
 	/*
-	 * Just a normal fork. So modify the childs context such that the return
-	 * register contains a zero.
+	 * Just a normal fork (or userland clone). Modify the child's context
+	 * such that the return register contains a zero, and if a custom user
+	 * stack (esp) was supplied via clone(), switch the child's saved
+	 * context onto that stack (and optional start_pc in regs->g4).
 	 */
 		p->kcontext.g2 = 0;
+		if (esp) {
+#if (__i386__)
+			p->kcontext.esp  = esp;
+			p->kcontext.kesp = esp;
+			p->kcontext.ebp  = 0;
+			if (regs->g4)
+				p->kcontext.pc = (unsigned int)regs->g4;
+#else
+			p->kcontext.esp = esp;
+			if (regs->g5) {
+				p->kcontext.pc  = (unsigned int)regs->g5;
+				p->kcontext.npc = p->kcontext.pc + 4;
+			}
+#endif
+		}
 	}
 }       
 
