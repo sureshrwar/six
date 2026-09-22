@@ -241,7 +241,8 @@ void six_set_task_cmdline(struct task_struct *tsk, int argc, char **argv)
 		return;
 	for (i = 0; i < argc && pos < 120; i++) {
 		const char *arg = argv[i];
-		if (!arg || (unsigned long)arg < 0x03000000UL || (unsigned long)arg >= TASK_SIZE)
+		unsigned long a = (unsigned long)arg;
+		if (!arg || !((a >= 0x03000000UL && a < TASK_SIZE) || (a >= _ram_start && a < high_memory)))
 			break;
 		if (i > 0 && pos < 126)
 			six_task_cmdline[slot][pos++] = ' ';
@@ -249,6 +250,25 @@ void six_set_task_cmdline(struct task_struct *tsk, int argc, char **argv)
 			six_task_cmdline[slot][pos++] = *arg++;
 	}
 	six_task_cmdline[slot][pos] = '\0';
+}
+
+int six_get_task_cmdline(struct task_struct *p, char *buf)
+{
+	int i, slot = -1;
+
+	if (!p || !buf)
+		return 0;
+	for (i = 0; i < NR_TASKS; i++) {
+		if (task[i] == p) {
+			slot = i;
+			break;
+		}
+	}
+	if (!p->user_mode)
+		return sprintf(buf, "[%s]\n", p->comm);
+	if (slot >= 0 && six_task_cmdline[slot][0])
+		return sprintf(buf, "%s\n", six_task_cmdline[slot]);
+	return sprintf(buf, "%s\n", p->comm);
 }
 
 int sys_sixps(struct six_proc *sp)

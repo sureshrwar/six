@@ -60,9 +60,7 @@ char *getcwd(char *path, size_t size)
         
         while (1) {
 		int ret = 0, cur = 0;
-		char temp[256], *t;
-
-		t = &temp[0];
+		char temp[256];
 
                 dotdot= "..";
                 if (stat(dotdot, &above) < 0) { recover(p); return nil; }
@@ -71,7 +69,7 @@ char *getcwd(char *path, size_t size)
                                         && above.st_ino == current.st_ino)
                         break;  /* Root dir found */
                 
-                if ((d= open(dotdot, 0)) == nil) { recover(p); return nil; }
+                if ((d= open(dotdot, 0)) < 0) { recover(p); return nil; }
                 
                 /* Cycle is 0 for a simple inode nr search, or 1 for a search
                  * for inode *and* device nr.
@@ -82,27 +80,29 @@ char *getcwd(char *path, size_t size)
                         char name[3 + NAME_MAX + 1];
                         
                         tmp.st_ino= 0;
-			if (cur >= ret) {
-				ret = getdents(d, (struct dirent *)t, 256);
-			}
-			else
-			{
-				t += entry->d_reclen;
-				cur += entry->d_reclen;
-			}
-			entry = (struct dirent *)t;
-                        if (ret == nil) {
-                                switch (++cycle) {
-                                case 1: 
-                                        lseek(d, 0, SEEK_SET);
-                                        continue;
-                                case 2: 
-                                        close(d);
-                                        errno= ENOENT;
-                                        recover(p);
-                                        return nil;
+                        if (cur >= ret) {
+                                cur = 0;
+                                ret = getdents(d, (struct dirent *)temp, sizeof(temp));
+                                if (ret <= 0) {
+                                        ret = 0;
+                                        switch (++cycle) {
+                                        case 1: 
+                                                lseek(d, 0, SEEK_SET);
+                                                continue;
+                                        case 2: 
+                                                close(d);
+                                                errno= ENOENT;
+                                                recover(p);
+                                                return nil;
+                                        }
                                 }
                         }
+                        entry = (struct dirent *)(temp + cur);
+                        if (entry->d_reclen <= 0) {
+                                cur = ret;
+                                continue;
+                        }
+                        cur += entry->d_reclen;
                         if (strcmp(entry->d_name, ".") == 0) continue;
                         if (strcmp(entry->d_name, "..") == 0) continue;
 

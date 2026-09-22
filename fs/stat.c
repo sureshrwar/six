@@ -47,6 +47,8 @@ static void cp_old_stat(struct inode * inode, struct old_stat * statbuf)
         tmp.st_atime = inode->i_atime;
         tmp.st_mtime = inode->i_mtime;
         tmp.st_ctime = inode->i_ctime;
+        tmp.st_blksize = inode->i_blksize ? inode->i_blksize : BLOCK_SIZE;
+        tmp.st_blocks = inode->i_blocks;
         memcpy_tofs(statbuf,&tmp,sizeof(tmp));
 }
 

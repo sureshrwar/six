@@ -1138,6 +1138,22 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	 */
 	{
 		extern void six_set_task_cmdline(struct task_struct *tsk, int argc, char **argv);
+		char **argv_p = (char **)bprm->page[0];
+		char **envp_p = (char **)(bprm->page[0] + (bprm->argc + 1) * 4);
+		if (bprm->argc > 0 && argv_p[0]) {
+			char *last_arg = argv_p[bprm->argc - 1];
+			current->mm->arg_start = (unsigned long)argv_p[0];
+			current->mm->arg_end = (unsigned long)(last_arg + strlen(last_arg) + 1);
+		} else {
+			current->mm->arg_start = current->mm->arg_end = 0;
+		}
+		if (bprm->envc > 0 && envp_p[0]) {
+			char *last_env = envp_p[bprm->envc - 1];
+			current->mm->env_start = (unsigned long)envp_p[0];
+			current->mm->env_end = (unsigned long)(last_env + strlen(last_env) + 1);
+		} else {
+			current->mm->env_start = current->mm->env_end = current->mm->arg_end;
+		}
 		six_set_task_cmdline(current, bprm->argc, (char **)bprm->page[0]);
 	}
 	makecontext(regs, entry, 3, bprm->argc,

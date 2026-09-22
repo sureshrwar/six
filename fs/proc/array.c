@@ -337,7 +337,13 @@ static unsigned long get_phys_addr(struct task_struct * p, unsigned long ptr)
 	pmd_t *page_middle;
 	pte_t pte;
 
-	if (!p || !p->mm || ptr >= TASK_SIZE)
+	if (!p || !p->mm)
+		return 0;
+#if (SIX)
+	if (ptr >= _ram_start && ptr < high_memory)
+		return ptr;
+#endif
+	if (ptr >= TASK_SIZE)
 		return 0;
 	page_dir = pgd_offset(p->mm,ptr);
 	if (pgd_none(*page_dir))
@@ -397,19 +403,38 @@ ready:
 static int get_env(int pid, char * buffer)
 {
 	struct task_struct ** p = get_task(pid);
+	int len, i;
 
 	if (!p || !*p || !(*p)->mm)
 		return 0;
-	return get_array(p, (*p)->mm->env_start, (*p)->mm->env_end, buffer);
+	len = get_array(p, (*p)->mm->env_start, (*p)->mm->env_end, buffer);
+#if (SIX)
+	for (i = 0; i < len; i++) {
+		if (buffer[i] == '\0')
+			buffer[i] = '\n';
+	}
+	if (len > 0 && len < PAGE_SIZE && buffer[len - 1] != '\n')
+		buffer[len++] = '\n';
+#endif
+	return len;
 }
 
 static int get_arg(int pid, char * buffer)
 {
 	struct task_struct ** p = get_task(pid);
 
-	if (!p || !*p || !(*p)->mm)
+	if (!p || !*p)
+		return 0;
+#if (SIX)
+	{
+		extern int six_get_task_cmdline(struct task_struct *p, char *buf);
+		return six_get_task_cmdline(*p, buffer);
+	}
+#else
+	if (!(*p)->mm)
 		return 0;
 	return get_array(p, (*p)->mm->arg_start, (*p)->mm->arg_end, buffer);
+#endif
 }
 
 static unsigned long get_wchan(struct task_struct *p)
