@@ -2649,13 +2649,20 @@ void six_ptrace(struct pt_regs *u)
 	grab_args(u, &req, &pid, &addr);
 	switch (req) {
 	case SIX_STRACE_ATTACH:
-		for (i = 0; i < SIX_STRACE_MAX_PIDS; i++)
-			six_strace_pids[i] = 0;
-		six_strace_head = 0;
-		six_strace_tail = 0;
+		if (six_strace_tracer_pid != (current ? current->pid : -1)) {
+			for (i = 0; i < SIX_STRACE_MAX_PIDS; i++)
+				six_strace_pids[i] = 0;
+			six_strace_head = 0;
+			six_strace_tail = 0;
+		}
 		six_strace_tracer_pid = current ? current->pid : 0;
 		six_strace_follow_fork = (addr != 0);
 		six_strace_mark((int)pid);
+		if (!six_strace_any_alive()) {
+			six_strace_tracer_pid = 0;
+			put_ret(u, -ESRCH);
+			return;
+		}
 		put_ret(u, 0);
 		return;
 	case SIX_STRACE_SELF:
@@ -2873,6 +2880,11 @@ void system_call(int num, void *why, struct pt_regs *context)
 	}
 
 #if (__i386__)
+	if (!is_traced && gc && current && syscallnum != 1 &&
+	    six_strace_is_traced(current->pid)) {
+		six_strace_enter(&tev, syscallnum, gc->a1, gc->a2, gc->a3);
+		is_traced = 1;
+	}
 	if (is_traced && syscallnum != 1) {
 		if (!(current && current->one != 0 &&
 		      (syscallnum == 90 || syscallnum == 82 || syscallnum == 21 ||

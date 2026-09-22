@@ -368,6 +368,19 @@ static struct six_strace_event evbuf[32];
 static unsigned long sc_calls[166];
 static unsigned long sc_errs[166];
 
+static int
+is_numeric_pid(const char *s)
+{
+	if (!s || !*s)
+		return 0;
+	while (*s) {
+		if (*s < '0' || *s > '9')
+			return 0;
+		s++;
+	}
+	return 1;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -383,6 +396,8 @@ main(int argc, char **argv)
 			summary_only = 1;
 		} else if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {
 			attach_pid = atoi(argv[++i]);
+		} else if (strncmp(argv[i], "-p", 2) == 0 && argv[i][2] != '\0') {
+			attach_pid = atoi(&argv[i][2]);
 		} else if (strcmp(argv[i], "-e") == 0 && i + 1 < argc) {
 			filter = argv[++i];
 		} else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
@@ -393,13 +408,18 @@ main(int argc, char **argv)
 			i++;
 			break;
 		} else {
-			fprintf(stderr, "Usage: strace [-f] [-c] [-e expr] [-o file] [-n count] [-p pid | cmd [args...]]\n");
+			fprintf(stderr, "Usage: strace [-f] [-c] [-e expr] [-o file] [-n count] [-p pid | pid | cmd [args...]]\n");
 			return 1;
 		}
 	}
 
+	if (attach_pid <= 0 && i < argc && i + 1 == argc && is_numeric_pid(argv[i])) {
+		attach_pid = atoi(argv[i]);
+		i++;
+	}
+
 	if (attach_pid <= 0 && i >= argc) {
-		fprintf(stderr, "Usage: strace [-f] [-c] [-e expr] [-o file] [-n count] [-p pid | cmd [args...]]\n");
+		fprintf(stderr, "Usage: strace [-f] [-c] [-e expr] [-o file] [-n count] [-p pid | pid | cmd [args...]]\n");
 		return 1;
 	}
 
@@ -414,7 +434,9 @@ main(int argc, char **argv)
 	signal(SIGINT, on_sigint);
 
 	if (attach_pid > 0) {
-		if (syscall(__NR_ptrace, SIX_STRACE_ATTACH, attach_pid, follow_fork) < 0) {
+		int rc = syscall(__NR_ptrace, SIX_STRACE_ATTACH, attach_pid, follow_fork);
+		if (rc < 0) {
+			errno = -rc;
 			perror("strace: attach");
 			return 1;
 		}
