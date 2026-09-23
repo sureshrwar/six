@@ -105,6 +105,7 @@ else
 # a rule's prerequisites at the moment it reads the rule, so a variable used
 # on the right-hand side of "do-it-all:" must already have a value.
 SIX_IMAGE	= disk/x86/root
+SIX_BIN_IMAGE	= disk/x86/bin_storage
 SIX_AUX_IMAGE	= disk/x86/aux_storage-1
 SIX_AUX2_IMAGE	= disk/x86/aux_storage-2
 do-it-all:	include/asm Version six $(SIX_IMAGE) $(SIX_AUX_IMAGE) $(SIX_AUX2_IMAGE)
@@ -345,6 +346,8 @@ symlinks:
 config: symlinks
 	@echo Configuration complete.
 six:	linuxsubdirs init/version.o init/main.o
+	@$(MAKE) --no-print-directory $(SIX_BIN_IMAGE)
+	@$(MAKE) -C drivers/block block.o
 	$(CC) $(CFLAGS) -no-pie -rdynamic init/main.o init/version.o \
 	-o $(INSTALL_PATH)/six \
 	$(DRIVERS) \
@@ -391,8 +394,11 @@ endif
 AWK		?= awk
 SIX_IMAGE_MANIFEST = port/image/manifest.txt
 SIX_IMAGE_TOOL	= port/image/mkimage.sh
+SIX_VERITY_TOOL	= port/image/mkverity.py
 SIX_IMAGE_FILES	= $(wildcard $(shell sed 's/\#.*//' $(SIX_IMAGE_MANIFEST) | \
 		    $(AWK) '$$1 == "file" { print $$4 }'))
+SIX_BIN_FILES	= $(wildcard $(shell sed 's/\#.*//' $(SIX_IMAGE_MANIFEST) | \
+		    $(AWK) '$$1 == "file" && $$2 ~ /^\/bin\// { print $$4 }'))
 
 # Which on-disk format the root image is packed into.  Override on the command
 # line, or use the ext2-image / ext4-image targets below:
@@ -419,11 +425,14 @@ ifndef SIX_IMAGE_FSTYPE
 SIX_IMAGE_FSTYPE := $(shell cat $(SIX_IMAGE_STAMP) 2>/dev/null || echo ext4)
 endif
 
+$(SIX_BIN_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_VERITY_TOOL) $(SIX_BIN_FILES) | linuxsubdirs
+	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict --mode bin --fstype ext4 --out $(SIX_BIN_IMAGE)
+
 # The order-only dependency on "six" keeps the image from being assembled in
 # parallel with the kernel link under make -j; the guest binaries are built
 # by linuxsubdirs, which is a prerequisite of six.
 $(SIX_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_IMAGE_FILES) $(SIX_IMAGE_STAMP) | six
-	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict --fstype $(SIX_IMAGE_FSTYPE)
+	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict --mode root --fstype $(SIX_IMAGE_FSTYPE)
 
 # Both formats are written to the same path, so the image's own timestamp
 # cannot tell us which one is currently on disk.  Record it in a stamp file
@@ -436,8 +445,10 @@ $(SIX_IMAGE_STAMP): dummy
 	@echo '$(SIX_IMAGE_FSTYPE)' | cmp -s - $@ 2>/dev/null || \
 		echo '$(SIX_IMAGE_FSTYPE)' > $@
 
-.PHONY: image image-clean ext2-image ext4-image
-image: $(SIX_IMAGE)
+.PHONY: image image-clean ext2-image ext4-image bin-image
+bin-image: $(SIX_BIN_IMAGE)
+
+image: $(SIX_BIN_IMAGE) $(SIX_IMAGE)
 
 ext2-image:
 	@$(MAKE) --no-print-directory SIX_IMAGE_FSTYPE=ext2 image
@@ -446,8 +457,8 @@ ext4-image:
 	@$(MAKE) --no-print-directory SIX_IMAGE_FSTYPE=ext4 image
 
 image-clean:
-	rm -f $(SIX_IMAGE) $(SIX_IMAGE_STAMP)
-	rm -rf port/image/.stage
+	rm -f $(SIX_IMAGE) $(SIX_BIN_IMAGE) $(SIX_IMAGE_STAMP)
+	rm -rf port/image/.stage port/image/.stage_bin
 
 # The auxiliary disk, which SIX exposes as /dev/hdb.
 #

@@ -1270,12 +1270,14 @@ static int revalidate_hddisk(kdev_t dev, int maxusage)
 void do_hard_write(int drive, int from, int count)
 {
 	int ret;
+	extern void dm_notify_bdev_write(kdev_t bdev);
 
 	if (drive < 0 || drive >= SIX_MAX_DISKS || six_disk_fd[drive] < 0)
 		return;
 	lseek(six_disk_fd[drive], from*512, 0);
 	ret = write(six_disk_fd[drive], wdisk_buffer, 1024);
 	wbuf_offset = 0;
+	dm_notify_bdev_write(MKDEV(MAJOR_NR, drive << 6));
 }
 
 void do_hard_read(int drive, int from, int count)

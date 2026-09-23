@@ -131,6 +131,7 @@ static const char *dm_type_str(int type)
 	case DM_TARGET_STRIPED: return "striped";
 	case DM_TARGET_ZERO:    return "zero";
 	case DM_TARGET_ERROR:   return "error";
+	case DM_TARGET_VERITY:  return "verity";
 	default:                return "dm";
 	}
 }

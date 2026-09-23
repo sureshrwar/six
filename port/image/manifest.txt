@@ -321,10 +321,12 @@ node  /dev/fuse              0666  c  10 229
 node  /dev/hda              0600  b  3  0
 node  /dev/hdb              0600  b  3  64
 node  /dev/hdc              0660  b  3  128
+node  /dev/hdd              0600  b  3  192
 
 # --- /dev (block major 62 = DM_MAJOR, Device Mapper) -----------------------
 dir   /dev/mapper           0755
 node  /dev/mapper/control   0660  b  62 63
+sym   /dev/mapper/verity_bin -    /dev/dm-0
 node  /dev/dm-0             0660  b  62 0
 node  /dev/dm-1             0660  b  62 1
 node  /dev/dm-2             0660  b  62 2

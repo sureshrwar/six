@@ -71,6 +71,7 @@ MANIFEST="port/image/manifest.txt"
 OUT="disk/x86/root"
 STAGE="port/image/.stage"
 STRICT=0
+MODE="root"
 
 # Which on-disk format to pack the staging tree into.  ext4 is the default;
 # ext2 is kept so fs/ext2 stays testable and so the pre-ext4 image can be
@@ -84,6 +85,7 @@ while [ $# -gt 0 ]; do
 	--out)      OUT="$2"; shift ;;
 	--manifest) MANIFEST="$2"; shift ;;
 	--fstype)   FSTYPE="$2"; shift ;;
+	--mode)     MODE="$2"; shift ;;
 	*) echo "mkimage: unknown option $1" >&2; exit 2 ;;
 	esac
 	shift
@@ -94,11 +96,26 @@ ext2|ext4) ;;
 *) echo "mkimage: --fstype must be ext2 or ext4 (got '$FSTYPE')" >&2; exit 2 ;;
 esac
 
-# Geometry: 50 MB ext2 image (51200 x 1 KB blocks, 12800 inodes).
-# Can be overridden via environment variables BLOCK_COUNT and INODE_COUNT.
-BLOCK_SIZE=1024
-BLOCK_COUNT=${BLOCK_COUNT:-51200}
-INODE_COUNT=${INODE_COUNT:-$((BLOCK_COUNT / 4))}
+case "$MODE" in
+root|bin|full) ;;
+*) echo "mkimage: --mode must be root, bin, or full (got '$MODE')" >&2; exit 2 ;;
+esac
+
+if [ "$MODE" = "bin" ]; then
+	[ "$OUT" = "disk/x86/root" ] && OUT="disk/x86/bin_storage"
+	STAGE="port/image/.stage_bin"
+	BLOCK_SIZE=1024
+	BLOCK_COUNT=${BLOCK_COUNT:-15360}
+	INODE_COUNT=${INODE_COUNT:-512}
+	SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1700000000}
+	export SOURCE_DATE_EPOCH
+else
+	# Geometry: 50 MB ext2 image (51200 x 1 KB blocks, 12800 inodes).
+	# Can be overridden via environment variables BLOCK_COUNT and INODE_COUNT.
+	BLOCK_SIZE=1024
+	BLOCK_COUNT=${BLOCK_COUNT:-51200}
+	INODE_COUNT=${INODE_COUNT:-$((BLOCK_COUNT / 4))}
+fi
 
 [ -r "$MANIFEST" ] || { echo "mkimage: no manifest at $MANIFEST" >&2; exit 1; }
 
@@ -130,6 +147,11 @@ badarch=0
 while read -r type path mode a b c; do
 	case "$type" in ''|\#*) continue ;; esac
 	[ "$type" = "file" ] || continue
+	if [ "$MODE" = "root" ]; then
+		case "$path" in /bin/*) continue ;; esac
+	elif [ "$MODE" = "bin" ]; then
+		case "$path" in /bin/*) ;; *) continue ;; esac
+	fi
 	if [ ! -f "$a" ]; then
 		missing=$((missing + 1))
 		echo "mkimage: MISSING  $a  (would become $path)" >&2
@@ -171,7 +193,7 @@ fi
 rm -rf "$STAGE"
 mkdir -p "$STAGE" "$(dirname "$OUT")"
 
-export SRCROOT STAGE MANIFEST OUT BLOCK_SIZE BLOCK_COUNT INODE_COUNT FSTYPE
+export SRCROOT STAGE MANIFEST OUT BLOCK_SIZE BLOCK_COUNT INODE_COUNT FSTYPE MODE
 
 fakeroot -- bash -s <<'FAKEROOT_SCRIPT'
 set -u
@@ -179,6 +201,17 @@ rc=0
 
 while read -r type path mode a b c; do
 	case "$type" in ''|\#*) continue ;; esac
+
+	if [ "$MODE" = "root" ]; then
+		case "$path" in
+		/bin/*) continue ;;
+		esac
+	elif [ "$MODE" = "bin" ]; then
+		case "$path" in
+		/bin/*) path="${path#/bin}" ;;
+		*) continue ;;
+		esac
+	fi
 
 	dest="$STAGE$path"
 
@@ -221,9 +254,20 @@ done < <(sed 's/#.*//' "$MANIFEST")
 chown 0:0 "$STAGE"
 chmod 0755 "$STAGE"
 
+if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+	find "$STAGE" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
+fi
+
 [ "$rc" = 0 ] || { echo "mkimage: staging failed" >&2; exit 1; }
 
 rm -f "$OUT"
+
+LABEL_OPT=""
+if [ "$MODE" = "bin" ]; then
+	LABEL_OPT="-L bin_verity"
+else
+	LABEL_OPT="-L rootfs"
+fi
 
 # Common to both formats:
 # -q        quiet
@@ -234,64 +278,21 @@ rm -f "$OUT"
 # -U        a fixed UUID, so two builds of the same tree are identical
 # -d        populate from the staging tree
 if [ "$FSTYPE" = ext4 ]; then
-	# -I 256  ext4 needs 256-byte inodes for i_extra_isize (the driver
-	#         writes extra_isize = 32); they also leave room for the
-	#         nanosecond and crtime fields that debugfs shows.
-	#
-	# The three features we must turn OFF, and why:
-	#   ^metadata_csum  SIX has no crc32c implementation, so it can neither
-	#                   verify nor maintain group-descriptor/inode/extent
-	#                   checksums.  A single guest write would leave every
-	#                   touched structure with a stale checksum and e2fsck
-	#                   would reject the image.
-	#   ^64bit          64bit widens group descriptors from 32 to 64 bytes
-	#                   and adds the *_hi halves.  SIX is strictly 32-bit
-	#                   and its ext2_group_desc is the 32-byte layout.
-	#   ^orphan_file    a recent INCOMPAT feature; an unknown incompat bit
-	#                   makes ext4_read_super() refuse the mount outright.
-	#
-	# Everything else mke2fs enables by default is kept, and is genuinely
-	# exercised by the driver: extents (the B+tree in fs/ext4/extents.c),
-	# flex_bg (which is why ext4_check_descriptors() relaxes its per-group
-	# containment check), dir_index, sparse_super, filetype, large_file,
-	# huge_file, dir_nlink and extra_isize.
-	#
-	# Note there is no revision demotion in this branch.  ext4 requires
-	# revision 1 -- it is where s_inode_size, s_first_ino and the feature
-	# masks live.
 	mke2fs -q -F \
 		-t ext4 \
+		$LABEL_OPT \
 		-b "$BLOCK_SIZE" \
 		-N "$INODE_COUNT" \
 		-I 256 \
-		-O ^metadata_csum,^64bit,^orphan_file -m 5 \
+		-O ^metadata_csum,^64bit,^orphan_file -m 2 \
 		-U 13bcf00c-78b2-11d9-8fdf-f213c4292cfb \
 		-d "$STAGE" \
 		"$OUT" "$BLOCK_COUNT"
 
 	[ -s "$OUT" ] || { echo "mkimage: mke2fs produced nothing" >&2; exit 1; }
 else
-	# -I 128  128-byte inodes; this is what the 2.0 driver assumes and it
-	#         is also mandatory for the revision-0 demotion below.  mke2fs
-	#         warns that 128-byte inodes cannot represent dates past 2038,
-	#         which is a problem this filesystem will not live to have.
-	# -O none clear every feature the mke2fs defaults would otherwise
-	#         enable (sparse_super, large_file, filetype, resize_inode,
-	#         dir_index, ext_attr).  filetype is INCOMPAT and
-	#         dir_index/ext_attr/resize_inode are COMPAT, but the 2.0
-	#         driver understands none of them and sparse_super alone would
-	#         change the block-group layout.
-	#
-	# Note what is NOT here: there is no way to ask mke2fs 1.47 for a
-	# revision-0 filesystem.  "-r 0" was removed and the suggested
-	# replacement, "-E revision=0", fails with "Filesystem features not
-	# supported with revision 0 filesystems" even when -O none has cleared
-	# every feature -- the check runs against a feature set that has not
-	# been zeroed yet.  So we build a feature-free revision-1 filesystem,
-	# which differs from revision 0 only in three superblock fields that
-	# the old driver does not read, and then demote the revision number in
-	# place.  e2fsck -fn afterwards confirms the result is coherent.
 	mke2fs -q -F \
+		$LABEL_OPT \
 		-b "$BLOCK_SIZE" \
 		-N "$INODE_COUNT" \
 		-I 128 \
@@ -328,5 +329,9 @@ if [ -n "${SOURCE_DATE_EPOCH:-}" ] && command -v debugfs >/dev/null 2>&1; then
 	debugfs -w -R "ssv lastcheck @$SOURCE_DATE_EPOCH" "$OUT" >/dev/null 2>&1
 fi
 
-echo "mkimage: wrote $OUT as $FSTYPE ($(stat -c %s "$OUT") bytes, $present file(s), $missing missing)"
+if [ "$MODE" = "bin" ]; then
+	python3 port/image/mkverity.py "$OUT" include/linux/verity_roothash.h || exit 1
+fi
+
+echo "mkimage: wrote $OUT ($MODE) as $FSTYPE ($(stat -c %s "$OUT") bytes, $present file(s), $missing missing)"
 exit 0

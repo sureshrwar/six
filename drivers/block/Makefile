@@ -153,3 +153,6 @@ endif
 endif
 
 include $(TOPDIR)/Rules.make
+
+dm.o: $(TOPDIR)/include/linux/verity_roothash.h
+

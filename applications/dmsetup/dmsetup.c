@@ -135,6 +135,18 @@ static int parse_table_line(const char *table_str, struct dm_target_spec *t)
 		t->bdev2 = resolve_bdev(toks[7]);
 		t->offset_sector2 = (unsigned long)atol(toks[8]);
 		return 0;
+	} else if (strcmp(toks[2], "verity") == 0) {
+		/* <start> <len> verity <dev> <hash_start_sector> <root_hash> */
+		if (n < 6)
+			return -1;
+		t->type = DM_TARGET_VERITY;
+		strncpy(t->dev_name, toks[3], sizeof(t->dev_name) - 1);
+		t->bdev = resolve_bdev(toks[3]);
+		t->offset_sector = 0;
+		t->hash_start_sector = (unsigned long)atol(toks[4]);
+		strcpy(t->cipher, "sha256");
+		strncpy(t->root_hash, toks[5], sizeof(t->root_hash) - 1);
+		return 0;
 	} else if (strcmp(toks[2], "zero") == 0) {
 		t->type = DM_TARGET_ZERO;
 		return 0;
@@ -153,6 +165,7 @@ static const char *target_type_str(int type)
 	case DM_TARGET_STRIPED: return "striped";
 	case DM_TARGET_ZERO:    return "zero";
 	case DM_TARGET_ERROR:   return "error";
+	case DM_TARGET_VERITY:  return "verity";
 	default:                return "unknown";
 	}
 }
@@ -172,6 +185,14 @@ static void print_table_entry(struct dm_target_spec *t, int show_keys)
 		       t->iv_offset,
 		       t->dev_name[0] ? t->dev_name : "/dev/hdc",
 		       t->offset_sector);
+	} else if (t->type == DM_TARGET_VERITY) {
+		printf("%lu %lu verity 1 %s %s 1024 1024 %lu %lu sha256 %s\n",
+		       t->start_sector, t->num_sectors,
+		       t->dev_name[0] ? t->dev_name : "/dev/hdd",
+		       t->dev_name[0] ? t->dev_name : "/dev/hdd",
+		       t->num_sectors >> 1,
+		       t->hash_start_sector >> 1,
+		       t->root_hash);
 	} else if (t->type == DM_TARGET_STRIPED) {
 		printf("%lu %lu striped 2 %lu %s %lu %s %lu\n",
 		       t->start_sector, t->num_sectors,
@@ -202,6 +223,7 @@ static void usage(void)
 	       "Supported targets:\n"
 	       "  linear  <dev> <start_sector>\n"
 	       "  crypt   <cipher> <key> <iv_offset> <dev> <start_sector>\n"
+	       "  verity  <dev> <hash_start_sector> <root_hash>\n"
 	       "  striped 2 <chunk_sectors> <dev1> <off1> <dev2> <off2>\n"
 	       "  zero\n"
 	       "  error\n");
@@ -407,12 +429,23 @@ int main(int argc, char *argv[])
 				}
 			} else {
 				for (j = 0; j < req.num_targets; j++) {
-					printf("%s: %lu %lu %s (reads=%lu, writes=%lu)\n",
-					       req.name,
-					       req.targets[j].start_sector,
-					       req.targets[j].num_sectors,
-					       target_type_str(req.targets[j].type),
-					       req.read_ios, req.write_ios);
+					if (req.targets[j].type == DM_TARGET_VERITY) {
+						printf("%s: %lu %lu verity %s (verified_blocks=%lu, corrupt_blocks=%lu, reads=%lu)\n",
+						       req.name,
+						       req.targets[j].start_sector,
+						       req.targets[j].num_sectors,
+						       req.targets[j].corrupt_blocks == 0 ? "V" : "C",
+						       req.targets[j].verified_blocks,
+						       req.targets[j].corrupt_blocks,
+						       req.read_ios);
+					} else {
+						printf("%s: %lu %lu %s (reads=%lu, writes=%lu)\n",
+						       req.name,
+						       req.targets[j].start_sector,
+						       req.targets[j].num_sectors,
+						       target_type_str(req.targets[j].type),
+						       req.read_ios, req.write_ios);
+					}
 				}
 			}
 		}

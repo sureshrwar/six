@@ -32,6 +32,9 @@ core
 disk/x86/root
 disk/sparc/root
 disk/*/root
+disk/*/bin_storage
+include/linux/verity_roothash.h
+port/image/.stage_bin/
 
 # The optional auxiliary disk (/dev/hdb), built by port/image/mkaux.sh.
 # Never checked in: it is not reconstructible from the tree, and having it

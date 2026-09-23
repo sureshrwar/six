@@ -18,8 +18,25 @@
 #include <linux/string.h>
 #include <linux/blk.h>
 #include <linux/dm.h>
+#include <linux/verity_roothash.h>
 #include <asm/segment.h>
 #include <asm/system.h>
+
+struct six_verity_sb {
+	char magic[8];
+	unsigned int version;
+	unsigned int hash_type;
+	unsigned int data_block_size;
+	unsigned int hash_block_size;
+	unsigned int data_blocks;
+	unsigned int hash_start_block;
+	unsigned int l0_offset_blocks;
+	unsigned int l1_offset_blocks;
+	unsigned int l2_offset_blocks;
+	char algorithm[32];
+	unsigned char salt[32];
+	unsigned char root_hash[32];
+};
 
 struct dm_device {
 	int active;
@@ -35,6 +52,8 @@ struct dm_device {
 	int num_targets;
 	struct dm_target_spec targets[DM_MAX_TARGETS];
 	unsigned int parsed_key[8];
+	unsigned char verity_salt[32];
+	unsigned char verity_root_hash[32];
 };
 
 static struct dm_device dm_devs[DM_MAX_DEVICES];
@@ -44,6 +63,109 @@ static int dm_blocksizes[64];
 static inline unsigned int rotl32(unsigned int v, int c)
 {
 	return (v << c) | (v >> (32 - c));
+}
+
+static inline unsigned int rotr32(unsigned int v, int c)
+{
+	return (v >> c) | (v << (32 - c));
+}
+
+static const unsigned int sha256_k[64] = {
+	0x428a2f98U, 0x71374491U, 0xb5c0fbcfU, 0xe9b5dba5U,
+	0x3956c25bU, 0x59f111f1U, 0x923f82a4U, 0xab1c5ed5U,
+	0xd807aa98U, 0x12835b01U, 0x243185beU, 0x550c7dc3U,
+	0x72be5d74U, 0x80deb1feU, 0x9bdc06a7U, 0xc19bf174U,
+	0xe49b69c1U, 0xefbe4786U, 0x0fc19dc6U, 0x240ca1ccU,
+	0x2de92c6fU, 0x4a7484aaU, 0x5cb0a9dcU, 0x76f988daU,
+	0x983e5152U, 0xa831c66dU, 0xb00327c8U, 0xbf597fc7U,
+	0xc6e00bf3U, 0xd5a79147U, 0x06ca6351U, 0x14292967U,
+	0x27b70a85U, 0x2e1b2138U, 0x4d2c6dfcU, 0x53380d13U,
+	0x650a7354U, 0x766a0abbU, 0x81c2c92eU, 0x92722c85U,
+	0xa2bfe8a1U, 0xa81a664bU, 0xc24b8b70U, 0xc76c51a3U,
+	0xd192e819U, 0xd6990624U, 0xf40e3585U, 0x106aa070U,
+	0x19a4c116U, 0x1e376c08U, 0x2748774cU, 0x34b0bcb5U,
+	0x391c0cb3U, 0x4ed8aa4aU, 0x5b9cca4fU, 0x682e6ff3U,
+	0x748f82eeU, 0x78a5636fU, 0x84c87814U, 0x8cc70208U,
+	0x90befffaU, 0xa4506cebU, 0xbef9a3f7U, 0xc67178f2U
+};
+
+static void sha256_transform(unsigned int state[8], const unsigned char block[64])
+{
+	unsigned int w[64];
+	unsigned int a, b, c, d, e, f, g, h, t1, t2;
+	int i;
+
+	for (i = 0; i < 16; i++) {
+		w[i] = ((unsigned int)block[i * 4 + 0] << 24) |
+		       ((unsigned int)block[i * 4 + 1] << 16) |
+		       ((unsigned int)block[i * 4 + 2] << 8)  |
+		       ((unsigned int)block[i * 4 + 3]);
+	}
+	for (i = 16; i < 64; i++) {
+		unsigned int s0 = rotr32(w[i - 15], 7) ^ rotr32(w[i - 15], 18) ^ (w[i - 15] >> 3);
+		unsigned int s1 = rotr32(w[i - 2], 17) ^ rotr32(w[i - 2], 19) ^ (w[i - 2] >> 10);
+		w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+	}
+
+	a = state[0]; b = state[1]; c = state[2]; d = state[3];
+	e = state[4]; f = state[5]; g = state[6]; h = state[7];
+
+	for (i = 0; i < 64; i++) {
+		unsigned int S1 = rotr32(e, 6) ^ rotr32(e, 11) ^ rotr32(e, 25);
+		unsigned int ch = (e & f) ^ ((~e) & g);
+		unsigned int S0 = rotr32(a, 2) ^ rotr32(a, 13) ^ rotr32(a, 22);
+		unsigned int maj = (a & b) ^ (a & c) ^ (b & c);
+		t1 = h + S1 + ch + sha256_k[i] + w[i];
+		t2 = S0 + maj;
+		h = g; g = f; f = e; e = d + t1;
+		d = c; c = b; b = a; a = t1 + t2;
+	}
+
+	state[0] += a; state[1] += b; state[2] += c; state[3] += d;
+	state[4] += e; state[5] += f; state[6] += g; state[7] += h;
+}
+
+/*
+ * Compute FIPS 180-4 SHA-256(salt[32] || block[1024]) -> out_digest[32].
+ * Total input is 1056 bytes (8448 bits = 0x2100 bits), which spans 17
+ * 64-byte SHA-256 blocks including padding.
+ */
+static void dm_sha256_salted_1k(const unsigned char salt[32],
+				const unsigned char blk[1024],
+				unsigned char out_digest[32])
+{
+	unsigned int state[8];
+	unsigned char chunk[64];
+	int i;
+
+	state[0] = 0x6a09e667U; state[1] = 0xbb67ae85U;
+	state[2] = 0x3c6ef372U; state[3] = 0xa54ff53aU;
+	state[4] = 0x510e527fU; state[5] = 0x9b05688cU;
+	state[6] = 0x1f83d9abU; state[7] = 0x5be0cd19U;
+
+	/* Block 0: salt[0..31] + blk[0..31] */
+	memcpy(chunk, salt, 32);
+	memcpy(chunk + 32, blk, 32);
+	sha256_transform(state, chunk);
+
+	/* Blocks 1..15: blk[32 .. 991] */
+	for (i = 0; i < 15; i++)
+		sha256_transform(state, blk + 32 + i * 64);
+
+	/* Block 16: blk[992..1023] + 0x80 + 23 zero bytes + 64-bit BE bitlen (8448 = 0x2100) */
+	memset(chunk, 0, 64);
+	memcpy(chunk, blk + 992, 32);
+	chunk[32] = 0x80;
+	chunk[62] = 0x21;
+	chunk[63] = 0x00;
+	sha256_transform(state, chunk);
+
+	for (i = 0; i < 8; i++) {
+		out_digest[i * 4 + 0] = (unsigned char)((state[i] >> 24) & 0xff);
+		out_digest[i * 4 + 1] = (unsigned char)((state[i] >> 16) & 0xff);
+		out_digest[i * 4 + 2] = (unsigned char)((state[i] >> 8) & 0xff);
+		out_digest[i * 4 + 3] = (unsigned char)(state[i] & 0xff);
+	}
 }
 
 #define CHACHA_QR(a, b, c, d)			\
@@ -205,6 +327,83 @@ static int dm_rw_phys_sector(kdev_t bdev, unsigned long phys_sec,
 	return -ENODEV;
 }
 
+static unsigned char dm_verity_data_buf[1024];
+static unsigned char dm_verity_hash_buf[1024];
+
+static int dm_read_phys_1k(kdev_t bdev, unsigned long phys_sec_even,
+			   unsigned char out_1k[1024])
+{
+	int err;
+	err = dm_rw_phys_sector(bdev, phys_sec_even, out_1k, READ);
+	if (err)
+		return err;
+	return dm_rw_phys_sector(bdev, phys_sec_even + 1, out_1k + 512, READ);
+}
+
+/*
+ * Verify a 1024-byte data block against the 3-level SHA-256 Merkle tree
+ * stored starting at t->hash_start_sector on t->bdev, anchored by
+ * dev->verity_root_hash.
+ */
+static int dm_verify_verity_block(struct dm_device *dev,
+				  struct dm_target_spec *t,
+				  unsigned long blk_nr,
+				  const unsigned char data_blk[1024])
+{
+	kdev_t bdev = to_kdev_t(t->bdev);
+	unsigned long hs_sec = t->hash_start_sector;
+	unsigned long l2_sec = hs_sec + (1UL << 1);
+	unsigned long l1_sec = hs_sec + ((2UL + (blk_nr >> 10)) << 1);
+	unsigned long l0_sec = hs_sec + ((17UL + (blk_nr >> 5)) << 1);
+	unsigned char d_hash[32], l0_hash[32], l1_hash[32], l2_hash[32];
+	unsigned char *hblk = dm_verity_hash_buf;
+
+	/* 1. Hash the 1 KB data block and check Level-0 leaf slot */
+	dm_sha256_salted_1k(dev->verity_salt, data_blk, d_hash);
+	if (dm_read_phys_1k(bdev, l0_sec, hblk) != 0)
+		return -EIO;
+	if (memcmp(hblk + ((blk_nr & 31UL) << 5), d_hash, 32) != 0) {
+		t->corrupt_blocks++;
+		printk("device-mapper: verity: CORRUPTION DETECTED at data block %lu (Level-0 hash mismatch) on %s!\n",
+		       blk_nr, dev->name);
+		return -EIO;
+	}
+
+	/* 2. Hash the Level-0 block and check Level-1 interior slot */
+	dm_sha256_salted_1k(dev->verity_salt, hblk, l0_hash);
+	if (dm_read_phys_1k(bdev, l1_sec, hblk) != 0)
+		return -EIO;
+	if (memcmp(hblk + (((blk_nr >> 5) & 31UL) << 5), l0_hash, 32) != 0) {
+		t->corrupt_blocks++;
+		printk("device-mapper: verity: CORRUPTION DETECTED at data block %lu (Level-1 hash mismatch) on %s!\n",
+		       blk_nr, dev->name);
+		return -EIO;
+	}
+
+	/* 3. Hash the Level-1 block and check Level-2 root block slot */
+	dm_sha256_salted_1k(dev->verity_salt, hblk, l1_hash);
+	if (dm_read_phys_1k(bdev, l2_sec, hblk) != 0)
+		return -EIO;
+	if (memcmp(hblk + ((blk_nr >> 10) << 5), l1_hash, 32) != 0) {
+		t->corrupt_blocks++;
+		printk("device-mapper: verity: CORRUPTION DETECTED at data block %lu (Level-2 hash mismatch) on %s!\n",
+		       blk_nr, dev->name);
+		return -EIO;
+	}
+
+	/* 4. Hash the Level-2 root block and compare against trusted Root Hash */
+	dm_sha256_salted_1k(dev->verity_salt, hblk, l2_hash);
+	if (memcmp(l2_hash, dev->verity_root_hash, 32) != 0) {
+		t->corrupt_blocks++;
+		printk("device-mapper: verity: CORRUPTION DETECTED at data block %lu (Root Hash mismatch) on %s!\n",
+		       blk_nr, dev->name);
+		return -EIO;
+	}
+
+	t->verified_blocks++;
+	return 0;
+}
+
 static int dm_process_sector(struct dm_device *dev, unsigned long sec,
 			     unsigned char *buf, int cmd)
 {
@@ -243,6 +442,35 @@ static int dm_process_sector(struct dm_device *dev, unsigned long sec,
 			dm_crypt_sector(dev->parsed_key, t->iv_offset + rel_sec, buf, crypt_buf);
 			return dm_rw_phys_sector(to_kdev_t(t->bdev), phys_sec, crypt_buf, WRITE);
 		}
+
+	case DM_TARGET_VERITY: {
+		static struct dm_device *last_verity_dev = NULL;
+		static unsigned long last_verity_blk = ~0UL;
+		unsigned long blk_nr = rel_sec >> 1;
+		unsigned long phys_sec_even = t->offset_sector + (blk_nr << 1);
+		int sub_off = (rel_sec & 1) << 9;
+
+		if (cmd != READ)
+			return -EACCES;
+		if (sub_off == 512 && last_verity_dev == dev && last_verity_blk == blk_nr) {
+			memcpy(buf, dm_verity_data_buf + 512, 512);
+			last_verity_dev = NULL;
+			return 0;
+		}
+		last_verity_dev = NULL;
+		err = dm_read_phys_1k(to_kdev_t(t->bdev), phys_sec_even, dm_verity_data_buf);
+		if (err)
+			return err;
+		err = dm_verify_verity_block(dev, t, blk_nr, dm_verity_data_buf);
+		if (err)
+			return err;
+		if (sub_off == 0) {
+			last_verity_dev = dev;
+			last_verity_blk = blk_nr;
+		}
+		memcpy(buf, dm_verity_data_buf + sub_off, 512);
+		return 0;
+	}
 
 	case DM_TARGET_STRIPED: {
 		unsigned long chunk = t->chunk_sectors ? t->chunk_sectors : 8;
@@ -447,6 +675,26 @@ static int dm_ioctl(struct inode *inode, struct file *file,
 				dev->total_sectors = end_sec;
 			if (dev->targets[i].type == DM_TARGET_CRYPT)
 				dm_derive_key(dev->targets[i].key, dev->parsed_key);
+			if (dev->targets[i].type == DM_TARGET_VERITY) {
+				int j;
+				struct six_verity_sb sb;
+				dev->ro = 1;
+				memset(dev->verity_salt, 0, 32);
+				strcpy((char *)dev->verity_salt, VERITY_BIN_SALT_STR);
+				for (j = 0; j < 32; j++) {
+					int hi = hex_nibble(dev->targets[i].root_hash[j * 2]);
+					int lo = hex_nibble(dev->targets[i].root_hash[j * 2 + 1]);
+					if (hi >= 0 && lo >= 0)
+						dev->verity_root_hash[j] = (unsigned char)((hi << 4) | lo);
+				}
+				if (dm_read_phys_1k(to_kdev_t(dev->targets[i].bdev),
+						    dev->targets[i].hash_start_sector,
+						    dm_verity_data_buf) == 0) {
+					memcpy(&sb, dm_verity_data_buf, sizeof(sb));
+					if (memcmp(sb.magic, "verity\0\0", 8) == 0)
+						memcpy(dev->verity_salt, sb.salt, 32);
+				}
+			}
 		}
 
 		dev->active = 1;
@@ -602,6 +850,7 @@ static const char *dm_target_name(int type)
 	case DM_TARGET_STRIPED: return "striped";
 	case DM_TARGET_ZERO:    return "zero";
 	case DM_TARGET_ERROR:   return "error";
+	case DM_TARGET_VERITY:  return "verity";
 	default:                return "unknown";
 	}
 }
@@ -641,6 +890,13 @@ int get_dm_status_proc(char *buf)
 					t->iv_offset,
 					t->dev_name[0] ? t->dev_name : "/dev/hdc",
 					t->offset_sector);
+			} else if (t->type == DM_TARGET_VERITY) {
+				len += sprintf(buf + len, "%lu %lu verity %s %s sha256 %.16s... (verified=%lu, corrupt=%lu)",
+					t->start_sector, t->num_sectors,
+					t->dev_name[0] ? t->dev_name : "/dev/hdd",
+					t->dev_name[0] ? t->dev_name : "/dev/hdd",
+					t->root_hash,
+					t->verified_blocks, t->corrupt_blocks);
 			} else if (t->type == DM_TARGET_STRIPED) {
 				len += sprintf(buf + len, "%lu %lu striped 2 %lu %s %lu %s %lu",
 					t->start_sector, t->num_sectors,
@@ -662,6 +918,102 @@ int get_dm_status_proc(char *buf)
 	return len;
 }
 
+void dm_notify_bdev_write(kdev_t bdev)
+{
+	int i, j, k;
+	unsigned short raw_bdev = kdev_t_to_nr(bdev);
+	extern struct inode *first_inode;
+	extern int nr_inodes;
+
+	for (i = 0; i < DM_MAX_DEVICES; i++) {
+		if (!dm_devs[i].active)
+			continue;
+		for (j = 0; j < dm_devs[i].num_targets; j++) {
+			if (dm_devs[i].targets[j].type == DM_TARGET_VERITY &&
+			    dm_devs[i].targets[j].bdev == raw_bdev) {
+				kdev_t dm_kdev = MKDEV(DM_MAJOR, i);
+				struct inode *ino = first_inode;
+				for (k = 0; k < nr_inodes && ino; k++, ino = ino->i_next) {
+					if (ino->i_dev == dm_kdev)
+						truncate_inode_pages(ino, 0);
+				}
+				invalidate_buffers(dm_kdev);
+			}
+		}
+	}
+}
+
+/*
+ * In-kernel dm-verity setup for /bin (/dev/hdd -> /dev/dm-0 -> /dev/mapper/verity_bin).
+ * Called by init() in init/main.c immediately after mounting the root filesystem
+ * and before executing /etc/init.
+ */
+int dm_setup_verity_bin(void)
+{
+	struct dm_device *dev = &dm_devs[0];
+	struct dm_target_spec *t;
+	struct six_verity_sb sb;
+	kdev_t hdd_dev = MKDEV(HD_MAJOR, 192);
+
+	if (six_disk_fd[3] < 0)
+		return -ENODEV;
+
+	if (dm_read_phys_1k(hdd_dev, VERITY_BIN_HASH_START_SECTOR, dm_verity_data_buf) != 0) {
+		printk("device-mapper: verity: cannot read superblock on /dev/hdd\n");
+		return -EIO;
+	}
+	memcpy(&sb, dm_verity_data_buf, sizeof(sb));
+	if (memcmp(sb.magic, "verity\0\0", 8) != 0 || sb.version != 1) {
+		printk("device-mapper: verity: no valid superblock on /dev/hdd\n");
+		return -EINVAL;
+	}
+	if (memcmp(sb.root_hash, verity_bin_root_hash, 32) != 0) {
+		printk("device-mapper: verity: superblock root hash mismatch against kernel trusted root hash!\n");
+		return -EIO;
+	}
+
+	memset(dev, 0, sizeof(*dev));
+	strcpy(dev->name, "verity_bin");
+	dev->ro = 1;
+	dev->num_targets = 1;
+	dev->total_sectors = VERITY_BIN_DATA_SECTORS;
+	memcpy(dev->verity_salt, sb.salt, 32);
+	memcpy(dev->verity_root_hash, verity_bin_root_hash, 32);
+
+	t = &dev->targets[0];
+	t->start_sector = 0;
+	t->num_sectors = VERITY_BIN_DATA_SECTORS;
+	t->type = DM_TARGET_VERITY;
+	t->bdev = (HD_MAJOR << 8) | 192;
+	strcpy(t->dev_name, "/dev/hdd");
+	t->offset_sector = 0;
+	t->hash_start_sector = VERITY_BIN_HASH_START_SECTOR;
+	strcpy(t->cipher, "sha256");
+	strcpy(t->root_hash, VERITY_BIN_ROOT_HASH_HEX);
+
+	/* Pre-verify block 0 and block 1 (ext4 superblock) before activating */
+	if (dm_read_phys_1k(hdd_dev, 0, dm_verity_data_buf) != 0 ||
+	    dm_verify_verity_block(dev, t, 0, dm_verity_data_buf) != 0 ||
+	    dm_read_phys_1k(hdd_dev, 2, dm_verity_data_buf) != 0 ||
+	    dm_verify_verity_block(dev, t, 1, dm_verity_data_buf) != 0) {
+		printk("device-mapper: verity: initial Merkle tree verification FAILED on /dev/hdd!\n");
+		memset(dev, 0, sizeof(*dev));
+		return -EIO;
+	}
+
+	dev->active = 1;
+	dev->suspended = 0;
+	dm_sizes[0] = dev->total_sectors >> (BLOCK_SIZE_BITS - 9);
+	dm_blocksizes[0] = 1024;
+	set_device_ro(MKDEV(DM_MAJOR, 0), 1);
+
+	printk("device-mapper: verity: SHA-256 Merkle root %.16s... verified on /dev/hdd\n",
+	       VERITY_BIN_ROOT_HASH_HEX);
+	printk("device-mapper: created /dev/dm-0 (verity_bin), %lu sectors (%lu KB, read-only)\n",
+	       dev->total_sectors, dev->total_sectors >> 1);
+	return 0;
+}
+
 int dm_init(void)
 {
 	int i;
@@ -679,7 +1031,7 @@ int dm_init(void)
 	}
 	blk_size[DM_MAJOR] = dm_sizes;
 	blksize_size[DM_MAJOR] = dm_blocksizes;
-	printk("device-mapper: v1.0 initialized (major %d, targets: linear, crypt, striped, zero, error)\n",
+	printk("device-mapper: v1.0 initialized (major %d, targets: linear, crypt, verity, striped, zero, error)\n",
 	       DM_MAJOR);
 	return 0;
 }

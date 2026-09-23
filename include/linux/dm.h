@@ -18,6 +18,7 @@
 #define DM_TARGET_STRIPED	3
 #define DM_TARGET_ZERO		4
 #define DM_TARGET_ERROR		5
+#define DM_TARGET_VERITY	6
 
 #define DM_IOC_CREATE		0x4401
 #define DM_IOC_REMOVE		0x4402
@@ -36,8 +37,12 @@ struct dm_target_spec {
 	unsigned long offset_sector2;
 	unsigned long chunk_sectors;
 	unsigned long iv_offset;
+	unsigned long hash_start_sector;
+	unsigned long verified_blocks;
+	unsigned long corrupt_blocks;
 	char cipher[DM_CIPHER_LEN];
 	char key[DM_KEY_LEN];
+	char root_hash[68];
 	char dev_name[32];
 	char dev_name2[32];
 };
@@ -59,6 +64,8 @@ struct dm_ioctl_req {
 
 #ifdef __KERNEL__
 int dm_init(void);
+int dm_setup_verity_bin(void);
+void dm_notify_bdev_write(kdev_t bdev);
 int get_dm_status_proc(char *buf);
 #endif
 
