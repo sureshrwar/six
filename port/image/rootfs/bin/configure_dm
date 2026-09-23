@@ -1,0 +1,53 @@
+#!/bin/sh
+# /bin/configure_dm - Configure and mount Device Mapper (linear & crypt) volumes
+#
+# Maps /dev/hdc (50 MB ./disk/x86/aux_storage-2) into two Device Mapper volumes:
+#   1. /dev/mapper/linear0 (20 MB, sectors 0..40959, linear)  -> /aux/linear
+#   2. /dev/mapper/crypt0  (30 MB, sectors 40960..102399, crypt) -> /aux/crypt
+#
+# Existing filesystems from prior boots are detected via ext4info and mounted
+# directly without reformatting, preserving all files across reboots.
+
+hdc_probe=`ext4info -t /dev/hdc`
+if [ "$hdc_probe" = "none" ]; then
+	echo "Device Mapper: /dev/hdc not present, skipping dm setup"
+	exit 0
+fi
+
+echo "Configuring Device Mapper volumes on /dev/hdc..."
+
+mkdir -p /aux/linear
+mkdir -p /aux/crypt
+
+dmsetup create linear0 --table "0 40960 linear /dev/hdc 0"
+dmsetup create crypt0 --table "0 61440 crypt chacha20 deadbeefcafe1234 0 /dev/hdc 40960"
+
+linear_fs=`ext4info -t /dev/mapper/linear0`
+case "$linear_fs" in
+ext2|ext4)
+	echo "Mounting /dev/mapper/linear0 on /aux/linear ($linear_fs filesystem detected)"
+	mount -t ext2 /dev/mapper/linear0 /aux/linear
+	;;
+*)
+	echo "Formatting new ext2 filesystem on /dev/mapper/linear0..."
+	mkfs.ext2 -L linear0 /dev/mapper/linear0
+	mount -t ext2 /dev/mapper/linear0 /aux/linear
+	echo "SIX Device Mapper linear volume (/dev/mapper/linear0 -> /dev/hdc sectors 0..40959)" > /aux/linear/README.txt
+	sync
+	;;
+esac
+
+crypt_fs=`ext4info -t /dev/mapper/crypt0`
+case "$crypt_fs" in
+ext2|ext4)
+	echo "Mounting /dev/mapper/crypt0 on /aux/crypt ($crypt_fs encrypted filesystem detected)"
+	mount -t ext2 /dev/mapper/crypt0 /aux/crypt
+	;;
+*)
+	echo "Formatting new encrypted ext2 filesystem on /dev/mapper/crypt0..."
+	mkfs.ext2 -L crypt0 /dev/mapper/crypt0
+	mount -t ext2 /dev/mapper/crypt0 /aux/crypt
+	echo "SIX Device Mapper ChaCha20-256 encrypted vault (/dev/mapper/crypt0 -> /dev/hdc sectors 40960..102399)" > /aux/crypt/VAULT_README.txt
+	sync
+	;;
+esac

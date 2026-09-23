@@ -115,7 +115,8 @@ SUBDIRS	=	start \
 		xargs \
 		strace \
 		top \
-		dmsetup
+		dmsetup \
+		mkfs
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

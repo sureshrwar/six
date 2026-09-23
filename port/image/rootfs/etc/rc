@@ -6,6 +6,7 @@ echo Executing /etc/rc.
 sleep 0.25
 
 /bin/mount_all
+/bin/configure_dm
 
 sleep 0.25
 
