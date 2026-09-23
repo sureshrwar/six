@@ -475,7 +475,7 @@ ext4-image:
 	@$(MAKE) --no-print-directory SIX_IMAGE_FSTYPE=ext4 image
 
 image-clean:
-	rm -f $(SIX_IMAGE) $(SIX_BIN_IMAGE) $(SIX_IMAGE_STAMP) $(SIX_VERITY_STAMP)
+	rm -f $(SIX_IMAGE) $(SIX_BIN_IMAGE) $(SIX_IMAGE_STAMP) $(SIX_VERITY_STAMP) include/linux/verity_roothash.h
 	rm -rf port/image/.stage port/image/.stage_bin
 
 # The auxiliary disk, which SIX exposes as /dev/hdb.

@@ -156,3 +156,17 @@ include $(TOPDIR)/Rules.make
 
 dm.o: $(TOPDIR)/include/linux/verity_roothash.h
 
+$(TOPDIR)/include/linux/verity_roothash.h:
+	@printf '%s\n' \
+		'#ifndef _LINUX_VERITY_ROOTHASH_H' \
+		'#define _LINUX_VERITY_ROOTHASH_H' \
+		'#define VERITY_BIN_DATA_BLOCKS       15360UL' \
+		'#define VERITY_BIN_DATA_SECTORS      30720UL' \
+		'#define VERITY_BIN_HASH_START_BLOCK  15360UL' \
+		'#define VERITY_BIN_HASH_START_SECTOR 30720UL' \
+		'#define VERITY_BIN_SALT_STR          "SIX_DM_VERITY_SHA256_SALT_2026"' \
+		'#define VERITY_BIN_ROOT_HASH_HEX     "0000000000000000000000000000000000000000000000000000000000000000"' \
+		'static const unsigned char verity_bin_root_hash[32] = { 0 };' \
+		'#endif' > $@
+
+
