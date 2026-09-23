@@ -106,7 +106,8 @@ else
 # on the right-hand side of "do-it-all:" must already have a value.
 SIX_IMAGE	= disk/x86/root
 SIX_AUX_IMAGE	= disk/x86/aux_storage-1
-do-it-all:	include/asm Version six $(SIX_IMAGE) $(SIX_AUX_IMAGE)
+SIX_AUX2_IMAGE	= disk/x86/aux_storage-2
+do-it-all:	include/asm Version six $(SIX_IMAGE) $(SIX_AUX_IMAGE) $(SIX_AUX2_IMAGE)
 	@echo ""
 	@echo "======================================================================"
 	@echo "  Build successful! Your early-2000s time machine is ready."
@@ -464,6 +465,11 @@ SIX_AUX_FSTYPE ?= ntfs
 $(SIX_AUX_IMAGE):
 	$(CONFIG_SHELL) $(SIX_AUX_TOOL) --force --fstype $(SIX_AUX_FSTYPE)
 
+$(SIX_AUX2_IMAGE):
+	@mkdir -p $(dir $@)
+	truncate -s 50M $@
+	@echo "mkaux2: wrote $@ (52428800 bytes, 50 MB Device Mapper backing disk)"
+
 .PHONY: aux-image ext2-aux-image ext4-aux-image ntfs-aux-image aux-image-clean
 aux-image:
 	$(CONFIG_SHELL) $(SIX_AUX_TOOL) --force --fstype $(SIX_AUX_FSTYPE)
@@ -478,7 +484,8 @@ ntfs-aux-image:
 	$(CONFIG_SHELL) $(SIX_AUX_TOOL) --force --fstype ntfs
 
 aux-image-clean:
-	rm -f disk/x86/aux_storage-1 disk/sparc/aux_storage-1
+	rm -f disk/x86/aux_storage-1 disk/sparc/aux_storage-1 \
+	      disk/x86/aux_storage-2 disk/sparc/aux_storage-2
 
 
 linuxsubdirs: dummy
