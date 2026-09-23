@@ -946,11 +946,24 @@ static void vc_init(unsigned int currcons, unsigned long rows, unsigned long col
 #if (SIX)
 void winch_setsize(int sig, long id, void *context)
 {
-        int rows, cols;
+        int rows, cols, i;
         six_host_get_winsize(&rows, &cols);
+        if (rows <= 0 || cols <= 0)
+                return;
         video_num_lines = rows;
         video_num_columns = cols;
         video_size_row = 2 * cols;
+        for (i = 0; i < MAX_NR_CONSOLES; i++) {
+                if (vc_cons_allocated(i))
+                        vc_cons[i].d->vc_bottom = rows;
+                if (console_table[i]) {
+                        console_table[i]->winsize.ws_row = rows;
+                        console_table[i]->winsize.ws_col = cols;
+                        if (console_table[i]->pgrp > 0)
+                                kill_pg(console_table[i]->pgrp, SIGWINCH, 1);
+                        wake_up_interruptible(&console_table[i]->read_wait);
+                }
+        }
 }
 #endif
 

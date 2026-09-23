@@ -37,7 +37,7 @@ char	o_exrefresh[1] =	{TRUE};
 char	o_ignorecase[1] =	{FALSE};
 char	o_keytime[3] =		{1, 0, 50};
 char	o_keywordprg[80] =	{KEYWORDPRG};
-char	o_lines[3] =		{25, 2, 96};
+char	o_lines[3] =		{25, 2, 255};
 char	o_list[1] =		{FALSE};
 char	o_number[1] =		{FALSE};
 char	o_readonly[1] =		{FALSE};
@@ -63,7 +63,7 @@ char	o_novice[1] =		{FALSE};
 char	o_prompt[1] =		{TRUE};
 char	o_taglength[3] =	{0, 0, 30};
 char	o_terse[1] =		{FALSE};
-char	o_window[3] =		{0, 1, 24};
+char	o_window[3] =		{0, 1, 255};
 char	o_wrapmargin[3] =	{0, 0, 255};
 char	o_writeany[1] =		{FALSE};
 #endif

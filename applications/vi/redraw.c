@@ -925,11 +925,23 @@ void redraw(curs, inputting)
 		{
 			topline = 1L;
 		}
-		else
+		if (cursor != MARK_UNSET)
 		{
-			move(LINES - 1, 0);
-			clrtoeol();
+			if (markline(cursor) < topline)
+			{
+				topline = markline(cursor);
+			}
+			else if (markline(cursor) > botline)
+			{
+				topline = markline(cursor) - (LINES - 2);
+				if (topline < 1L)
+				{
+					topline = 1L;
+				}
+			}
 		}
+		move(0, 0);
+		clrtobot();
 		leftcol = 0;
 		mustredraw = TRUE;
 		redrawafter = INFINITY;
@@ -1201,7 +1213,7 @@ void redraw(curs, inputting)
 #ifndef CRUNCH
 		/* decide which lines must be in the "window" around the cursor */
 		l = markline(curs);
-		if ((*o_window & 0xff) + 1 == LINES)
+		if ((*o_window & 0xff) + 1 >= LINES)
 		{
 			showtop = 1;
 			showbottom = INFINITY;

@@ -647,13 +647,15 @@ int getsize(signo)
 
 #ifdef SIGWINCH
 	/* reset the signal vector */
-	signal(SIGWINCH, getsize);
+	signal(SIGWINCH, (void (*)())getsize);
 #endif
 
 	/* get the window size, one way or another. */
 	lines = cols = 0;
 #ifdef TIOCGWINSZ
-	if (ioctl(2, TIOCGWINSZ, &size) >= 0)
+	if (ioctl(2, TIOCGWINSZ, &size) >= 0 ||
+	    ioctl(0, TIOCGWINSZ, &size) >= 0 ||
+	    ioctl(1, TIOCGWINSZ, &size) >= 0)
 	{
 		lines = size.ws_row;
 		cols = size.ws_col;

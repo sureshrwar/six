@@ -188,36 +188,84 @@ int ttyread(buf, len, time)
 	int	len;	/* maximum number of characters to read */
 	int	time;	/* maximum time to allow for reading */
 {
-	/* arrange for timeout */
+	int	bytes;
+
+	for (;;)
+	{
+		getsize(0);
+		if ((*o_lines & 0xff) != LINES || (*o_columns & 0xff) != COLS)
+		{
+			*o_lines = LINES;
+			*o_columns = COLS;
+			*o_scroll = (LINES / 2 > 1) ? (LINES / 2 - 1) : 1;
+#ifndef CRUNCH
+			if (!wset)
+			{
+				*o_window = LINES - 1;
+				o_window[2] = LINES;
+			}
+#endif
+			if (mode != MODE_EX)
+			{
+				/* pretend the user hit ^L */
+				*buf = ctrl('L');
+				return 1;
+			}
+		}
+
+		/* arrange for timeout */
 #if __GNUC__ || _ANSI
-	signal(SIGALRM, (void (*)()) dummy);
+		signal(SIGALRM, (void (*)()) dummy);
 #else
-	signal(SIGALRM, dummy);
+		signal(SIGALRM, dummy);
 #endif
-	alarm(time);
+		alarm(time);
 
-	/* perform the blocking read */
-	if (setjmp(env) == 0)
-	{
-		len = read(0, buf, len);
-	}
-	else /* I guess we timed out */
-	{
-		len = 0;
-	}
+		/* perform the blocking read */
+		if (setjmp(env) == 0)
+		{
+			bytes = read(0, buf, len);
+		}
+		else /* I guess we timed out */
+		{
+			bytes = 0;
+		}
 
-	/* cancel the alarm */
+		/* cancel the alarm */
 #if _ANSI
-	signal(SIGALRM, (void (*)())dummy); /* work around a bug in Minix */
+		signal(SIGALRM, (void (*)())dummy); /* work around a bug in Minix */
 #else
-	signal(SIGALRM, dummy);		    /* work around a bug in Minix */
+		signal(SIGALRM, dummy);		    /* work around a bug in Minix */
 #endif
-	alarm(0);
+		alarm(0);
 
-	/* return the number of bytes read */
-	if (len < 0)
-		len = 0;
-	return len;
+		if (bytes < 0)
+		{
+			/* Interrupted by signal (e.g. SIGWINCH) - recheck size and retry */
+			continue;
+		}
+
+		getsize(0);
+		if ((*o_lines & 0xff) != LINES || (*o_columns & 0xff) != COLS)
+		{
+			*o_lines = LINES;
+			*o_columns = COLS;
+			*o_scroll = (LINES / 2 > 1) ? (LINES / 2 - 1) : 1;
+#ifndef CRUNCH
+			if (!wset)
+			{
+				*o_window = LINES - 1;
+				o_window[2] = LINES;
+			}
+#endif
+			if (mode != MODE_EX)
+			{
+				redraw(MARK_UNSET, FALSE);
+			}
+		}
+
+		return bytes;
+	}
 }
 
 # endif /* !(M_SYSV || COHERENT) */

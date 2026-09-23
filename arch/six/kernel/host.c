@@ -178,14 +178,25 @@ static int            six_saved_termios_valid = 0;
  * a pipe, which is how this is usually run under strace/gdb).  Returning a
  * zero-sized console is never useful and is what broke the console before.
  */
+extern int TERMFD;
+
 void six_host_get_winsize(int *rows, int *cols)
 {
 	struct winsize win;
+	int fds[4];
+	int i;
 
-	if (ioctl(1, TIOCGWINSZ, &win) == 0 && win.ws_row && win.ws_col) {
-		*rows = win.ws_row;
-		*cols = win.ws_col;
-		return;
+	fds[0] = TERMFD;
+	fds[1] = 1;
+	fds[2] = 0;
+	fds[3] = 2;
+	for (i = 0; i < 4; i++) {
+		if (fds[i] >= 0 && ioctl(fds[i], TIOCGWINSZ, &win) == 0 &&
+		    win.ws_row > 0 && win.ws_col > 0) {
+			*rows = win.ws_row;
+			*cols = win.ws_col;
+			return;
+		}
 	}
 
 	*rows = 25;

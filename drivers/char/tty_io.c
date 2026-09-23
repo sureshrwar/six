@@ -1435,6 +1435,17 @@ static int tty_ioctl(struct inode * inode, struct file * file,
 					     sizeof (struct winsize));
 			if (retval)
 				return retval;
+#if (SIX)
+			if (tty->driver.type == TTY_DRIVER_TYPE_CONSOLE) {
+				extern void six_host_get_winsize(int *rows, int *cols);
+				int r = 0, c = 0;
+				six_host_get_winsize(&r, &c);
+				if (r > 0 && c > 0) {
+					tty->winsize.ws_row = r;
+					tty->winsize.ws_col = c;
+				}
+			}
+#endif
 			memcpy_tofs((struct winsize *) arg, &tty->winsize,
 				    sizeof (struct winsize));
 			return 0;
