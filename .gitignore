@@ -162,6 +162,7 @@ port/image/.stage/
 # Records whether the current disk/x86/root is ext2 or ext4, so that
 # switching between "make ext2-image" and "make ext4-image" rebuilds it
 port/image/.fstype
+port/image/.verity
 library/*/lib/*.a
 
 # Records the value of SIX_TRACE_GUEST_SYSCALLS so make can notice changes.

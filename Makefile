@@ -346,7 +346,11 @@ symlinks:
 config: symlinks
 	@echo Configuration complete.
 six:	linuxsubdirs init/version.o init/main.o
-	@$(MAKE) --no-print-directory $(SIX_BIN_IMAGE)
+	@if [ "$(SIX_VERITY_BIN)" = "1" ]; then \
+		$(MAKE) --no-print-directory $(SIX_BIN_IMAGE); \
+	else \
+		rm -f $(SIX_BIN_IMAGE); \
+	fi
 	@$(MAKE) -C drivers/block block.o
 	$(CC) $(CFLAGS) -no-pie -rdynamic init/main.o init/version.o \
 	-o $(INSTALL_PATH)/six \
@@ -400,29 +404,33 @@ SIX_IMAGE_FILES	= $(wildcard $(shell sed 's/\#.*//' $(SIX_IMAGE_MANIFEST) | \
 SIX_BIN_FILES	= $(wildcard $(shell sed 's/\#.*//' $(SIX_IMAGE_MANIFEST) | \
 		    $(AWK) '$$1 == "file" && $$2 ~ /^\/bin\// { print $$4 }'))
 
-# Which on-disk format the root image is packed into.  Override on the command
-# line, or use the ext2-image / ext4-image targets below:
+# Which on-disk format the root image is packed into, and whether /bin lives
+# on its own dm-verity disk (disk/x86/bin_storage, SIX_VERITY_BIN=1) or inside
+# the root disk (disk/x86/root, SIX_VERITY_BIN=0):
 #
-#     make ext4-image     # default: real ext4, driven by fs/ext4
-#     make ext2-image     # revision-0 ext2, driven by fs/ext2
-#     make image SIX_IMAGE_FSTYPE=ext2
+#     make                        # default: ext4 root + dm-verity /bin (SIX_VERITY_BIN=1)
+#     make SIX_VERITY_BIN=0       # keep /bin inside disk/x86/root (no /dev/hdd)
+#     make SIX_VERITY_BIN=1       # move /bin onto dm-verity disk/x86/bin_storage
+#     make noverity-image         # shorthand for SIX_VERITY_BIN=0
+#     make verity-image           # shorthand for SIX_VERITY_BIN=1
+#     make ext4-image             # real ext4, driven by fs/ext4
+#     make ext2-image             # revision-0 ext2, driven by fs/ext2
 #
-# Both formats are built from the same staging tree and the same manifest, so
-# this is a genuine A/B: the only thing that changes is which driver in the
-# kernel ends up claiming the root filesystem.  fs/ext4's ext4_read_super()
-# refuses anything without INCOMPAT_EXTENTS, so an ext2 image falls straight
-# through to fs/ext2.
 SIX_IMAGE_STAMP   = port/image/.fstype
+SIX_VERITY_STAMP  = port/image/.verity
 
-# The choice is sticky.  If it were not, then after "make ext2-image" the very
-# next plain "make" -- say to pick up a kernel edit -- would quietly rewrite
-# the image back to ext4 and you would be testing the wrong driver without
-# being told.  So when SIX_IMAGE_FSTYPE is not given explicitly we take last
-# time's answer from the stamp, falling back to ext4 for a fresh tree.
-# ifndef is false for command-line and environment variables, so an explicit
-# setting still wins and the shell runs at most once.
 ifndef SIX_IMAGE_FSTYPE
 SIX_IMAGE_FSTYPE := $(shell cat $(SIX_IMAGE_STAMP) 2>/dev/null || echo ext4)
+endif
+
+ifndef SIX_VERITY_BIN
+SIX_VERITY_BIN := $(shell cat $(SIX_VERITY_STAMP) 2>/dev/null || echo 1)
+endif
+
+ifeq ($(SIX_VERITY_BIN),1)
+SIX_ROOT_MODE := root
+else
+SIX_ROOT_MODE := full
 endif
 
 $(SIX_BIN_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_VERITY_TOOL) $(SIX_BIN_FILES) | linuxsubdirs
@@ -431,24 +439,34 @@ $(SIX_BIN_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_VERITY_TOOL) $(S
 # The order-only dependency on "six" keeps the image from being assembled in
 # parallel with the kernel link under make -j; the guest binaries are built
 # by linuxsubdirs, which is a prerequisite of six.
-$(SIX_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_IMAGE_FILES) $(SIX_IMAGE_STAMP) | six
-	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict --mode root --fstype $(SIX_IMAGE_FSTYPE)
+$(SIX_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_IMAGE_FILES) $(SIX_IMAGE_STAMP) $(SIX_VERITY_STAMP) | six
+	@if [ "$(SIX_VERITY_BIN)" != "1" ]; then rm -f $(SIX_BIN_IMAGE); fi
+	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict --mode $(SIX_ROOT_MODE) --fstype $(SIX_IMAGE_FSTYPE)
 
-# Both formats are written to the same path, so the image's own timestamp
-# cannot tell us which one is currently on disk.  Record it in a stamp file
-# and hang the image off that -- the same trick arch/six/kernel/Makefile uses
-# for SIX_TRACE_GUEST_SYSCALLS.  "dummy" makes the rule run every time; cmp
-# keeps the stamp's timestamp still unless the value actually changed, so
-# "make ext2-image" rebuilds but a second plain "make" stays a no-op.
 $(SIX_IMAGE_STAMP): dummy
 	@mkdir -p $(dir $@)
 	@echo '$(SIX_IMAGE_FSTYPE)' | cmp -s - $@ 2>/dev/null || \
 		echo '$(SIX_IMAGE_FSTYPE)' > $@
 
-.PHONY: image image-clean ext2-image ext4-image bin-image
+$(SIX_VERITY_STAMP): dummy
+	@mkdir -p $(dir $@)
+	@echo '$(SIX_VERITY_BIN)' | cmp -s - $@ 2>/dev/null || \
+		echo '$(SIX_VERITY_BIN)' > $@
+
+.PHONY: image image-clean ext2-image ext4-image bin-image verity-image noverity-image
 bin-image: $(SIX_BIN_IMAGE)
 
+ifeq ($(SIX_VERITY_BIN),1)
 image: $(SIX_BIN_IMAGE) $(SIX_IMAGE)
+else
+image: $(SIX_IMAGE)
+endif
+
+verity-image:
+	@$(MAKE) --no-print-directory SIX_VERITY_BIN=1 six image
+
+noverity-image:
+	@$(MAKE) --no-print-directory SIX_VERITY_BIN=0 six image
 
 ext2-image:
 	@$(MAKE) --no-print-directory SIX_IMAGE_FSTYPE=ext2 image
@@ -457,7 +475,7 @@ ext4-image:
 	@$(MAKE) --no-print-directory SIX_IMAGE_FSTYPE=ext4 image
 
 image-clean:
-	rm -f $(SIX_IMAGE) $(SIX_BIN_IMAGE) $(SIX_IMAGE_STAMP)
+	rm -f $(SIX_IMAGE) $(SIX_BIN_IMAGE) $(SIX_IMAGE_STAMP) $(SIX_VERITY_STAMP)
 	rm -rf port/image/.stage port/image/.stage_bin
 
 # The auxiliary disk, which SIX exposes as /dev/hdb.
