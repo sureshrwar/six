@@ -39,6 +39,8 @@ dir   /usr/include/sys      0755
 dir   /usr/include/linux    0755
 dir   /usr/include/asm      0755
 dir   /var                  0755
+dir   /var/overlay          0755
+dir   /var/overlay/bin      0755
 dir   /var/games            0777
 dir   /var/mail             0777
 dir   /var/spool            0755

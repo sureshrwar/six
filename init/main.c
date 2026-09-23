@@ -947,9 +947,17 @@ static int init(void * unused)
                 if (dm_setup_verity_bin() == 0) {
                         int mret = sys_mount("/dev/mapper/verity_bin", "/bin", "ext4",
                                              MS_MGC_VAL | MS_RDONLY, NULL);
-                        if (mret == 0)
+                        if (mret == 0) {
+                                int oret;
                                 printk("VFS: Mounted /dev/mapper/verity_bin on /bin (ext4, dm-verity sha256 read-only)\n");
-                        else
+                                oret = sys_mount("overlay", "/bin", "overlay",
+                                                 MS_MGC_VAL,
+                                                 "lowerdir=/bin,upperdir=/var/overlay/bin");
+                                if (oret == 0)
+                                        printk("VFS: Mounted overlay on /bin (lowerdir=/bin [dm-verity], upperdir=/var/overlay/bin [/dev/hda])\n");
+                                else
+                                        printk("VFS: Failed to mount overlay on /bin (err=%d)\n", oret);
+                        } else
                                 printk("VFS: Failed to mount /dev/mapper/verity_bin on /bin (err=%d)\n", mret);
                 }
         }

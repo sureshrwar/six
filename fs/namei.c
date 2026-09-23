@@ -172,11 +172,13 @@ int lookup(struct inode * dir,const char * name, int len,
                         *result = dir;
                         return 0;
                 } else if ((sb = dir->i_sb) && (dir == sb->s_mounted)) {
-                        iput(dir);
-                        dir = sb->s_covered;
-                        if (!dir)
-                                return -ENOENT;
-                        dir->i_count++;
+                        while ((sb = dir->i_sb) && (dir == sb->s_mounted)) {
+                                iput(dir);
+                                dir = sb->s_covered;
+                                if (!dir)
+                                        return -ENOENT;
+                                dir->i_count++;
+                        }
                 }
         }
         if (!dir->i_op || !dir->i_op->lookup) {

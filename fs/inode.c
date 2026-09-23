@@ -653,7 +653,7 @@ found_it:
                 iput(inode);
                goto repeat;
         }
-        if (crossmntp && inode->i_mount) {
+        while (crossmntp && inode->i_mount) {
                 struct inode * tmp = inode->i_mount;
                 tmp->i_count++;
                 iput(inode);

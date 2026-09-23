@@ -331,6 +331,10 @@ int get_filesystem_info( char *buf )
                     len += strlen(fs_infop->str);
                   }
                 }
+                if (!strcmp("overlay", tmp->mnt_sb->s_type->name)) {
+                        extern int ovl_format_mount_opts(struct super_block *sb, char *buf);
+                        len += ovl_format_mount_opts(tmp->mnt_sb, buf + len);
+                }
                 if (!strcmp("nfs", tmp->mnt_sb->s_type->name)) {
                         nfss = &tmp->mnt_sb->u.nfs_sb.s_server;
                         if (nfss->rsize != NFS_DEF_FILE_IO_BUFFER_SIZE) {
@@ -715,7 +719,9 @@ int do_mount(kdev_t dev, const char * dev_name, const char * dir_name, const cha
         error = namei(dir_name, &dir_i);
         if (error)
                 return error;
-        if (dir_i->i_count != 1 || dir_i->i_mount) {
+        if ((dir_i->i_count != 1 &&
+             !(dir_i->i_sb && dir_i == dir_i->i_sb->s_mounted && dir_i->i_count == 2)) ||
+            dir_i->i_mount) {
                 iput(dir_i);
                 return -EBUSY;
         }

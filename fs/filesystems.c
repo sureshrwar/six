@@ -103,7 +103,9 @@ asmlinkage int sys_setup(void)
 
         {
                 extern int init_tmpfs_fs(void);
+                extern int init_overlay_fs(void);
                 init_tmpfs_fs();
+                init_overlay_fs();
         }
 
 #ifdef CONFIG_NFS_FS
