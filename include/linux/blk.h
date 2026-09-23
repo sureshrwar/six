@@ -7,7 +7,9 @@
 #include <linux/config.h>
 
 #if (SIX)
+#ifndef MAJOR_NR
 #define MAJOR_NR HD_MAJOR
+#endif
 #endif
 
 /*
@@ -237,6 +239,14 @@ static void floppy_off(unsigned int nr);
 
 #define DEVICE_NAME "Sanyo H94A CD-ROM"
 #define DEVICE_REQUEST do_sjcd_request
+#define DEVICE_NR(device) (MINOR(device))
+#define DEVICE_ON(device)
+#define DEVICE_OFF(device)
+
+#elif (MAJOR_NR == DM_MAJOR)
+
+#define DEVICE_NAME "device-mapper"
+#define DEVICE_REQUEST do_dm_request
 #define DEVICE_NR(device) (MINOR(device))
 #define DEVICE_ON(device)
 #define DEVICE_OFF(device)

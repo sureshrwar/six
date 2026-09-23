@@ -1088,6 +1088,10 @@ static int get_root_array(char * page, int type, char **start, off_t offset, int
 #endif
 		case PROC_LOCKS:
 			return get_locks_status(page);
+		case PROC_DM: {
+			extern int get_dm_status_proc(char *buf);
+			return get_dm_status_proc(page);
+		}
 	}
 	return -EBADF;
 }

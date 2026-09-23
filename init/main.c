@@ -634,6 +634,35 @@ void check_root(const char *disk_arg)
 		fprintf(stderr, "auxiliary disk: %s (%ld MB) as /dev/hdb\n",
 				aux, (six_disk_sectors[1] * 512) / (1024 * 1024));
 	}
+
+	{
+		const char *aux2 = getenv("AUXDISKFILE2");
+		if (!aux2)
+			aux2 = AUXDISKFILE2;
+
+		/*
+		 * Auxiliary disk 2 (/dev/hdc, 50 MB) backs Device Mapper (dm)
+		 * volumes. Auto-create as a 50 MB sparse file if absent so
+		 * persistent dm volumes work out of the box.
+		 */
+		six_disk_fd[2] = open(aux2, O_RDWR);
+		if (six_disk_fd[2] < 0) {
+			FILE *fp = fopen(aux2, "ab+");
+			if (fp)
+				fclose(fp);
+			six_disk_fd[2] = open(aux2, O_RDWR);
+		}
+		if (six_disk_fd[2] >= 0) {
+			long cur_bytes = lseek(six_disk_fd[2], 0L, 2);
+			lseek(six_disk_fd[2], 0L, 0);
+			if (cur_bytes < 50L * 1024L * 1024L) {
+				ftruncate(six_disk_fd[2], 50L * 1024L * 1024L);
+			}
+			size_disk(2, aux2);
+			fprintf(stderr, "auxiliary disk 2: %s (%ld MB) as /dev/hdc\n",
+					aux2, (six_disk_sectors[2] * 512) / (1024 * 1024));
+		}
+	}
 }
 
 void grow_ram()

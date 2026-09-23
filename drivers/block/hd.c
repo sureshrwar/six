@@ -54,7 +54,7 @@
 #define MAX_ERRORS     16       /* Max read/write errors/sector */
 #define RESET_FREQ      8       /* Reset controller every 8th retry */
 #define RECAL_FREQ      4       /* Recalibrate every 4th retry */
-#define MAX_HD          2
+#define MAX_HD          4
 
 #define STAT_OK         (READY_STAT|SEEK_STAT)
 #define OK_STATUS(s)    (((s)&(STAT_OK|(BUSY_STAT|WRERR_STAT|ERR_STAT)))==STAT_OK)
@@ -93,9 +93,9 @@ static int hd_error = 0;
  * fails for drive 0; drive 1 is left at zero until check_root() says
  * otherwise.
  */
-int  six_disk_fd[SIX_MAX_DISKS]      = { -1, -1 };
-int  six_hd_cyl[SIX_MAX_DISKS]       = { HD_CYL_DEFAULT, 0 };
-long six_disk_sectors[SIX_MAX_DISKS] = { (long) HD_CYL_DEFAULT * HD_HEAD * HD_SECT, 0 };
+int  six_disk_fd[SIX_MAX_DISKS]      = { -1, -1, -1, -1 };
+int  six_hd_cyl[SIX_MAX_DISKS]       = { HD_CYL_DEFAULT, 0, 0, 0 };
+long six_disk_sectors[SIX_MAX_DISKS] = { (long) HD_CYL_DEFAULT * HD_HEAD * HD_SECT, 0, 0, 0 };
 
 int hd_sect[MAX_HD<<6], hd_head[MAX_HD<<6];
 
@@ -130,8 +130,8 @@ struct hd_i_struct hd_info[] = { HD_TYPE };
 struct hd_i_struct bios_info[] = { HD_TYPE };
 static int NR_HD = ((sizeof (hd_info))/(sizeof (struct hd_i_struct)));
 #else
-struct hd_i_struct hd_info[3]; // = { {0,0,0,0,0,0},{0,0,0,0,0,0}, 0 };
-struct hd_i_struct bios_info[3]; // = { {0,0,0,0,0,0},{0,0,0,0,0,0}, 0 };
+struct hd_i_struct hd_info[MAX_HD];
+struct hd_i_struct bios_info[MAX_HD];
 static int NR_HD = 0;
 #endif
 
@@ -264,7 +264,7 @@ static int controller_ready(unsigned int drive, unsigned int head)
         do {
                 if (controller_busy() & BUSY_STAT)
                         return 0;
-                outb_p(0xA0 | (drive<<4) | head, HD_CURRENT);
+                outb_p(0x80 | ((drive & 3) << 4) | (head & 0x0f), HD_CURRENT);
                 if (status_ok())
                         return 1;
         } while (--retry);
@@ -297,7 +297,7 @@ static void hd_out(unsigned int drive,unsigned int nsect,unsigned int sect,
         outb_p(sect,++port);
         outb_p(cyl,++port);
         outb_p(cyl>>8,++port);
-        outb_p(0xA0|(drive<<4)|head,++port);
+        outb_p(0x80 | ((drive & 3) << 4) | (head & 0x0f), ++port);
         outb_p(cmd,++port);
 }
 
@@ -898,7 +898,7 @@ static int hd_ioctl(struct inode * inode, struct file * file,
         if ((!inode) || !(inode->i_rdev))
                 return -EINVAL;
         dev = DEVICE_NR(inode->i_rdev);
-        if (dev >= NR_HD)
+        if (dev >= NR_HD || six_disk_fd[dev] < 0)
                 return -EINVAL;
         switch (cmd) {
                 case HDIO_GETGEO:
@@ -1006,7 +1006,7 @@ static int hd_open(struct inode * inode, struct file * filp)
         int target;
         target =  DEVICE_NR(inode->i_rdev);
 
-        if (target >= NR_HD)
+        if (target >= NR_HD || six_disk_fd[target] < 0)
                 return -ENODEV;
         while (busy[target])
                 sleep_on(&busy_wait);
@@ -1072,35 +1072,13 @@ static void hd_geninit(struct gendisk *ignored)
         int i;
 #if (SIX)
         if (!NR_HD) {
-                /*
-                 * The simulated BIOS drive table, planted at
-                 * empty_zero_page+0x80 by setup_disk_info().  It holds one
-                 * struct dummy_drive_struct per drive.
-                 *
-                 * The stride used to be a hardcoded 16 while the loop body
-                 * reads six 4-byte fields (24 bytes) out of a 32-byte
-                 * entry, so drive 1 took drive 0's lzone and sect as its
-                 * cyl and head and then ran off the end of the object.
-                 * It never showed because drive 1 was never used.
-                 */
                 extern struct drive_info_struct { int dummy[8*SIX_MAX_DISKS]; } drive_info;
                 unsigned char *BIOS = (unsigned char *) &drive_info;
                 int cmos_disks, drive;
 
-                for (drive=0 ; drive<MAX_HD ; drive++) {
-                        /*
-                         * Stop at the first drive with no backing file.
-                         * NR_HD is a count rather than a bitmap and
-                         * hd_open() tests "target >= NR_HD", so the drives
-                         * that exist have to be contiguous from zero.
-                         * Drive 0 is always present -- check_root() exits
-                         * if the root disk cannot be opened -- so in
-                         * practice this is what leaves NR_HD at 1 when
-                         * there is no auxiliary disk, and /dev/hdb then
-                         * reports ENODEV.
-                         */
+                for (drive=0 ; drive<MAX_HD ; drive++, BIOS += sizeof(struct dummy_drive_struct)) {
                         if (six_disk_fd[drive] < 0)
-                                break;
+                                continue;
 
                         bios_info[drive].cyl   = hd_info[drive].cyl = *(unsigned int *)BIOS;
                         hd_head[drive] = bios_info[drive].head  = hd_info[drive].head = *(unsigned int *)(4+BIOS);
@@ -1108,31 +1086,8 @@ static void hd_geninit(struct gendisk *ignored)
                         bios_info[drive].ctl   = hd_info[drive].ctl = *(unsigned int *)(12+BIOS);
                         bios_info[drive].lzone = hd_info[drive].lzone = *(unsigned int *)(16+BIOS);
                         hd_sect[drive] = bios_info[drive].sect  = hd_info[drive].sect = *(unsigned int *)(20+BIOS);
-                        NR_HD++;
-                        BIOS += sizeof(struct dummy_drive_struct);
+                        NR_HD = drive + 1;
                 }
-
-        /*
-                We query CMOS about hard disks : it could be that
-                we have a SCSI/ESDI/etc controller that is BIOS
-                compatible with ST-506, and thus showing up in our
-                BIOS table, but not register compatible, and therefore
-                not present in CMOS.
-
-                Furthermore, we will assume that our ST-506 drives
-                <if any> are the primary drives in the system, and
-                the ones reflected as drive 1 or 2.
-
-                The first drive is stored in the high nibble of CMOS
-                byte 0x12, the second in the low nibble.  This will be
-                either a 4 bit drive type or 0xf indicating use byte 0x19
-                for an 8 bit type, drive 1, 0x1a for drive 2 in CMOS.
-
-                Needless to say, a non-zero value means we have
-                an AT controller hard disk for that drive.
-
-
-        */
 
 #if (!SIX)
                 if ((cmos_disks = CMOS_READ(0x12)) & 0xf0)
@@ -1141,50 +1096,15 @@ static void hd_geninit(struct gendisk *ignored)
                         else
                                 NR_HD = 1;
 #else
-                /*
-                 * There is no CMOS under SIX.  CMOS_READ() ends up in
-                 * inb_p() in <asm/io.h>, which has no case for port 0x70 /
-                 * 0x71 and falls through to "default: return 1", so this
-                 * test reads a constant that has nothing to do with how
-                 * many disks exist.
-                 *
-                 * Today that constant happens to fail the & 0xf0, which is
-                 * the only reason the override has been harmless.  But it
-                 * is the last thing to touch NR_HD, so if the stub ever
-                 * returned something else it would overrule the loop above
-                 * and claim two drives -- and the second one would have no
-                 * backing file, so every access to it would read and write
-                 * nothing while reporting success.  The authoritative
-                 * answer is which disk files we managed to open; keep it.
-                 */
                 (void) cmos_disks;
 #endif
         }
 #endif 
 	i = NR_HD;
 	while (i-- > 0) {
-		/*
-		 * The newer E-IDE BIOSs handle drives larger than 1024
-		 * cylinders by increasing the number of logical heads
-		 * to keep the number of logical cylinders below the
-		 * sacred INT13 limit of 1024 (10 bits).  If that is
-		 * what's happening here, we'll find out and correct
-		 * it later when "identifying" the drive.
-		 */
 #if (SIX)
-		/*
-		 * Advertise the true size of each backing file rather than
-		 * the CHS product.  six_hd_cyl[] is rounded up, so the
-		 * product generally overshoots by up to one cylinder -- and
-		 * since do_hd_request() range-checks against nr_sects while
-		 * do_hard_read() ignores short reads, anything we advertise
-		 * beyond the end of the file reads back as a stale copy of
-		 * the previous sector instead of failing.
-		 *
-		 * The loop only runs over the NR_HD drives that were
-		 * detected, and a drive is only counted if its file opened,
-		 * so every i here has a real size behind it.
-		 */
+		if (six_disk_fd[i] < 0)
+			continue;
 		hd[i<<6].nr_sects = six_disk_sectors[i];
 #else
 		hd[i<<6].nr_sects = bios_info[i].head *
@@ -1196,29 +1116,12 @@ static void hd_geninit(struct gendisk *ignored)
 #endif
 	}
 #if (SIX)
-	/*
-	 * Publish the device size, in 1K units, to the generic block layer.
-	 *
-	 * Normally setup_dev() in drivers/block/genhd.c does this after
-	 * scanning the partition table, but SIX compiles that loop out (see
-	 * the "#if (!SIX)" in device_setup()) because its disk is a bare
-	 * filesystem image with no partition table to scan.  The side effect
-	 * was that blk_size[HD_MAJOR] stayed NULL, and every consumer of it
-	 * treats NULL as "no size known":
-	 *
-	 *   - block_read() falls back to INT_MAX, so reading /dev/hda runs
-	 *     off the end of the disk instead of returning EOF, and the
-	 *     read-ahead asks for blocks the hd driver then rejects one at
-	 *     a time with "bad access".
-	 *   - ll_rw_blk()'s own range check is skipped entirely.
-	 *
-	 * Setting it here keeps the partition scan out of the picture: for
-	 * each drive, minor (drive << 6) is the whole disk, which is all this
-	 * driver has ever exposed.
-	 */
 	i = NR_HD;
-	while (i-- > 0)
+	while (i-- > 0) {
+		if (six_disk_fd[i] < 0)
+			continue;
 		hd_sizes[i<<6] = hd[i<<6].nr_sects >> (BLOCK_SIZE_BITS - 9);
+	}
 	blk_size[MAJOR_NR] = hd_sizes;
 #endif
 	if (NR_HD) {

@@ -132,7 +132,7 @@ static inline void outb_p(int val, int port)
 							 * value both times, and always before the
 							 * command byte at port 503.
 							 */
-							drive = (val >> 4) & 1;
+							drive = (val >> 4) & 3;
 							head = (val & 0x0f);
 							break;
 		case	503		:	/* command!! */

@@ -884,6 +884,10 @@ int blk_dev_init(void)
 #endif CONFIG_BLK_DEV_MD
 #else
 	hd_init();
+	{
+		extern int dm_init(void);
+		dm_init();
+	}
 #endif
         return 0;
 }

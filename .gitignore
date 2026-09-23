@@ -143,6 +143,7 @@ applications/*/cut
 applications/*/xargs
 applications/*/strace
 applications/*/top
+applications/*/dmsetup
 applications/ntfs-3g/ntfs-3g
 applications/ntfs-3g/ntfs-3g.probe
 applications/advent/advent

@@ -69,6 +69,7 @@
 #define RISCOM8_CALLOUT_MAJOR 49
 #define APBLOCK_MAJOR   60   /* AP1000 Block device */
 #define DDV_MAJOR       61   /* AP1000 DDV block device */
+#define DM_MAJOR        62   /* SIX Device Mapper (dm) block device */
 
 /*
  * Tests for SCSI devices.

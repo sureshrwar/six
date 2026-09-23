@@ -72,14 +72,14 @@ extern int RAMFD, TERMFD;
  * HD_CYL_DEFAULT is only the fallback for a disk whose size cannot be
  * determined.
  */
-#define SIX_MAX_DISKS	2
+#define SIX_MAX_DISKS	4
 #define HD_CYL_DEFAULT	1048
 #define HD_HEAD		4
 #define HD_SECT		252
 
 /*
  * Per-drive state, all indexed by the drive number that outb_p() now
- * recovers from bit 4 of the device/head register.
+ * recovers from bits 4..5 of the device/head register.
  *
  * six_disk_fd is the host file descriptor, or -1 for a drive that has no
  * backing file.  six_disk_sectors is the authoritative capacity in
@@ -101,9 +101,11 @@ extern long six_disk_sectors[SIX_MAX_DISKS];	/* derived in check_root() */
 #if (__i386__)
 #define DISKFILE	"./disk/x86/root"
 #define AUXDISKFILE	"./disk/x86/aux_storage-1"
+#define AUXDISKFILE2	"./disk/x86/aux_storage-2"
 #else
 #define DISKFILE	"./disk/sparc/root"
 #define AUXDISKFILE	"./disk/sparc/aux_storage-1"
+#define AUXDISKFILE2	"./disk/sparc/aux_storage-2"
 #endif
 
 struct dummy_drive_struct {

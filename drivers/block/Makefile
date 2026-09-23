@@ -17,7 +17,7 @@
 
 ifdef SOLARIS_USER_MODE
 O_TARGET := block.o
-O_OBJS   := ll_rw_blk.o genhd.o hd.o
+O_OBJS   := ll_rw_blk.o genhd.o hd.o dm.o
 else
 L_TARGET := block.a
 L_OBJS   := ll_rw_blk.o genhd.o 

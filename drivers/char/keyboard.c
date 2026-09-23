@@ -987,8 +987,10 @@ void reset_sun_tty()
 	 * behind would be untidy, and there is more than one of them now.
 	 */
 	for (drive = 0; drive < SIX_MAX_DISKS; drive++)
-		if (six_disk_fd[drive] >= 0)
+		if (six_disk_fd[drive] >= 0) {
+			fsync(six_disk_fd[drive]);
 			close(six_disk_fd[drive]);
+		}
 }
 #endif
 

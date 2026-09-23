@@ -159,6 +159,7 @@ file  /bin/cut              0755  applications/cut/cut
 file  /bin/xargs            0755  applications/xargs/xargs
 file  /bin/strace           0755  applications/strace/strace
 file  /bin/top              0755  applications/top/top
+file  /bin/dmsetup          0755  applications/dmsetup/dmsetup
 file  /bin/mount_all        0755  port/image/rootfs/bin/mount_all
 file  /bin/set_d            0755  port/image/rootfs/bin/set_d
 file  /bin/clear_d          0755  port/image/rootfs/bin/clear_d
@@ -173,6 +174,7 @@ file  /etc/hosts                  0644  port/image/rootfs/etc/hosts
 dir   /etc/demos                  0755
 file  /etc/demos/hello.c          0644  applications/tcc/test_hello.c
 file  /etc/demos/pthread_demo.c   0644  applications/tcc/test_pthread.c
+file  /etc/demos/dm_demo.c        0644  applications/tcc/test_dm.c
 file  /etc/lynx.cfg               0644  applications/lynx23/lynx.cfg
 file  /etc/motd             0644  port/image/rootfs/etc/motd
 file  /etc/passwd           0644  port/image/rootfs/etc/passwd
@@ -266,6 +268,7 @@ file  /usr/include/linux/fcntl.h       0644  include/linux/fcntl.h
 file  /usr/include/linux/errno.h       0644  include/linux/errno.h
 file  /usr/include/linux/termios.h     0644  include/linux/termios.h
 file  /usr/include/linux/signal.h      0644  include/linux/signal.h
+file  /usr/include/linux/dm.h          0644  include/linux/dm.h
 
 file  /usr/include/asm/types.h         0644  include/asm-six/types.h
 file  /usr/include/asm/posix_types.h   0644  include/asm-six/posix_types.h
@@ -297,25 +300,6 @@ node  /dev/ptyp3            0666  c  2  3
 node  /dev/ttyp3            0666  c  3  3
 
 # --- /dev (character major 1 = MEM_MAJOR) ----------------------------------
-# The memory devices.  drivers/char/mem.c has been registering major 1 since
-# the 2005 import -- device_setup() calls chr_dev_init(), which does
-# register_chrdev(MEM_MAJOR, "mem", &memory_fops) -- and memory_open()
-# dispatches on the minor to a set of file_operations that are all intact.
-# There were simply never any nodes, so nothing could reach them.
-#
-# The consequence was quiet and bad: "cmd > /dev/null" does not fail when
-# /dev/null is absent.  The shell creates it, so the output was written to
-# a regular file called /dev/null that grew on every boot.
-#
-# Minor numbers are the standard Linux ones, and they have to be, because
-# memory_open() switches on exactly these values:
-#   1  mem     -- physical memory access
-#   2  kmem    -- kernel virtual memory access
-#   3  null    -- read returns 0 (EOF), write swallows and reports success
-#   5  zero    -- read fills the buffer with zeroes, write behaves as null
-#   7  full    -- read fills with zeroes, write always fails with ENOSPC
-#   8  random  -- entropy pool random byte stream
-#   9  urandom -- non-blocking PRNG / entropy pool byte stream
 node  /dev/mem               0600  c  1  1
 node  /dev/kmem              0600  c  1  2
 node  /dev/null              0666  c  1  3
@@ -325,37 +309,21 @@ node  /dev/random            0666  c  1  8
 node  /dev/urandom           0666  c  1  9
 
 # --- /dev (char major 10 = MISC_MAJOR) -------------------------------------
-# /dev/fuse: standard Linux FUSE device (major 10, minor 229).  Each open()
-# creates an independent struct fuse_conn session whose file descriptor is
-# passed to mount(2) via "-o fd=N,rootmode=040755,user_id=0,group_id=0".
 node  /dev/fuse              0666  c  10 229
 
 # --- /dev (block major 3 = HD_MAJOR) ---------------------------------------
-# The raw root disk.  The kernel has always registered this device --
-# hd_init() does register_blkdev(3, "hd", ...) and ROOT_DEV is hardcoded to
-# 3:0 by parse_root_dev() -- but mount_root() reaches it by fabricating an
-# inode rather than by resolving a path, so nothing ever required a node
-# here.  This one exists purely so that userland (/bin/dd) can read the
-# disk directly.
-#
-# Mode 0600 is conventional rather than protective: everything in SIX runs
-# as root.  Writing to this device while / is mounted read-write will
-# corrupt the filesystem, exactly as it would on real hardware.
 node  /dev/hda              0600  b  3  0
-
-# The auxiliary disk.  Minor 64 rather than 1: the hd driver uses the top
-# two bits of the minor as the drive number and the bottom six as the
-# partition, so DEVICE_NR() in <linux/blk.h> is MINOR(dev) >> 6.
-#
-# The node is here unconditionally, but the disk behind it usually is not.
-# disk/x86/aux_storage-1 is not built by default and is not checked in --
-# run "make aux-image" to create one.  Without it check_root() leaves the
-# drive unopened, hd_geninit() keeps NR_HD at 1, and hd_open() answers
-# ENODEV.  A device node is a name, not an assertion that the hardware
-# exists; /dev/hdb on a real system behaves the same way when the second
-# drive is unplugged.
-#
-# Nothing mounts this.  The kernel deliberately has no opinion on where it
-# belongs -- see check_root() in init/main.c -- so attaching it is a job
-# for /bin/mount, from /etc/rc or from a shell.
 node  /dev/hdb              0600  b  3  64
+node  /dev/hdc              0660  b  3  128
+
+# --- /dev (block major 62 = DM_MAJOR, Device Mapper) -----------------------
+dir   /dev/mapper           0755
+node  /dev/mapper/control   0660  b  62 63
+node  /dev/dm-0             0660  b  62 0
+node  /dev/dm-1             0660  b  62 1
+node  /dev/dm-2             0660  b  62 2
+node  /dev/dm-3             0660  b  62 3
+node  /dev/dm-4             0660  b  62 4
+node  /dev/dm-5             0660  b  62 5
+node  /dev/dm-6             0660  b  62 6
+node  /dev/dm-7             0660  b  62 7
