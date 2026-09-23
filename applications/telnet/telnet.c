@@ -228,6 +228,9 @@ static void telnet_session(int sfd)
 	unsigned char sb_opt = 0;
 	unsigned char sock_buf[1024];
 	unsigned char user_buf[256];
+	unsigned char line_buf[512];
+	int line_len = 0;
+	int remote_echo = (connected_port == 23) ? 1 : 0;
 	int running = 1;
 	enable_raw_mode();
 
@@ -319,7 +322,10 @@ static void telnet_session(int sfd)
 					break;
 
 				case TS_WILL:
-					if (b == TELOPT_ECHO || b == TELOPT_SGA) {
+					if (b == TELOPT_ECHO) {
+						remote_echo = 1;
+						queue_opt(DO, b);
+					} else if (b == TELOPT_SGA) {
 						queue_opt(DO, b);
 					} else {
 						queue_opt(DONT, b);
@@ -328,6 +334,8 @@ static void telnet_session(int sfd)
 					break;
 
 				case TS_WONT:
+					if (b == TELOPT_ECHO)
+						remote_echo = 0;
 					queue_opt(DONT, b);
 					state = TS_DATA;
 					break;
@@ -418,7 +426,9 @@ static void telnet_session(int sfd)
 							current_sock = -1;
 							exit(0);
 						} else if (strcmp(cmd, "status") == 0) {
-							printf("Connected to %s on port %d.\r\n", connected_host, connected_port);
+							printf("Connected to %s on port %d (echo: %s).\r\n",
+							       connected_host, connected_port,
+							       remote_echo ? "remote" : "local");
 							printf("Escape character is '^]'.\r\n");
 						} else if (strcmp(cmd, "help") == 0 || strcmp(cmd, "?") == 0) {
 							printf("Commands:\r\n");
@@ -432,6 +442,31 @@ static void telnet_session(int sfd)
 					}
 					if (!running) break;
 					enable_raw_mode();
+				} else if (!remote_echo) {
+					/*
+					 * Local echo + line mode (used for non-Telnet ports like
+					 * 'telnet localhost 80' or when server sends WONT ECHO).
+					 */
+					if (ch == '\r' || ch == '\n') {
+						if (ch == '\r' && i + 1 < n && user_buf[i + 1] == '\n')
+							i++;
+						write(1, "\r\n", 2);
+						if (line_len > 0) {
+							write(sfd, line_buf, line_len);
+							line_len = 0;
+						}
+						write(sfd, "\r\n", 2);
+					} else if (ch == '\b' || ch == 127) {
+						if (line_len > 0) {
+							line_len--;
+							write(1, "\b \b", 3);
+						}
+					} else {
+						if (line_len + 1 < sizeof(line_buf)) {
+							line_buf[line_len++] = ch;
+							write(1, &ch, 1);
+						}
+					}
 				} else if (ch == '\r') {
 					if (i + 1 < n && user_buf[i + 1] == '\n') {
 						i++; /* Consume paired \n */
