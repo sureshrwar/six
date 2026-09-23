@@ -160,6 +160,7 @@ file  /bin/xargs            0755  applications/xargs/xargs
 file  /bin/strace           0755  applications/strace/strace
 file  /bin/top              0755  applications/top/top
 file  /bin/dmsetup          0755  applications/dmsetup/dmsetup
+file  /bin/lsblk            0755  applications/lsblk/lsblk
 file  /bin/mkfs.ext2        0755  applications/mkfs/mkfs.ext2
 sym   /bin/mke2fs           -     mkfs.ext2
 file  /bin/mount_all        0755  port/image/rootfs/bin/mount_all

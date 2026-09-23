@@ -116,7 +116,8 @@ SUBDIRS	=	start \
 		strace \
 		top \
 		dmsetup \
-		mkfs
+		mkfs \
+		lsblk
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

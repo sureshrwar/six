@@ -145,6 +145,7 @@ applications/*/strace
 applications/*/top
 applications/*/dmsetup
 applications/mkfs/mkfs.ext2
+applications/*/lsblk
 applications/ntfs-3g/ntfs-3g
 applications/ntfs-3g/ntfs-3g.probe
 applications/advent/advent
