@@ -32,8 +32,16 @@ def set_pty_winsize(fd, rows, cols):
     fcntl.ioctl(fd, termios.TIOCSWINSZ, ws)
 
 
-def run_guest_commands(commands, six_bin="./six", timeout=60.0, show_boot=False, winsize=None):
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+def run_guest_commands(
+    commands,
+    six_bin="./six",
+    timeout=60.0,
+    show_boot=False,
+    winsize=None,
+    cwd=None,
+    on_command_sent=None,
+):
+    repo_root = cwd or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     pid, master = pty.fork()
     if pid == 0:
         if winsize:
@@ -73,6 +81,8 @@ def run_guest_commands(commands, six_bin="./six", timeout=60.0, show_boot=False,
             if sent_login and cmd_queue:
                 if raw_mode or cmd_queue[0].startswith("__"):
                     next_cmd = cmd_queue.pop(0)
+                    if on_command_sent:
+                        on_command_sent(next_cmd)
                     if next_cmd.startswith("__RESIZE__:"):
                         _, r_str, c_str = next_cmd.split(":")
                         time.sleep(0.3)
@@ -92,6 +102,8 @@ def run_guest_commands(commands, six_bin="./six", timeout=60.0, show_boot=False,
                     if prompt_pos > last_prompt_pos and "root@" in buf[:prompt_pos]:
                         last_prompt_pos = prompt_pos
                         next_cmd = cmd_queue.pop(0)
+                        if on_command_sent:
+                            on_command_sent(next_cmd)
                         time.sleep(0.05)
                         os.write(master, (next_cmd + "\r").encode("utf-8"))
                         if next_cmd.startswith("vi "):

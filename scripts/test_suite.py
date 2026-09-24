@@ -414,6 +414,67 @@ def parse_test_results(raw_output, selected_tests):
     return results
 
 
+def run_shard(shard_id, total_shards, shard_tests, repo_root, timeout, use_temp_workspace, idx_map, total_tests):
+    worker_prefix = f"[Worker {shard_id}/{total_shards}] " if total_shards > 1 else ""
+    work_dir = repo_root
+    tmp_dir = None
+
+    try:
+        if use_temp_workspace:
+            import shutil
+            import subprocess
+            import tempfile
+
+            tmp_dir = tempfile.mkdtemp(prefix=f"six_test_w{shard_id}_")
+            work_dir = tmp_dir
+            os.symlink(os.path.join(repo_root, "six"), os.path.join(work_dir, "six"))
+            os.makedirs(os.path.join(work_dir, "disk"), exist_ok=True)
+            subprocess.run(
+                [
+                    "cp",
+                    "-r",
+                    "--reflink=auto",
+                    os.path.join(repo_root, "disk", "x86"),
+                    os.path.join(work_dir, "disk", "x86"),
+                ],
+                check=True,
+            )
+
+        print(
+            f"[INFO] {worker_prefix}Booting SIX guest instance for {len(shard_tests)} test suite(s)...",
+            flush=True,
+        )
+
+        tc_by_name = {tc.name: tc for tc in shard_tests}
+
+        def on_cmd(cmd):
+            m = re.match(r'^echo "__B""EGIN:(.+)__"$', cmd)
+            if m:
+                tname = m.group(1)
+                tc = tc_by_name.get(tname)
+                idx = idx_map.get(tname, 0)
+                desc = f" ({tc.description})" if tc else ""
+                print(
+                    f"[INFO] {worker_prefix}[{idx}/{total_tests}] Running test suite '{tname}'{desc}...",
+                    flush=True,
+                )
+
+        cmd_queue = build_guest_command_queue(shard_tests)
+        raw_out = run_guest_commands(
+            cmd_queue,
+            six_bin=os.path.join(work_dir, "six"),
+            timeout=timeout,
+            cwd=work_dir,
+            on_command_sent=on_cmd,
+        )
+        return parse_test_results(raw_out, shard_tests)
+    finally:
+        if tmp_dir and os.path.exists(tmp_dir):
+            import shutil
+
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run the SIX kernel & userland regression test suite via run_guest_cmd.py."
@@ -424,6 +485,18 @@ def main():
         type=str,
         default="",
         help="Only run tests whose name or description matches this substring.",
+    )
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        default=1,
+        help="Number of concurrent SIX guest worker sessions (default: 1 = sequential).",
+    )
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Shorthand for --jobs 4 (run test suites concurrently across 4 isolated SIX workers).",
     )
     parser.add_argument(
         "--list",
@@ -460,13 +533,60 @@ def main():
         print(f"No tests matched filter '{args.filter}'.", file=sys.stderr)
         return 1
 
-    print(f"=== Running {len(selected)} SIX Regression Test(s) in a single guest session ===")
+    jobs = 4 if args.parallel and args.jobs == 1 else max(1, args.jobs)
+    jobs = min(jobs, len(selected))
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    idx_map = {tc.name: i + 1 for i, tc in enumerate(selected)}
+
+    mode_str = (
+        "in a single sequential guest session"
+        if jobs == 1
+        else f"across {jobs} concurrent guest worker sessions"
+    )
+    print(f"=== Running {len(selected)} SIX Regression Test(s) {mode_str} ===", flush=True)
     t0 = time.time()
-    cmd_queue = build_guest_command_queue(selected)
-    raw_out = run_guest_commands(cmd_queue, timeout=args.timeout)
+
+    if jobs == 1:
+        results = run_shard(
+            shard_id=1,
+            total_shards=1,
+            shard_tests=selected,
+            repo_root=repo_root,
+            timeout=args.timeout,
+            use_temp_workspace=False,
+            idx_map=idx_map,
+            total_tests=len(selected),
+        )
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        shards = [[] for _ in range(jobs)]
+        for i, tc in enumerate(selected):
+            shards[i % jobs].append(tc)
+
+        results = {}
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            futures = [
+                pool.submit(
+                    run_shard,
+                    shard_id=w_idx + 1,
+                    total_shards=jobs,
+                    shard_tests=shard,
+                    repo_root=repo_root,
+                    timeout=args.timeout,
+                    use_temp_workspace=True,
+                    idx_map=idx_map,
+                    total_tests=len(selected),
+                )
+                for w_idx, shard in enumerate(shards)
+                if shard
+            ]
+            for fut in futures:
+                results.update(fut.result())
+
     elapsed = time.time() - t0
 
-    results = parse_test_results(raw_out, selected)
+    print("\n=== Test Results ===", flush=True)
     passed_count = 0
     failed_count = 0
 
@@ -485,7 +605,8 @@ def main():
                 print(f"         | {line}")
 
     print(
-        f"=== Summary: {passed_count}/{len(selected)} passed, {failed_count} failed in {elapsed:.2f}s ==="
+        f"=== Summary: {passed_count}/{len(selected)} passed, {failed_count} failed in {elapsed:.2f}s ===",
+        flush=True,
     )
     return 0 if failed_count == 0 else 1
 
