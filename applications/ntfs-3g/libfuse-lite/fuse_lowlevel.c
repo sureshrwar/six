@@ -1188,7 +1188,6 @@ static void do_init(fuse_req_t req, fuse_ino_t nodeid, const void *inarg)
 static void do_destroy(fuse_req_t req, fuse_ino_t nodeid, const void *inarg)
 {
     struct fuse_ll *f = req->f;
-    struct fuse_chan *ch = req->ch;
 
     (void) nodeid;
     (void) inarg;
@@ -1198,8 +1197,6 @@ static void do_destroy(fuse_req_t req, fuse_ino_t nodeid, const void *inarg)
         f->op.destroy(f->userdata);
 
     send_reply_ok(req, NULL, 0);
-    if (ch && fuse_chan_session(ch))
-        fuse_session_exit(fuse_chan_session(ch));
 }
 
 void *fuse_req_userdata(fuse_req_t req)

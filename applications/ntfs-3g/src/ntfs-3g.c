@@ -4156,7 +4156,8 @@ static fuse_fstype get_fuse_fstype(void)
 	
 	FILE *f = fopen("/proc/filesystems", "r");
 	if (!f) {
-		return FSTYPE_FUSEBLK;
+		ntfs_log_perror("Failed to open /proc/filesystems");
+		return FSTYPE_NONE;
 	}
 	
 	while (fgets(buf, sizeof(buf), f)) {
