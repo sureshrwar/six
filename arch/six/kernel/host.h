@@ -73,6 +73,13 @@ void six_host_net_close(int fd);
 void six_host_tls_bridge_init(void);
 void six_host_tls_bridge_cleanup(void);
 
+/* Host sadb (SIX Android Debug Bridge) transport operations */
+int  six_host_sadb_init(int *port_out, char *serial_out, int serial_len);
+int  six_host_sadb_poll_accept(void);
+int  six_host_sadb_accept(void);
+int  six_host_sadb_recv(int fd, void *buf, int len);
+int  six_host_sadb_send_all(int fd, const void *buf, int len);
+
 /* Kernel symbol resolution for stack traces via dladdr(). */
 int  six_host_sprint_symbol(unsigned long addr, char *buf, int buflen);
 

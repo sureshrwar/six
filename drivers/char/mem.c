@@ -338,7 +338,9 @@ int chr_dev_init(void)
         tty_init();
         {
                 extern int binder_init(void);
+                extern int sadb_dev_init(void);
                 binder_init();
+                sadb_dev_init();
         }
 #if (!SIX)
 #ifdef CONFIG_PRINTER

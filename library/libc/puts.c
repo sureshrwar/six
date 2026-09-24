@@ -7,7 +7,8 @@ int puts(register const char *s)
         register int i = 0;
 
         while (*s) {
-                if (putc(*s++, file) == EOF) return EOF;
+                int c = (unsigned char)*s++;
+                if (putc(c, file) == EOF) return EOF;
                 else i++;
         }
         if (putc('\n', file) == EOF) return EOF;

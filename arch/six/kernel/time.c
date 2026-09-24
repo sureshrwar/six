@@ -250,6 +250,10 @@ static inline void timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
                 six_eth_poll();
         }
 #endif
+        {
+                extern void sadb_dev_poll(void);
+                sadb_dev_poll();
+        }
 
         /*
          * If we have an externally synchronized Linux clock, then update

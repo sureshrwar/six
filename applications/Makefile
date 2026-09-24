@@ -123,7 +123,8 @@ SUBDIRS	=	start \
 		vold \
 		storaged \
 		usbctl \
-		sm
+		sm \
+		sadbd
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

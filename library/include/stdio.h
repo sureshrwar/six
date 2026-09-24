@@ -56,9 +56,10 @@ extern FILE     *iotab[FOPEN_MAX];
 #define putchar(c)      putc(c, stdout)
 #define getc(p)         (--(p)->count >= 0 ? (int) (*(p)->ptr++) : \
                                 __fillbuf(p))
-#define putc(c, p)      ((--(p)->count >= 0 && c != '\n') ? \
-                         (int) (*(p)->ptr++ = (c)) : \
-                         __flushbuf((c),(p)))
+#define putc(c, p)      ({ int _putc_c = (unsigned char)(c); FILE *_putc_p = (p); \
+                         (--(_putc_p)->count >= 0 && _putc_c != '\n') ? \
+                         (int) (*(_putc_p)->ptr++ = _putc_c) : \
+                         __flushbuf(_putc_c, _putc_p); })
 
 #define feof(p)         (((p)->flags & _IOEOF) != 0)
 #define ferror(p)       (((p)->flags & _IOERR) != 0)

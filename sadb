@@ -1,0 +1,614 @@
+#!/usr/bin/env python3
+"""
+sadb - SIX Android Debug Bridge Client
+
+Host CLI client for interacting with a running SIX kernel instance's
+in-guest `/bin/sadbd` daemon over `/dev/sadb` (UNIX socket `.six_sadb.sock`
+or TCP `127.0.0.1:5555`).
+
+Supported commands:
+  sadb devices [-l]                List connected SIX instances
+  sadb wait-for-device             Wait until sadbd is online and ready
+  sadb shell                       Open an interactive PTY shell inside SIX
+  sadb shell <command...>          Run a command inside SIX and return its exit code
+  sadb push <local> <remote>       Copy a file from host into the live guest
+  sadb pull <remote> [local]       Copy a file from the live guest to host
+  sadb stat <remote>               Display guest file metadata
+  sadb logcat [-d]                 View guest kernel + daemon (vold/sadbd) logs
+  sadb dmesg                       Dump guest kernel ring buffer
+  sadb get-state                   Print connection state ('device' or 'offline')
+  sadb get-serialno                Print instance serial ('emulator-5554')
+  sadb reboot [halt]               Sync filesystems and halt/reboot the guest
+"""
+
+import errno
+import glob
+import os
+import select
+import shutil
+import signal
+import socket
+import struct
+import sys
+import termios
+import time
+import tty
+
+
+def parse_info_file(path):
+    info = {}
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    info[k.strip()] = v.strip()
+    except OSError:
+        return None
+    if "pid" in info:
+        try:
+            pid = int(info["pid"])
+            os.kill(pid, 0)
+        except (ValueError, OSError):
+            return None
+    return info
+
+
+def discover_instances():
+    """Return list of dict(serial, port, sock, cwd, pid) for active SIX instances."""
+    found = {}
+
+    candidates = []
+    if os.path.exists(".six_sadb.info"):
+        candidates.append(os.path.abspath(".six_sadb.info"))
+    candidates.extend(sorted(glob.glob("/tmp/six_sadb_*.info")))
+
+    for path in candidates:
+        info = parse_info_file(path)
+        if not info:
+            continue
+        serial = info.get("serial", f"emulator-{int(info.get('port', 5555)) - 1}")
+        if serial not in found:
+            found[serial] = info
+
+    # Fallback probe on 127.0.0.1:5555 if no info file found
+    if not found:
+        for port in (5555, 5557, 5559):
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(0.15)
+            try:
+                s.connect(("127.0.0.1", port))
+                s.close()
+                serial = f"emulator-{port - 1}"
+                found[serial] = {
+                    "serial": serial,
+                    "port": str(port),
+                    "sock": "",
+                    "cwd": "",
+                }
+            except OSError:
+                s.close()
+
+    return list(found.values())
+
+
+def connect_instance(target_serial=None, target_port=None, timeout=2.0):
+    """Connect a socket to the target SIX instance."""
+    if target_port:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect(("127.0.0.1", int(target_port)))
+        s.settimeout(None)
+        return s
+
+    instances = discover_instances()
+    chosen = None
+    if target_serial:
+        for inst in instances:
+            if inst.get("serial") == target_serial:
+                chosen = inst
+                break
+        if not chosen and target_serial.startswith("emulator-"):
+            try:
+                p = int(target_serial.split("-", 1)[1]) + 1
+                chosen = {"serial": target_serial, "port": str(p), "sock": ""}
+            except ValueError:
+                pass
+        if not chosen and ":" in target_serial:
+            host, port_s = target_serial.rsplit(":", 1)
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(timeout)
+            s.connect((host, int(port_s)))
+            s.settimeout(None)
+            return s
+    else:
+        # Prefer instance in current working directory if present
+        cwd = os.getcwd()
+        for inst in instances:
+            if inst.get("cwd") == cwd:
+                chosen = inst
+                break
+        if not chosen and instances:
+            chosen = instances[0]
+
+    if not chosen:
+        # Try local UNIX socket or default TCP 5555 directly
+        if os.path.exists(".six_sadb.sock"):
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.settimeout(timeout)
+            s.connect(".six_sadb.sock")
+            s.settimeout(None)
+            return s
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect(("127.0.0.1", 5555))
+        s.settimeout(None)
+        return s
+
+    sock_path = chosen.get("sock", "")
+    if sock_path and os.path.exists(sock_path):
+        try:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.settimeout(timeout)
+            s.connect(sock_path)
+            s.settimeout(None)
+            return s
+        except OSError:
+            pass
+
+    port = int(chosen.get("port", 5555))
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    s.connect(("127.0.0.1", port))
+    s.settimeout(None)
+    return s
+
+
+def read_line(sock):
+    buf = bytearray()
+    while True:
+        b = sock.recv(1)
+        if not b:
+            break
+        if b == b"\r":
+            continue
+        if b == b"\n":
+            break
+        buf.extend(b)
+    return buf.decode("utf-8", errors="replace")
+
+
+def query_device_info(inst):
+    try:
+        sock = connect_instance(
+            target_serial=inst.get("serial"),
+            target_port=inst.get("port"),
+            timeout=0.8,
+        )
+        sock.sendall(b"INFO\n")
+        status = read_line(sock)
+        if status != "OKAY":
+            sock.close()
+            return None
+        props = {}
+        while True:
+            line = read_line(sock)
+            if not line:
+                break
+            if "=" in line:
+                k, v = line.split("=", 1)
+                props[k] = v
+        sock.close()
+        return props
+    except OSError:
+        return None
+
+
+def cmd_devices(long_fmt=False):
+    print("List of devices attached")
+    instances = discover_instances()
+    for idx, inst in enumerate(instances, start=1):
+        props = query_device_info(inst)
+        serial = inst.get("serial", "emulator-5554")
+        if props:
+            serial = props.get("serial", serial)
+            state = props.get("state", "device")
+            if long_fmt:
+                product = props.get("product", "six_x86")
+                model = props.get("model", "SIX_Linux_2.0.11")
+                device = props.get("device", "six")
+                print(
+                    f"{serial:<22} {state} product:{product} model:{model} "
+                    f"device:{device} transport_id:{idx}"
+                )
+            else:
+                print(f"{serial}\t{state}")
+        else:
+            if long_fmt:
+                print(f"{serial:<22} offline transport_id:{idx}")
+            else:
+                print(f"{serial}\toffline")
+    print()
+    return 0
+
+
+def cmd_wait_for_device(serial, port, timeout=30.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            sock = connect_instance(serial, port, timeout=0.5)
+            sock.sendall(b"INFO\n")
+            if read_line(sock) == "OKAY":
+                sock.close()
+                return 0
+            sock.close()
+        except OSError:
+            pass
+        time.sleep(0.1)
+    sys.stderr.write("sadb: error: timed out waiting for device\n")
+    return 1
+
+
+def cmd_exec(serial, port, command_str):
+    try:
+        sock = connect_instance(serial, port)
+    except OSError as e:
+        sys.stderr.write(f"sadb: error: no devices/emulators found ({e})\n")
+        return 1
+
+    req = f"EXEC {command_str}\n".encode("utf-8")
+    sock.sendall(req)
+    status = read_line(sock)
+    if not status.startswith("OKAY"):
+        sys.stderr.write(f"sadb: error: {status}\n")
+        sock.close()
+        return 1
+
+    marker = b"\x00__SADB_EXIT__:"
+    pending = bytearray()
+    exit_code = 0
+
+    while True:
+        chunk = sock.recv(4096)
+        if not chunk:
+            if pending:
+                sys.stdout.buffer.write(pending)
+                sys.stdout.buffer.flush()
+            break
+        pending.extend(chunk)
+        idx = pending.find(marker)
+        if idx != -1:
+            # Flush everything before marker
+            if idx > 0:
+                sys.stdout.buffer.write(pending[:idx])
+                sys.stdout.buffer.flush()
+            rest = pending[idx + len(marker) :]
+            while b"\n" not in rest:
+                more = sock.recv(256)
+                if not more:
+                    break
+                rest.extend(more)
+            line = rest.split(b"\n", 1)[0].decode("utf-8", errors="replace").strip()
+            try:
+                exit_code = int(line)
+            except ValueError:
+                exit_code = 0
+            break
+        else:
+            # Keep last 32 bytes in pending in case marker spans recv boundary
+            if len(pending) > 32:
+                flush_len = len(pending) - 32
+                sys.stdout.buffer.write(pending[:flush_len])
+                sys.stdout.buffer.flush()
+                del pending[:flush_len]
+
+    sock.close()
+    return exit_code
+
+
+def cmd_interactive_shell(serial, port):
+    try:
+        sock = connect_instance(serial, port)
+    except OSError as e:
+        sys.stderr.write(f"sadb: error: no devices/emulators found ({e})\n")
+        return 1
+
+    cols, rows = shutil.get_terminal_size(fallback=(80, 24))
+    term = os.environ.get("TERM", "vt100")
+    sock.sendall(f"SHELL {rows} {cols} {term}\n".encode("utf-8"))
+    status = read_line(sock)
+    if not status.startswith("OKAY"):
+        sys.stderr.write(f"sadb: error: {status}\n")
+        sock.close()
+        return 1
+
+    stdin_fd = sys.stdin.fileno()
+    stdout_fd = sys.stdout.fileno()
+    is_tty = os.isatty(stdin_fd)
+    old_tios = None
+
+    def on_winch(signum, frame):
+        try:
+            c, r = shutil.get_terminal_size(fallback=(80, 24))
+            sock.sendall(f"\x1dWINCH {r} {c}\n".encode("utf-8"))
+        except OSError:
+            pass
+
+    if is_tty:
+        old_tios = termios.tcgetattr(stdin_fd)
+        tty.setraw(stdin_fd)
+        signal.signal(signal.SIGWINCH, on_winch)
+
+    try:
+        while True:
+            rlist, _, _ = select.select([stdin_fd, sock], [], [])
+            if stdin_fd in rlist:
+                data = os.read(stdin_fd, 1024)
+                if not data:
+                    break
+                sock.sendall(data)
+            if sock in rlist:
+                data = sock.recv(4096)
+                if not data:
+                    break
+                os.write(stdout_fd, data)
+    except (OSError, KeyboardInterrupt):
+        pass
+    finally:
+        if is_tty and old_tios is not None:
+            termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_tios)
+        sock.close()
+
+    return 0
+
+
+def query_remote_stat(serial, port, remote_path):
+    try:
+        sock = connect_instance(serial, port)
+        sock.sendall(f"STAT {remote_path}\n".encode("utf-8"))
+        line = read_line(sock)
+        sock.close()
+        if not line.startswith("OKAY "):
+            return None
+        info = {}
+        for part in line[5:].split():
+            if "=" in part:
+                k, v = part.split("=", 1)
+                info[k] = v
+        return info
+    except OSError:
+        return None
+
+
+def cmd_push(serial, port, local_path, remote_path):
+    if not os.path.exists(local_path):
+        sys.stderr.write(f"sadb: error: cannot stat '{local_path}': No such file or directory\n")
+        return 1
+    if os.path.isdir(local_path):
+        sys.stderr.write(f"sadb: error: '{local_path}' is a directory\n")
+        return 1
+
+    st = os.stat(local_path)
+    mode = st.st_mode & 0o777
+    size = st.st_size
+
+    # Check if remote_path is a directory
+    rstat = query_remote_stat(serial, port, remote_path)
+    if remote_path.endswith("/") or (rstat and (int(rstat.get("mode", "0"), 8) & 0o170000) == 0o040000):
+        remote_path = remote_path.rstrip("/") + "/" + os.path.basename(local_path)
+
+    t0 = time.time()
+    try:
+        sock = connect_instance(serial, port)
+    except OSError as e:
+        sys.stderr.write(f"sadb: error: no devices/emulators found ({e})\n")
+        return 1
+
+    sock.sendall(f"PUSH {remote_path} {mode:o} {size}\n".encode("utf-8"))
+    resp = read_line(sock)
+    if not resp.startswith("OKAY"):
+        sys.stderr.write(f"sadb: error: failed to copy '{local_path}' to '{remote_path}': {resp}\n")
+        sock.close()
+        return 1
+
+    with open(local_path, "rb") as f:
+        while True:
+            buf = f.read(4096)
+            if not buf:
+                break
+            sock.sendall(buf)
+
+    done = read_line(sock)
+    sock.close()
+    dt = max(time.time() - t0, 0.0001)
+    mb_s = (size / (1024.0 * 1024.0)) / dt
+    if not done.startswith("DONE"):
+        sys.stderr.write(f"sadb: error: incomplete push ({done})\n")
+        return 1
+
+    print(f"{local_path}: 1 file pushed, 0 skipped. {mb_s:.1f} MB/s ({size} bytes in {dt:.3f}s)")
+    return 0
+
+
+def cmd_pull(serial, port, remote_path, local_path=None):
+    if not local_path:
+        local_path = os.path.basename(remote_path.rstrip("/")) or "pulled_file"
+    elif os.path.isdir(local_path):
+        local_path = os.path.join(local_path, os.path.basename(remote_path.rstrip("/")))
+
+    t0 = time.time()
+    try:
+        sock = connect_instance(serial, port)
+    except OSError as e:
+        sys.stderr.write(f"sadb: error: no devices/emulators found ({e})\n")
+        return 1
+
+    sock.sendall(f"PULL {remote_path}\n".encode("utf-8"))
+    hdr = read_line(sock)
+    if not hdr.startswith("OKAY "):
+        sys.stderr.write(f"sadb: error: failed to pull '{remote_path}': {hdr}\n")
+        sock.close()
+        return 1
+
+    parts = hdr.split()
+    mode = int(parts[1], 8) if len(parts) > 1 else 0o644
+    size = int(parts[2]) if len(parts) > 2 else 0
+
+    rem = size
+    with open(local_path, "wb") as f:
+        while rem > 0:
+            chunk = sock.recv(min(4096, rem))
+            if not chunk:
+                break
+            f.write(chunk)
+            rem -= len(chunk)
+
+    sock.close()
+    try:
+        os.chmod(local_path, mode & 0o777)
+    except OSError:
+        pass
+
+    dt = max(time.time() - t0, 0.0001)
+    mb_s = (size / (1024.0 * 1024.0)) / dt
+    print(f"{remote_path}: 1 file pulled, 0 skipped. {mb_s:.1f} MB/s ({size} bytes in {dt:.3f}s)")
+    return 0
+
+
+def cmd_logcat(serial, port, dump_only=False):
+    try:
+        sock = connect_instance(serial, port)
+    except OSError as e:
+        sys.stderr.write(f"sadb: error: no devices/emulators found ({e})\n")
+        return 1
+
+    mode = "dump" if dump_only else "follow"
+    sock.sendall(f"LOGCAT {mode}\n".encode("utf-8"))
+    status = read_line(sock)
+    if not status.startswith("OKAY"):
+        sys.stderr.write(f"sadb: error: {status}\n")
+        sock.close()
+        return 1
+
+    try:
+        while True:
+            data = sock.recv(4096)
+            if not data:
+                break
+            sys.stdout.buffer.write(data)
+            sys.stdout.buffer.flush()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        sock.close()
+    return 0
+
+
+def usage():
+    print(__doc__.strip())
+    return 0
+
+
+def main(argv):
+    serial = os.environ.get("ANDROID_SERIAL") or os.environ.get("SIX_SERIAL")
+    port = None
+
+    i = 1
+    while i < len(argv):
+        if argv[i] == "-s" and i + 1 < len(argv):
+            serial = argv[i + 1]
+            i += 2
+        elif argv[i] == "-P" or argv[i] == "-p":
+            if i + 1 < len(argv):
+                port = int(argv[i + 1])
+                i += 2
+            else:
+                i += 1
+        elif argv[i] in ("-h", "--help", "help"):
+            return usage()
+        else:
+            break
+
+    args = argv[i:]
+    if not args:
+        return usage()
+
+    sub = args[0]
+    sub_args = args[1:]
+
+    if sub == "devices":
+        return cmd_devices(long_fmt=("-l" in sub_args))
+    if sub == "wait-for-device":
+        return cmd_wait_for_device(serial, port)
+    if sub == "get-state":
+        instances = discover_instances()
+        for inst in instances:
+            if not serial or inst.get("serial") == serial:
+                if query_device_info(inst):
+                    print("device")
+                    return 0
+        print("offline")
+        return 1
+    if sub == "get-serialno":
+        instances = discover_instances()
+        for inst in instances:
+            if not serial or inst.get("serial") == serial:
+                props = query_device_info(inst)
+                print(props.get("serial", inst.get("serial", "unknown")) if props else "unknown")
+                return 0
+        print("unknown")
+        return 1
+    if sub == "shell":
+        if not sub_args:
+            return cmd_interactive_shell(serial, port)
+        return cmd_exec(serial, port, " ".join(sub_args))
+    if sub == "exec-out":
+        if not sub_args:
+            sys.stderr.write("sadb: error: exec-out requires a command\n")
+            return 1
+        return cmd_exec(serial, port, " ".join(sub_args))
+    if sub == "push":
+        if len(sub_args) < 2:
+            sys.stderr.write("sadb: error: push requires <local> and <remote>\n")
+            return 1
+        return cmd_push(serial, port, sub_args[0], sub_args[1])
+    if sub == "pull":
+        if len(sub_args) < 1:
+            sys.stderr.write("sadb: error: pull requires <remote> [local]\n")
+            return 1
+        return cmd_pull(serial, port, sub_args[0], sub_args[1] if len(sub_args) > 1 else None)
+    if sub == "stat":
+        if len(sub_args) < 1:
+            sys.stderr.write("sadb: error: stat requires <remote>\n")
+            return 1
+        st = query_remote_stat(serial, port, sub_args[0])
+        if not st:
+            sys.stderr.write(f"sadb: stat '{sub_args[0]}': No such file or directory\n")
+            return 1
+        print(f"  File: {sub_args[0]}")
+        print(f"  Size: {st.get('size', 0)}\tMode: 0{st.get('mode', '0')}")
+        print(f"   Uid: {st.get('uid', 0)}\t Gid: {st.get('gid', 0)}\tMtime: {st.get('mtime', 0)}")
+        return 0
+    if sub == "logcat":
+        return cmd_logcat(serial, port, dump_only=("-d" in sub_args))
+    if sub == "dmesg":
+        return cmd_exec(serial, port, "/bin/dmesg")
+    if sub in ("reboot", "halt"):
+        arg = "halt" if (sub == "halt" or "halt" in sub_args) else "halt"
+        try:
+            sock = connect_instance(serial, port)
+            sock.sendall(f"REBOOT {arg}\n".encode("utf-8"))
+            read_line(sock)
+            sock.close()
+            return 0
+        except OSError as e:
+            sys.stderr.write(f"sadb: error: {e}\n")
+            return 1
+
+    sys.stderr.write(f"sadb: unknown command '{sub}'\n")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

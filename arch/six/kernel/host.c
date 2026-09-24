@@ -36,7 +36,9 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <poll.h>
 #include <errno.h>
@@ -466,6 +468,215 @@ void six_host_net_close(int fd)
 {
 	if (fd >= 0)
 		close(fd);
+}
+
+/* Host sadb (SIX Android Debug Bridge) transport implementation */
+static int sadb_tcp_listen_fd = -1;
+static int sadb_unix_listen_fd = -1;
+static int sadb_listen_port = 0;
+static char sadb_sock_path[512];
+static char sadb_local_info_path[512];
+static char sadb_tmp_info_path[512];
+
+static void six_host_sadb_cleanup(void)
+{
+	if (sadb_tcp_listen_fd >= 0) {
+		close(sadb_tcp_listen_fd);
+		sadb_tcp_listen_fd = -1;
+	}
+	if (sadb_unix_listen_fd >= 0) {
+		close(sadb_unix_listen_fd);
+		sadb_unix_listen_fd = -1;
+	}
+	if (sadb_sock_path[0])
+		unlink(sadb_sock_path);
+	if (sadb_local_info_path[0])
+		unlink(sadb_local_info_path);
+	if (sadb_tmp_info_path[0])
+		unlink(sadb_tmp_info_path);
+}
+
+int six_host_sadb_init(int *port_out, char *serial_out, int serial_len)
+{
+	char cwd[400];
+	int base_port = 5555;
+	int p;
+	const char *env_port = getenv("SIX_SADB_PORT");
+
+	if (env_port && atoi(env_port) > 0)
+		base_port = atoi(env_port);
+
+	if (!getcwd(cwd, sizeof(cwd)))
+		strcpy(cwd, ".");
+
+	/* 1. Bind TCP listener on 127.0.0.1:5555 (or next odd port 5557, 5559...) */
+	sadb_tcp_listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+	if (sadb_tcp_listen_fd >= 0) {
+		int one = 1;
+		setsockopt(sadb_tcp_listen_fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+		for (p = base_port; p < base_port + 64; p += 2) {
+			struct sockaddr_in sin;
+			memset(&sin, 0, sizeof(sin));
+			sin.sin_family = AF_INET;
+			sin.sin_addr.s_addr = inet_addr("127.0.0.1");
+			sin.sin_port = htons(p);
+			if (bind(sadb_tcp_listen_fd, (struct sockaddr *)&sin, sizeof(sin)) == 0 &&
+			    listen(sadb_tcp_listen_fd, 16) == 0) {
+				int flags = fcntl(sadb_tcp_listen_fd, F_GETFL, 0);
+				fcntl(sadb_tcp_listen_fd, F_SETFL, flags | O_NONBLOCK);
+				sadb_listen_port = p;
+				break;
+			}
+		}
+		if (sadb_listen_port == 0) {
+			close(sadb_tcp_listen_fd);
+			sadb_tcp_listen_fd = -1;
+			sadb_listen_port = base_port;
+		}
+	}
+
+	/* 2. Bind UNIX domain socket ./.six_sadb.sock in current directory */
+	snprintf(sadb_sock_path, sizeof(sadb_sock_path), "%s/.six_sadb.sock", cwd);
+	unlink(sadb_sock_path);
+	sadb_unix_listen_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (sadb_unix_listen_fd >= 0) {
+		struct sockaddr_un sun_addr;
+		memset(&sun_addr, 0, sizeof(sun_addr));
+		sun_addr.sun_family = AF_UNIX;
+		strncpy(sun_addr.sun_path, sadb_sock_path, sizeof(sun_addr.sun_path) - 1);
+		if (bind(sadb_unix_listen_fd, (struct sockaddr *)&sun_addr, sizeof(sun_addr)) == 0 &&
+		    listen(sadb_unix_listen_fd, 16) == 0) {
+			int flags = fcntl(sadb_unix_listen_fd, F_GETFL, 0);
+			fcntl(sadb_unix_listen_fd, F_SETFL, flags | O_NONBLOCK);
+		} else {
+			close(sadb_unix_listen_fd);
+			sadb_unix_listen_fd = -1;
+			sadb_sock_path[0] = '\0';
+		}
+	}
+
+	if (port_out)
+		*port_out = sadb_listen_port;
+	if (serial_out && serial_len > 0)
+		snprintf(serial_out, serial_len, "emulator-%d", sadb_listen_port - 1);
+
+	/* 3. Write discovery metadata files for `sadb devices` */
+	snprintf(sadb_local_info_path, sizeof(sadb_local_info_path), "%s/.six_sadb.info", cwd);
+	snprintf(sadb_tmp_info_path, sizeof(sadb_tmp_info_path), "/tmp/six_sadb_%d.info", (int)getpid());
+	{
+		const char *paths[2] = { sadb_local_info_path, sadb_tmp_info_path };
+		int i;
+		for (i = 0; i < 2; i++) {
+			FILE *fp = fopen(paths[i], "w");
+			if (fp) {
+				fprintf(fp,
+					"pid=%d\n"
+					"port=%d\n"
+					"serial=emulator-%d\n"
+					"sock=%s\n"
+					"cwd=%s\n",
+					(int)getpid(),
+					sadb_listen_port,
+					sadb_listen_port - 1,
+					sadb_sock_path,
+					cwd);
+				fclose(fp);
+			}
+		}
+	}
+
+	atexit(six_host_sadb_cleanup);
+	return (sadb_tcp_listen_fd >= 0 || sadb_unix_listen_fd >= 0) ? 0 : -1;
+}
+
+int six_host_sadb_poll_accept(void)
+{
+	struct pollfd pfds[2];
+	int nfds = 0;
+
+	if (sadb_unix_listen_fd >= 0) {
+		pfds[nfds].fd = sadb_unix_listen_fd;
+		pfds[nfds].events = POLLIN;
+		pfds[nfds].revents = 0;
+		nfds++;
+	}
+	if (sadb_tcp_listen_fd >= 0) {
+		pfds[nfds].fd = sadb_tcp_listen_fd;
+		pfds[nfds].events = POLLIN;
+		pfds[nfds].revents = 0;
+		nfds++;
+	}
+	if (nfds == 0)
+		return 0;
+	if (poll(pfds, nfds, 0) > 0) {
+		int i;
+		for (i = 0; i < nfds; i++) {
+			if (pfds[i].revents & POLLIN)
+				return 1;
+		}
+	}
+	return 0;
+}
+
+int six_host_sadb_accept(void)
+{
+	int cfd = -1;
+
+	if (sadb_unix_listen_fd >= 0) {
+		cfd = accept(sadb_unix_listen_fd, NULL, NULL);
+	}
+	if (cfd < 0 && sadb_tcp_listen_fd >= 0) {
+		cfd = accept(sadb_tcp_listen_fd, NULL, NULL);
+		if (cfd >= 0) {
+			int one = 1;
+			setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+		}
+	}
+	if (cfd >= 0) {
+		int flags = fcntl(cfd, F_GETFL, 0);
+		fcntl(cfd, F_SETFL, flags | O_NONBLOCK);
+	}
+	return cfd;
+}
+
+int six_host_sadb_recv(int fd, void *buf, int len)
+{
+	int ret = recv(fd, buf, len, MSG_DONTWAIT);
+	if (ret > 0)
+		return ret;
+	if (ret == 0)
+		return 0; /* EOF */
+	if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
+		return -2; /* Would block */
+	return -1;
+}
+
+int six_host_sadb_send_all(int fd, const void *buf, int len)
+{
+	const unsigned char *p = (const unsigned char *)buf;
+	int sent = 0;
+	int retries = 0;
+
+	while (sent < len) {
+		int r = send(fd, p + sent, len - sent, MSG_DONTWAIT | MSG_NOSIGNAL);
+		if (r > 0) {
+			sent += r;
+			retries = 0;
+			continue;
+		}
+		if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
+			struct pollfd pfd;
+			if (++retries > 200)
+				break;
+			pfd.fd = fd;
+			pfd.events = POLLOUT;
+			pfd.revents = 0;
+			poll(&pfd, 1, 5);
+			continue;
+		}
+		return (sent > 0) ? sent : -1;
+	}
+	return sent;
 }
 
 void six_host_idle_sleep(void)

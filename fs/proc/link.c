@@ -209,10 +209,16 @@ static int proc_readlink(struct inode * inode, char * buffer, int buflen)
 		i = sprintf(buf, "/dev/mem");
 	} else if (S_ISCHR(inode->i_mode) && MAJOR(inode->i_rdev) == 4) {
 		i = sprintf(buf, "/dev/tty%d", MINOR(inode->i_rdev));
+	} else if (S_ISCHR(inode->i_mode) && MAJOR(inode->i_rdev) == 2) {
+		i = sprintf(buf, "/dev/ptyp%d", MINOR(inode->i_rdev));
 	} else if (S_ISCHR(inode->i_mode) && MAJOR(inode->i_rdev) == 3) {
 		i = sprintf(buf, "/dev/ttyp%d", MINOR(inode->i_rdev));
 	} else if (S_ISCHR(inode->i_mode) && MAJOR(inode->i_rdev) == 10 && MINOR(inode->i_rdev) == 229) {
 		i = sprintf(buf, "/dev/fuse");
+	} else if (S_ISCHR(inode->i_mode) && MAJOR(inode->i_rdev) == 61) {
+		i = sprintf(buf, "/dev/sadb");
+	} else if (S_ISCHR(inode->i_mode) && MAJOR(inode->i_rdev) == 63) {
+		i = sprintf(buf, "/dev/binder");
 	} else if (S_ISBLK(inode->i_mode) && MAJOR(inode->i_rdev) == 3) {
 		i = sprintf(buf, "/dev/hd%c", MINOR(inode->i_rdev) == 0 ? 'a' : 'b');
 	} else {

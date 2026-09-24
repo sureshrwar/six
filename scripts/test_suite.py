@@ -350,6 +350,24 @@ TESTS = [
             "__VI_CAT_DONE__",
         ],
     ),
+    TestCase(
+        name="sadb.bridge_and_shell",
+        description="SIX Android Debug Bridge (/dev/sadb, sadbd, sadb devices/shell/push/pull)",
+        cmd=(
+            "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do if [ -f /tmp/sadb_done_flag ]; then break; fi; sleep 0.25; done && "
+            "cat /proc/sadb && "
+            "cat /tmp/sadb_pushed.txt && "
+            "cat /tmp/sadb_pty_out.txt && "
+            "cat /tmp/sadbd.log"
+        ),
+        expected_substrings=[
+            "SIX Android Debug Bridge (sadb) Transport:",
+            "device:            /dev/sadb (char 61:0)",
+            "SADB_HOST_PUSH_PAYLOAD_OK",
+            "/dev/ttyp",
+            "SADB_INTERACTIVE_PTY_OK",
+        ],
+    ),
 ]
 
 
@@ -465,6 +483,78 @@ def run_shard(
         active_test = [None]
         completed_tests = set()
 
+        def run_host_sadb_exercise():
+            import pty
+            import subprocess
+            import tempfile
+            import threading
+
+            def _worker():
+                sadb_bin = os.path.join(repo_root, "sadb")
+                try:
+                    subprocess.run(
+                        [sadb_bin, "wait-for-device"],
+                        cwd=work_dir,
+                        timeout=5,
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    # 1. sadb devices -l
+                    subprocess.run(
+                        [sadb_bin, "devices", "-l"],
+                        cwd=work_dir,
+                        timeout=5,
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                    )
+                    # 2. sadb push
+                    with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+                        tf.write("SADB_HOST_PUSH_PAYLOAD_OK\n")
+                        tf_path = tf.name
+                    subprocess.run(
+                        [sadb_bin, "push", tf_path, "/tmp/sadb_pushed.txt"],
+                        cwd=work_dir,
+                        timeout=5,
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                    )
+                    os.unlink(tf_path)
+                    # 3. sadb interactive PTY shell (allocating /dev/ttypX)
+                    mfd, sfd = pty.openpty()
+                    proc = subprocess.Popen(
+                        [sadb_bin, "shell"],
+                        cwd=work_dir,
+                        stdin=sfd,
+                        stdout=sfd,
+                        stderr=sfd,
+                        close_fds=True,
+                    )
+                    os.close(sfd)
+                    time.sleep(0.15)
+                    os.write(
+                        mfd,
+                        b"tty > /tmp/sadb_pty_out.txt; echo SADB_INTERACTIVE_PTY_OK >> /tmp/sadb_pty_out.txt; exit\r",
+                    )
+                    try:
+                        proc.wait(timeout=4)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                    os.close(mfd)
+                    # 4. sadb shell <cmd> to mark completion
+                    subprocess.run(
+                        [sadb_bin, "shell", "echo DONE > /tmp/sadb_done_flag"],
+                        cwd=work_dir,
+                        timeout=5,
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                    )
+                except Exception:
+                    pass
+
+            t = threading.Thread(target=_worker, daemon=True)
+            t.start()
+
         def on_cmd(cmd):
             m = re.match(r'^echo "__B""EGIN:(.+)__"$', cmd)
             if m:
@@ -473,6 +563,8 @@ def run_shard(
                 idx = idx_map.get(tname, 0)
                 desc = f" ({tc.description})" if tc else ""
                 active_test[0] = tc
+                if tname == "sadb.bridge_and_shell":
+                    run_host_sadb_exercise()
                 if total_shards == 1:
                     sys.stdout.write(
                         f"[INFO] [{idx}/{total_tests}] Running test suite '{tname}'{desc}..."

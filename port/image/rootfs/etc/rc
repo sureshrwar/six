@@ -10,6 +10,7 @@ sleep 0.25
 /bin/servicemanager &
 /bin/vold &
 /bin/storaged &
+/bin/sadbd &
 
 sleep 0.25
 
