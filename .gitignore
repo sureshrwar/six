@@ -156,6 +156,7 @@ applications/*/vold
 applications/*/storaged
 applications/*/usbctl
 applications/*/sm
+applications/*/sadbd
 applications/ntfs-3g/ntfs-3g
 applications/ntfs-3g/ntfs-3g.probe
 applications/ntfs-3g/mkntfs
@@ -176,5 +177,6 @@ library/*/lib/*.a
 
 # Records the value of SIX_TRACE_GUEST_SYSCALLS so make can notice changes.
 .trace_flag
+.six_sadb.*
 __pycache__/
 
