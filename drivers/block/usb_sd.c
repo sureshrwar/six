@@ -4,6 +4,11 @@
  *  Simulated Hotpluggable USB Mass Storage SCSI Disk driver (/dev/sda, /dev/sda1)
  *  for SIX (major 8, minors 0..15).
  *
+ *  Backed directly by external host image files:
+ *    - ./disk/x86/usb_ext2.img  (usbctl plug ext2)
+ *    - ./disk/x86/usb_ext4.img  (usbctl plug ext4)
+ *    - ./disk/x86/usb_ntfs.img  (usbctl plug ntfs)
+ *
  *  Works with Kernel NETLINK_KOBJECT_UEVENT (via /dev/binder), /bin/usbctl,
  *  /bin/vold, and /bin/storaged (StorageManagerService).
  */
@@ -25,30 +30,31 @@
 #define USB_SD_SECTORS		4096UL		/* 2048 KB (4096 x 512B sectors) */
 #define USB_SD_MAX_MINORS	16
 
-static unsigned char usb_sd_ram[USB_SD_SECTORS * 512];
+static int usb_sd_fd = -1;
 static int usb_sd_online = 0;
 static char usb_sd_label[32] = "SAN_DISK_USB";
 static char usb_sd_uuid[32] = "4A8F-9C21";
 static char usb_sd_fstype[16] = "ext2";
+static char usb_sd_img_path[64] = "./disk/x86/usb_ext2.img";
 
 static int sd_sizes[USB_SD_MAX_MINORS];
 static int sd_blocksizes[USB_SD_MAX_MINORS];
 
 int usb_sd_is_online(void)
 {
-	return usb_sd_online;
+	return usb_sd_online && (usb_sd_fd >= 0);
 }
 
 unsigned long usb_sd_get_sectors(void)
 {
-	return usb_sd_online ? USB_SD_SECTORS : 0UL;
+	return usb_sd_is_online() ? USB_SD_SECTORS : 0UL;
 }
 
 void usb_sd_get_meta(int *online, char *label, char *uuid, char *fstype,
 		     unsigned long *sectors)
 {
 	if (online)
-		*online = usb_sd_online;
+		*online = usb_sd_is_online();
 	if (label) {
 		strncpy(label, usb_sd_label, 31);
 		label[31] = '\0';
@@ -62,28 +68,43 @@ void usb_sd_get_meta(int *online, char *label, char *uuid, char *fstype,
 		fstype[15] = '\0';
 	}
 	if (sectors)
-		*sectors = usb_sd_online ? USB_SD_SECTORS : 0UL;
+		*sectors = usb_sd_is_online() ? USB_SD_SECTORS : 0UL;
 }
 
 void usb_sd_set_online(int online, const char *label, const char *uuid,
 		       const char *fstype)
 {
-	if (usb_sd_online) {
+	if (usb_sd_online && usb_sd_fd >= 0) {
 		sync_dev(MKDEV(SCSI_DISK_MAJOR, 0));
 		sync_dev(MKDEV(SCSI_DISK_MAJOR, 1));
 	}
 	invalidate_buffers(MKDEV(SCSI_DISK_MAJOR, 0));
 	invalidate_buffers(MKDEV(SCSI_DISK_MAJOR, 1));
 
+	if (usb_sd_fd >= 0) {
+		close(usb_sd_fd);
+		usb_sd_fd = -1;
+	}
+
 	if (online) {
-		if (fstype && strcmp(fstype, "ntfs") == 0) {
-			int nfd = open("./disk/x86/usb_ntfs.img", 0);
-			if (nfd >= 0) {
-				lseek(nfd, 0L, 0);
-				read(nfd, usb_sd_ram, USB_SD_SECTORS * 512);
-				close(nfd);
-			}
+		const char *path = "./disk/x86/usb_ext2.img";
+		if (fstype && strcmp(fstype, "ntfs") == 0)
+			path = "./disk/x86/usb_ntfs.img";
+		else if (fstype && strcmp(fstype, "ext4") == 0)
+			path = "./disk/x86/usb_ext4.img";
+
+		strncpy(usb_sd_img_path, path, sizeof(usb_sd_img_path) - 1);
+		usb_sd_img_path[sizeof(usb_sd_img_path) - 1] = '\0';
+
+		usb_sd_fd = open(usb_sd_img_path, 2); /* O_RDWR */
+		if (usb_sd_fd < 0) {
+			printk("usb_sd: cannot open host image %s\n", usb_sd_img_path);
+			usb_sd_online = 0;
+			sd_sizes[0] = 0;
+			sd_sizes[1] = 0;
+			return;
 		}
+
 		usb_sd_online = 1;
 		sd_sizes[0] = (int)(USB_SD_SECTORS >> (BLOCK_SIZE_BITS - 9));
 		sd_sizes[1] = (int)(USB_SD_SECTORS >> (BLOCK_SIZE_BITS - 9));
@@ -99,7 +120,8 @@ void usb_sd_set_online(int online, const char *label, const char *uuid,
 			strncpy(usb_sd_fstype, fstype, sizeof(usb_sd_fstype) - 1);
 			usb_sd_fstype[sizeof(usb_sd_fstype) - 1] = '\0';
 		}
-		printk("usb 1-1: new high-speed USB device number 2 using six_xhci\n");
+		printk("usb 1-1: new high-speed USB device number 2 using six_xhci (%s)\n",
+		       usb_sd_img_path);
 		printk("usb-storage 1-1:1.0: USB Mass Storage device detected\n");
 		printk("sd 0:0:0:0: [sda] %lu 512-byte logical blocks (%lu KB)\n",
 		       USB_SD_SECTORS, USB_SD_SECTORS >> 1);
@@ -121,7 +143,7 @@ int usb_sd_rw_sector(int minor, unsigned long phys_sec,
 	int sub_off = (phys_sec & 1) << 9;
 	kdev_t kdev = MKDEV(SCSI_DISK_MAJOR, minor);
 
-	if (!usb_sd_online || (minor != 0 && minor != 1))
+	if (!usb_sd_is_online() || (minor != 0 && minor != 1))
 		return -ENODEV;
 	if (phys_sec >= USB_SD_SECTORS)
 		return -EIO;
@@ -135,10 +157,17 @@ int usb_sd_rw_sector(int minor, unsigned long phys_sec,
 		}
 		if (bh)
 			brelse(bh);
-		memcpy(buf, usb_sd_ram + (phys_sec << 9), 512);
+		lseek(usb_sd_fd, (long)phys_sec * 512L, 0);
+		if (read(usb_sd_fd, buf, 512) != 512)
+			return -EIO;
 		return 0;
 	} else {
-		memcpy(usb_sd_ram + (phys_sec << 9), buf, 512);
+		lseek(usb_sd_fd, (long)phys_sec * 512L, 0);
+		if (write(usb_sd_fd, buf, 512) != 512) {
+			if (bh)
+				brelse(bh);
+			return -EIO;
+		}
 		if (bh) {
 			memcpy(bh->b_data + sub_off, buf, 512);
 			brelse(bh);
@@ -183,13 +212,13 @@ static void end_request(int uptodate)
 void do_sd_request(void)
 {
 	int minor;
-	unsigned long nsect;
+	unsigned long nsect, bytes;
 
 	while (1) {
 		INIT_REQUEST;
 
 		minor = MINOR(CURRENT->rq_dev);
-		if (!usb_sd_online || (minor != 0 && minor != 1)) {
+		if (!usb_sd_is_online() || (minor != 0 && minor != 1)) {
 			end_request(0);
 			continue;
 		}
@@ -200,21 +229,25 @@ void do_sd_request(void)
 			continue;
 		}
 
+		bytes = nsect << 9;
+		lseek(usb_sd_fd, (long)CURRENT->sector * 512L, 0);
 		if (CURRENT->cmd == READ) {
-			memcpy(CURRENT->buffer,
-			       usb_sd_ram + (CURRENT->sector << 9),
-			       nsect << 9);
+			if (read(usb_sd_fd, CURRENT->buffer, bytes) != (int)bytes) {
+				end_request(0);
+				continue;
+			}
 		} else if (CURRENT->cmd == WRITE) {
-			memcpy(usb_sd_ram + (CURRENT->sector << 9),
-			       CURRENT->buffer,
-			       nsect << 9);
+			if (write(usb_sd_fd, CURRENT->buffer, bytes) != (int)bytes) {
+				end_request(0);
+				continue;
+			}
 		} else {
 			end_request(0);
 			continue;
 		}
 
 		CURRENT->sector += nsect;
-		CURRENT->buffer += (nsect << 9);
+		CURRENT->buffer += bytes;
 		CURRENT->nr_sectors -= nsect;
 		CURRENT->current_nr_sectors = 0;
 		end_request(1);
@@ -229,7 +262,7 @@ static int usb_sd_ioctl(struct inode *inode, struct file *file,
 	if (!inode)
 		return -EINVAL;
 	minor = MINOR(inode->i_rdev);
-	if (!usb_sd_online || (minor != 0 && minor != 1))
+	if (!usb_sd_is_online() || (minor != 0 && minor != 1))
 		return -ENODEV;
 
 	switch (cmd) {
@@ -252,7 +285,7 @@ static int usb_sd_ioctl(struct inode *inode, struct file *file,
 static int usb_sd_open(struct inode *inode, struct file *file)
 {
 	int minor = MINOR(inode->i_rdev);
-	if (!usb_sd_online || (minor != 0 && minor != 1))
+	if (!usb_sd_is_online() || (minor != 0 && minor != 1))
 		return -ENODEV;
 	return 0;
 }
@@ -289,7 +322,6 @@ int usb_sd_init(void)
 	}
 	blk_dev[SCSI_DISK_MAJOR].request_fn = DEVICE_REQUEST;
 	read_ahead[SCSI_DISK_MAJOR] = 8;
-	memset(usb_sd_ram, 0, sizeof(usb_sd_ram));
 	for (i = 0; i < USB_SD_MAX_MINORS; i++) {
 		sd_sizes[i] = 0;
 		sd_blocksizes[i] = 1024;

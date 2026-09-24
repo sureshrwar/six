@@ -333,6 +333,42 @@ if [ "$MODE" = "bin" ]; then
 	python3 port/image/mkverity.py "$OUT" include/linux/verity_roothash.h || exit 1
 fi
 
+USB_EXT2_IMG="disk/x86/usb_ext2.img"
+if [ ! -s "$USB_EXT2_IMG" ]; then
+	USB_STAGE=$(mktemp -d)
+	mkdir -p "$USB_STAGE/DCIM"
+	cat > "$USB_STAGE/README_USB.txt" <<'EOF'
+=== SanDisk Ultra USB 3.0 Flash Drive (ext2) ===
+Label:      SAN_DISK_USB
+UUID:       4A8F-9C21
+Device:     /dev/sda1 (8:1, 2048 KB ext2, host image disk/x86/usb_ext2.img)
+Mounted by: Android vold -> kernel ext2 -> /mnt/media_rw/usb
+EOF
+	echo "Camera DCIM sample photo metadata (SanDisk ext2 USB)" > "$USB_STAGE/DCIM/IMG_0001.TXT"
+	fakeroot -- mke2fs -q -F -b 1024 -N 256 -I 128 -O none -m 0 \
+		-L "SAN_DISK_USB" -d "$USB_STAGE" "$USB_EXT2_IMG" 2048 2>/dev/null || true
+	debugfs -w -R "ssv rev_level 0" "$USB_EXT2_IMG" >/dev/null 2>&1 || true
+	rm -rf "$USB_STAGE"
+fi
+
+USB_EXT4_IMG="disk/x86/usb_ext4.img"
+if [ ! -s "$USB_EXT4_IMG" ]; then
+	USB_STAGE=$(mktemp -d)
+	mkdir -p "$USB_STAGE/DCIM"
+	cat > "$USB_STAGE/README_USB.txt" <<'EOF'
+=== SanDisk Extreme PRO USB 3.1 Flash Drive (ext4) ===
+Label:      SANDISK_EXT4
+UUID:       5B9E-7D31
+Device:     /dev/sda1 (8:1, 2048 KB ext4 with extents, host image disk/x86/usb_ext4.img)
+Mounted by: Android vold -> kernel ext4 -> /mnt/media_rw/usb
+EOF
+	echo "Camera DCIM sample photo metadata (SanDisk ext4 USB)" > "$USB_STAGE/DCIM/IMG_0001.TXT"
+	fakeroot -- mke2fs -q -F -t ext4 -b 1024 -N 256 -I 256 \
+		-O ^metadata_csum,^64bit,^orphan_file -m 0 \
+		-L "SANDISK_EXT4" -d "$USB_STAGE" "$USB_EXT4_IMG" 2048 2>/dev/null || true
+	rm -rf "$USB_STAGE"
+fi
+
 USB_NTFS_IMG="disk/x86/usb_ntfs.img"
 if [ ! -s "$USB_NTFS_IMG" ]; then
 	MKNTFS=$(command -v mkntfs || command -v /usr/sbin/mkntfs || command -v /sbin/mkntfs || true)
@@ -343,7 +379,7 @@ if [ ! -s "$USB_NTFS_IMG" ]; then
 === SanDisk Extreme NTFS USB 3.2 Flash Drive ===
 Label:      SANDISK_NTFS
 UUID:       6A1B-8E42
-Device:     /dev/sda1 (8:1, 2048 KB NTFS)
+Device:     /dev/sda1 (8:1, 2048 KB NTFS, host image disk/x86/usb_ntfs.img)
 Mounted by: Android vold -> /bin/ntfs-3g (FUSE /dev/fuse) -> /mnt/media_rw/usb
 EOF
 		dd if=/dev/zero of="$USB_NTFS_IMG" bs=1024 count=2048 status=none

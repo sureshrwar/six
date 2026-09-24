@@ -129,8 +129,20 @@ static const char *vold_probe_fs(const char *dev)
 	if (memcmp(buf + 3, "NTFS    ", 8) == 0)
 		return "ntfs";
 	/* ext2/ext4 superblock magic 0xEF53 at offset 1080 (0x438) */
-	if (buf[1080] == 0x53 && buf[1081] == 0xef)
+	if (buf[1080] == 0x53 && buf[1081] == 0xef) {
+		unsigned int incompat = ((unsigned int)buf[1120]) |
+					((unsigned int)buf[1121] << 8) |
+					((unsigned int)buf[1122] << 16) |
+					((unsigned int)buf[1123] << 24);
+		unsigned int compat   = ((unsigned int)buf[1116]) |
+					((unsigned int)buf[1117] << 8) |
+					((unsigned int)buf[1118] << 16) |
+					((unsigned int)buf[1119] << 24);
+		/* EXT4_FEATURE_INCOMPAT_EXTENTS (0x40) or journal (0x04) */
+		if ((incompat & 0x40) || (compat & 0x04))
+			return "ext4";
 		return "ext2";
+	}
 	return NULL;
 }
 
@@ -240,10 +252,22 @@ static int vold_do_mount(int bfd)
 	if ((probed && strcmp(probed, "ntfs") == 0) ||
 	    strcmp(vstate.fstype, "ntfs") == 0) {
 		strcpy(vstate.fstype, "ntfs");
-		strcpy(vstate.vol_type, "PUBLIC(NTFS)");
+		if (!vstate.encrypted)
+			strcpy(vstate.vol_type, "PUBLIC(NTFS)");
 		if (run_helper2("/bin/ntfs-3g", vstate.dev_node, vstate.mount_path) != 0)
 			return -1;
+	} else if ((probed && strcmp(probed, "ext4") == 0) ||
+		   strcmp(vstate.fstype, "ext4") == 0) {
+		strcpy(vstate.fstype, "ext4");
+		if (!vstate.encrypted)
+			strcpy(vstate.vol_type, "PUBLIC(EXT4)");
+		if (mount(vstate.dev_node, vstate.mount_path, "ext4", 0, 0) < 0)
+			return -1;
 	} else {
+		if (!vstate.encrypted) {
+			strcpy(vstate.fstype, "ext2");
+			strcpy(vstate.vol_type, "PUBLIC(EXT2)");
+		}
 		if (mount(vstate.dev_node, vstate.mount_path, "ext2", 0, 0) < 0)
 			return -1;
 	}
@@ -348,29 +372,52 @@ static int vold_do_partition(int bfd, const char *mode)
 		strcpy(vstate.fstype, "ntfs");
 		vstate.encrypted = 0;
 		return vold_do_mount(bfd);
-	} else {
-		run_helper("/bin/mkfs.ext2", "/dev/sda1");
+	} else if (mode && strcmp(mode, "ext4") == 0) {
+		struct binder_uevent_msg uev;
+		memset(&uev, 0, sizeof(uev));
+		strcpy(uev.action, "prepare");
+		strcpy(uev.subsystem, "block");
+		strcpy(uev.devpath, "/devices/pci0000:00/usb1/1-1/block/sda/sda1");
+		strcpy(uev.devname, "sda1");
+		uev.major = 8;
+		uev.minor = 1;
+		strcpy(uev.fstype, "ext4");
+		strcpy(uev.label, "SANDISK_EXT4");
+		strcpy(uev.uuid, "5B9E-7D31");
+		ioctl(bfd, BINDER_IOC_UEVENT_EMIT, &uev);
+
 		strcpy(vstate.vol_id, "public:8,1");
-		strcpy(vstate.vol_type, "PUBLIC");
+		strcpy(vstate.vol_type, "PUBLIC(EXT4)");
+		strcpy(vstate.dev_node, "/dev/sda1");
+		strcpy(vstate.mount_path, "/mnt/media_rw/usb");
+		strcpy(vstate.label, "SANDISK_EXT4");
+		strcpy(vstate.uuid, "5B9E-7D31");
+		strcpy(vstate.fstype, "ext4");
+		vstate.encrypted = 0;
+		return vold_do_mount(bfd);
+	} else {
+		struct binder_uevent_msg uev;
+		memset(&uev, 0, sizeof(uev));
+		strcpy(uev.action, "prepare");
+		strcpy(uev.subsystem, "block");
+		strcpy(uev.devpath, "/devices/pci0000:00/usb1/1-1/block/sda/sda1");
+		strcpy(uev.devname, "sda1");
+		uev.major = 8;
+		uev.minor = 1;
+		strcpy(uev.fstype, "ext2");
+		strcpy(uev.label, "SAN_DISK_USB");
+		strcpy(uev.uuid, "4A8F-9C21");
+		ioctl(bfd, BINDER_IOC_UEVENT_EMIT, &uev);
+
+		strcpy(vstate.vol_id, "public:8,1");
+		strcpy(vstate.vol_type, "PUBLIC(EXT2)");
 		strcpy(vstate.dev_node, "/dev/sda1");
 		strcpy(vstate.mount_path, "/mnt/media_rw/usb");
 		strcpy(vstate.label, "SAN_DISK_USB");
 		strcpy(vstate.uuid, "4A8F-9C21");
 		strcpy(vstate.fstype, "ext2");
 		vstate.encrypted = 0;
-		if (vold_do_mount(bfd) == 0) {
-			int fd = open("/mnt/media_rw/usb/README_USB.txt",
-				      0100 | 01000 | 2, 0644);
-			if (fd >= 0) {
-				const char *msg =
-					"SanDisk Ultra USB 3.0 Flash Drive (2048 KB)\n"
-					"Auto-mounted by Android vold + StorageManagerService over /dev/binder!\n";
-				write(fd, msg, strlen(msg));
-				close(fd);
-			}
-			sync();
-		}
-		return 0;
+		return vold_do_mount(bfd);
 	}
 }
 
