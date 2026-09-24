@@ -324,6 +324,11 @@ static int dm_rw_phys_sector(kdev_t bdev, unsigned long phys_sec,
 			return 0;
 		}
 	}
+	if (major == SCSI_DISK_MAJOR) {
+		extern int usb_sd_rw_sector(int minor, unsigned long phys_sec,
+					    unsigned char *buf, int cmd);
+		return usb_sd_rw_sector(minor, phys_sec, buf, cmd);
+	}
 	return -ENODEV;
 }
 

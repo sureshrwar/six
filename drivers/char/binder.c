@@ -60,6 +60,7 @@ struct binder_proc {
 	int is_context_mgr;
 	unsigned int txns_sent;
 	unsigned int txns_received;
+	unsigned int last_uevent_seq;
 	struct wait_queue *wait;
 	struct binder_txn *todo;
 	struct binder_txn *in_flight;
@@ -86,6 +87,15 @@ static unsigned long stat_total_txns = 0;
 static unsigned long stat_sync_txns = 0;
 static unsigned long stat_oneway_txns = 0;
 static unsigned long stat_replies = 0;
+
+#define BINDER_UEVENT_RING_SIZE		8
+static struct binder_uevent_msg uevent_ring[BINDER_UEVENT_RING_SIZE];
+static unsigned int global_uevent_seq = 1000;
+
+extern void usb_sd_set_online(int online, const char *label, const char *uuid,
+			      const char *fstype);
+extern void usb_sd_get_meta(int *online, char *label, char *uuid, char *fstype,
+			    unsigned long *sectors);
 
 static struct binder_proc *binder_get_proc(struct file *filp)
 {
@@ -204,6 +214,7 @@ static int binder_open(struct inode *inode, struct file *filp)
 	strncpy(proc->comm, current->comm, sizeof(proc->comm) - 1);
 	proc->comm[sizeof(proc->comm) - 1] = '\0';
 	proc->max_threads = 15;
+	proc->last_uevent_seq = global_uevent_seq;
 	filp->private_data = proc;
 	return 0;
 }
@@ -578,6 +589,141 @@ static int binder_ioctl(struct inode *inode, struct file *filp,
 		}
 		memcpy_tofs((void *)arg, &bwr, sizeof(bwr));
 		return 0;
+	}
+
+	case BINDER_IOC_RECV_NONBLOCK:
+		return binder_do_recv(proc, (struct binder_ipc_msg *)arg, 1);
+
+	case BINDER_IOC_UEVENT_EMIT: {
+		struct binder_uevent_msg kev;
+		int i;
+		err = verify_area(VERIFY_WRITE, (void *)arg, sizeof(kev));
+		if (err)
+			return err;
+		memcpy_fromfs(&kev, (void *)arg, sizeof(kev));
+		if (!kev.subsystem[0])
+			strcpy(kev.subsystem, "block");
+		if (!kev.devpath[0])
+			strcpy(kev.devpath, "/devices/pci0000:00/usb1/1-1/block/sda/sda1");
+		if (!kev.devname[0])
+			strcpy(kev.devname, "sda1");
+		if (kev.major <= 0)
+			kev.major = 8;
+		if (kev.minor <= 0)
+			kev.minor = 1;
+		if (!kev.fstype[0])
+			strcpy(kev.fstype, "ext2");
+		if (!kev.uuid[0])
+			strcpy(kev.uuid, "4A8F-9C21");
+		if (!kev.label[0])
+			strcpy(kev.label, "SAN_DISK_USB");
+
+		if (strcmp(kev.action, "prepare") == 0) {
+			usb_sd_set_online(1, kev.label, kev.uuid, kev.fstype);
+			kev.online = 1;
+			kev.sectors = 1024;
+			memcpy_tofs((void *)arg, &kev, sizeof(kev));
+			return 0;
+		} else if (strcmp(kev.action, "add") == 0) {
+			usb_sd_set_online(1, kev.label, kev.uuid, kev.fstype);
+			kev.online = 1;
+			kev.sectors = 1024;
+		} else if (strcmp(kev.action, "remove") == 0) {
+			usb_sd_set_online(0, NULL, NULL, NULL);
+			kev.online = 0;
+			kev.sectors = 0;
+		} else {
+			usb_sd_get_meta(&kev.online, kev.label, kev.uuid,
+					kev.fstype, &kev.sectors);
+		}
+
+		kev.seqnum = ++global_uevent_seq;
+		sprintf(kev.raw_env,
+			"%s@%s\nACTION=%s\nDEVPATH=%s\nSUBSYSTEM=%s\nDEVNAME=%s\n"
+			"MAJOR=%d\nMINOR=%d\nID_FS_TYPE=%s\nID_FS_UUID=%s\n"
+			"ID_FS_LABEL=%s\nSEQNUM=%u\n",
+			kev.action, kev.devpath, kev.action, kev.devpath,
+			kev.subsystem, kev.devname, kev.major, kev.minor,
+			kev.fstype, kev.uuid, kev.label, kev.seqnum);
+
+		uevent_ring[kev.seqnum % BINDER_UEVENT_RING_SIZE] = kev;
+		for (i = 0; i < BINDER_MAX_PROCS; i++) {
+			if (binder_procs[i].in_use)
+				wake_up_interruptible(&binder_procs[i].wait);
+		}
+		memcpy_tofs((void *)arg, &kev, sizeof(kev));
+		return 0;
+	}
+
+	case BINDER_IOC_UEVENT_POLL: {
+		struct binder_uevent_msg kev;
+		err = verify_area(VERIFY_WRITE, (void *)arg, sizeof(kev));
+		if (err)
+			return err;
+		if (proc->last_uevent_seq >= global_uevent_seq)
+			return -EAGAIN;
+		proc->last_uevent_seq++;
+		if (global_uevent_seq - proc->last_uevent_seq >= BINDER_UEVENT_RING_SIZE)
+			proc->last_uevent_seq = global_uevent_seq;
+		kev = uevent_ring[proc->last_uevent_seq % BINDER_UEVENT_RING_SIZE];
+		memcpy_tofs((void *)arg, &kev, sizeof(kev));
+		return 0;
+	}
+
+	case BINDER_IOC_USB_STATUS: {
+		struct binder_uevent_msg kev;
+		err = verify_area(VERIFY_WRITE, (void *)arg, sizeof(kev));
+		if (err)
+			return err;
+		memset(&kev, 0, sizeof(kev));
+		usb_sd_get_meta(&kev.online, kev.label, kev.uuid,
+				kev.fstype, &kev.sectors);
+		strcpy(kev.subsystem, "block");
+		strcpy(kev.devpath, "/devices/pci0000:00/usb1/1-1/block/sda/sda1");
+		strcpy(kev.devname, "sda1");
+		kev.major = 8;
+		kev.minor = 1;
+		kev.seqnum = global_uevent_seq;
+		memcpy_tofs((void *)arg, &kev, sizeof(kev));
+		return 0;
+	}
+
+	case BINDER_IOC_WAIT_EVENT: {
+		struct binder_wait_event wev;
+		err = verify_area(VERIFY_WRITE, (void *)arg, sizeof(wev));
+		if (err)
+			return err;
+		while (proc->todo == NULL && proc->last_uevent_seq >= global_uevent_seq) {
+			if (current->signal & ~current->blocked)
+				return -ERESTARTSYS;
+			interruptible_sleep_on(&proc->wait);
+		}
+		memset(&wev, 0, sizeof(wev));
+		if (proc->last_uevent_seq < global_uevent_seq) {
+			proc->last_uevent_seq++;
+			if (global_uevent_seq - proc->last_uevent_seq >= BINDER_UEVENT_RING_SIZE)
+				proc->last_uevent_seq = global_uevent_seq;
+			wev.event_type = BINDER_WAIT_UEVENT;
+			wev.uevent = uevent_ring[proc->last_uevent_seq % BINDER_UEVENT_RING_SIZE];
+			memcpy_tofs((void *)arg, &wev, sizeof(wev));
+			return 0;
+		}
+		if (proc->todo != NULL) {
+			struct binder_txn *txn = proc->todo;
+			proc->todo = txn->next;
+			txn->delivered = 1;
+			wev.event_type = BINDER_WAIT_TXN;
+			wev.txn = txn->msg;
+			if (txn->msg.flags & TF_ONE_WAY) {
+				kfree(txn);
+			} else {
+				txn->next = proc->in_flight;
+				proc->in_flight = txn;
+			}
+			memcpy_tofs((void *)arg, &wev, sizeof(wev));
+			return 0;
+		}
+		return -EAGAIN;
 	}
 
 	default:

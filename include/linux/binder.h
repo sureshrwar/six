@@ -114,6 +114,42 @@ struct binder_service_info {
 #define BINDER_IOC_LOOKUP_SVC		0x6218
 #define BINDER_IOC_LIST_SVCS		0x6219
 
+/*
+ * Kernel NETLINK_KOBJECT_UEVENT & USB Hotplug simulation structures/ioctls
+ * used by /bin/usbctl, /bin/vold, and /bin/storaged (StorageManagerService).
+ */
+struct binder_uevent_msg {
+	char action[16];		/* "add", "remove", "change" */
+	char subsystem[16];		/* "block" */
+	char devpath[64];		/* "/devices/pci0000:00/usb1/1-1/block/sda/sda1" */
+	char devname[16];		/* "sda1" */
+	int major;			/* 8 */
+	int minor;			/* 1 */
+	char fstype[16];		/* "ext2", "crypto_LUKS" */
+	char uuid[32];			/* "4A8F-9C21" */
+	char label[32];			/* "SAN_DISK_USB" */
+	unsigned int seqnum;
+	unsigned long sectors;
+	int online;
+	char raw_env[256];		/* Formatted NETLINK_KOBJECT_UEVENT header+env */
+};
+
+#define BINDER_WAIT_NONE		0
+#define BINDER_WAIT_UEVENT		1
+#define BINDER_WAIT_TXN			2
+
+struct binder_wait_event {
+	int event_type;			/* BINDER_WAIT_UEVENT or BINDER_WAIT_TXN */
+	struct binder_uevent_msg uevent;
+	struct binder_ipc_msg txn;
+};
+
+#define BINDER_IOC_UEVENT_EMIT		0x6220
+#define BINDER_IOC_UEVENT_POLL		0x6221
+#define BINDER_IOC_RECV_NONBLOCK	0x6222
+#define BINDER_IOC_USB_STATUS		0x6223
+#define BINDER_IOC_WAIT_EVENT		0x6224
+
 #ifdef __KERNEL__
 extern int binder_init(void);
 extern int get_binder_info(char *buf);

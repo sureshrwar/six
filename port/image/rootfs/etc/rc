@@ -8,6 +8,8 @@ sleep 0.25
 /bin/mount_all
 /bin/configure_dm
 /bin/servicemanager &
+/bin/vold &
+/bin/storaged &
 
 sleep 0.25
 

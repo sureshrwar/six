@@ -165,6 +165,10 @@ file  /bin/dmsetup          0755  applications/dmsetup/dmsetup
 file  /bin/lsblk            0755  applications/lsblk/lsblk
 file  /bin/servicemanager   0755  applications/servicemanager/servicemanager
 file  /bin/service          0755  applications/service/service
+file  /bin/vold             0755  applications/vold/vold
+file  /bin/storaged         0755  applications/storaged/storaged
+file  /bin/usbctl           0755  applications/usbctl/usbctl
+file  /bin/sm               0755  applications/sm/sm
 file  /bin/mkfs.ext2        0755  applications/mkfs/mkfs.ext2
 sym   /bin/mke2fs           -     mkfs.ext2
 file  /bin/mount_all        0755  port/image/rootfs/bin/mount_all
@@ -322,11 +326,13 @@ node  /dev/urandom           0666  c  1  9
 node  /dev/fuse              0666  c  10 229
 node  /dev/binder            0666  c  63 0
 
-# --- /dev (block major 3 = HD_MAJOR) ---------------------------------------
+# --- /dev (block major 3 = HD_MAJOR, 8 = SCSI_DISK_MAJOR) ------------------
 node  /dev/hda              0600  b  3  0
 node  /dev/hdb              0600  b  3  64
 node  /dev/hdc              0660  b  3  128
 node  /dev/hdd              0600  b  3  192
+node  /dev/sda              0660  b  8  0
+node  /dev/sda1             0660  b  8  1
 
 # --- /dev (block major 62 = DM_MAJOR, Device Mapper) -----------------------
 dir   /dev/mapper           0755

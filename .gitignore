@@ -149,6 +149,12 @@ applications/*/top
 applications/*/dmsetup
 applications/mkfs/mkfs.ext2
 applications/*/lsblk
+applications/*/servicemanager
+applications/*/service
+applications/*/vold
+applications/*/storaged
+applications/*/usbctl
+applications/*/sm
 applications/ntfs-3g/ntfs-3g
 applications/ntfs-3g/ntfs-3g.probe
 applications/advent/advent

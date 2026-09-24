@@ -119,7 +119,11 @@ SUBDIRS	=	start \
 		mkfs \
 		lsblk \
 		servicemanager \
-		service
+		service \
+		vold \
+		storaged \
+		usbctl \
+		sm
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

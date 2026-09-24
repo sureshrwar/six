@@ -808,26 +808,36 @@ static int ovl_readdir(struct inode *inode, struct file *filp,
 	if (node->upper_inode && node->upper_inode->i_op &&
 	    node->upper_inode->i_op->default_file_ops &&
 	    node->upper_inode->i_op->default_file_ops->readdir) {
+		off_t prev_pos;
 		ctx.scanning_upper = 1;
 		memset(&sub_file, 0, sizeof(sub_file));
 		sub_file.f_inode = node->upper_inode;
 		sub_file.f_pos = 0;
 		sub_file.f_op = node->upper_inode->i_op->default_file_ops;
-		sub_file.f_op->readdir(node->upper_inode, &sub_file, &ctx,
-				       ovl_collect_filldir);
+		do {
+			prev_pos = sub_file.f_pos;
+			if (sub_file.f_op->readdir(node->upper_inode, &sub_file, &ctx,
+						   ovl_collect_filldir) < 0)
+				break;
+		} while (sub_file.f_pos != prev_pos && ctx.count < ctx.max_items);
 	}
 
 	/* 2. Scan lowerdir next (skips anything in upperdir or whited-out) */
 	if (node->lower_inode && node->lower_inode->i_op &&
 	    node->lower_inode->i_op->default_file_ops &&
 	    node->lower_inode->i_op->default_file_ops->readdir) {
+		off_t prev_pos;
 		ctx.scanning_upper = 0;
 		memset(&sub_file, 0, sizeof(sub_file));
 		sub_file.f_inode = node->lower_inode;
 		sub_file.f_pos = 0;
 		sub_file.f_op = node->lower_inode->i_op->default_file_ops;
-		sub_file.f_op->readdir(node->lower_inode, &sub_file, &ctx,
-				       ovl_collect_filldir);
+		do {
+			prev_pos = sub_file.f_pos;
+			if (sub_file.f_op->readdir(node->lower_inode, &sub_file, &ctx,
+						   ovl_collect_filldir) < 0)
+				break;
+		} while (sub_file.f_pos != prev_pos && ctx.count < ctx.max_items);
 	}
 
 	visible_idx = 2;

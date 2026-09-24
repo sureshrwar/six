@@ -886,7 +886,9 @@ int blk_dev_init(void)
 	hd_init();
 	{
 		extern int dm_init(void);
+		extern int usb_sd_init(void);
 		dm_init();
+		usb_sd_init();
 	}
 #endif
         return 0;
