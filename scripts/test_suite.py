@@ -296,21 +296,42 @@ TESTS = [
     ),
     TestCase(
         name="apps.cli_and_basic",
-        description="CLI applications: Tiny BASIC interpreter, cowsay, fortune, cal, banner, dhrystone",
+        description="CLI applications: BASIC, eliza, advent, zork, top, testdir, dd, cowsay, fortune, cal, banner, sixanim, dhrystone",
         cmd=(
             "echo '10 LET A = 6 * 7' > /tmp/test.bas && "
             "echo '20 PRINT \"BASIC_RESULT=\"; A' >> /tmp/test.bas && "
             "echo '30 END' >> /tmp/test.bas && "
             "basic /tmp/test.bas && "
             "rm /tmp/test.bas && "
+            "echo 'CAN YOU TEST SIX' > /tmp/eliza.in && "
+            "echo 'BYE' >> /tmp/eliza.in && "
+            "eliza < /tmp/eliza.in && "
+            "rm /tmp/eliza.in && "
+            "echo 'no' > /tmp/adv.in && echo 'quit' >> /tmp/adv.in && echo 'yes' >> /tmp/adv.in && "
+            "advent < /tmp/adv.in && "
+            "rm /tmp/adv.in && "
+            "echo 'look' > /tmp/zork.in && echo 'quit' >> /tmp/zork.in && echo 'y' >> /tmp/zork.in && "
+            "zork < /tmp/zork.in && "
+            "rm /tmp/zork.in && "
+            "top -n 1 | head -n 8 && "
+            "testdir /etc && "
+            "dd if=/dev/zero of=/tmp/dd.bin bs=1024 count=4 && "
+            "rm /tmp/dd.bin && "
             "cowsay 'regression_moo' && "
             "fortune && "
             "cal 9 2026 && "
             "banner SIX && "
+            "sixanim && "
             "dhrystone"
         ),
         expected_substrings=[
             "BASIC_RESULT=42",
+            "ELIZA: Goodbye",
+            "Welcome to ADVENTURE!",
+            "Welcome to Dungeon.",
+            "KiB Mem :",
+            "closedir OK",
+            "4+0 records out",
             "regression_moo",
             "2026",
             "Dhrystone",
