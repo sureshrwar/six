@@ -152,8 +152,21 @@ GUEST_CRT      = $(SIX_GUEST_TOP)/applications/start/cstart.o
 guest_link = $(GUEST_LD) $(GUEST_LDFLAGS) -o $(1) $(GUEST_CRT) $(2) $(GUEST_LIBC) $(GUEST_LIBGCC)
 guest_link_curses = $(GUEST_LD) $(GUEST_LDFLAGS) -o $(1) $(GUEST_CRT) $(2) $(GUEST_LIBCURSES) $(GUEST_LIBC) $(GUEST_LIBGCC)
 
+GUEST_CXX = g++
+GUEST_CXXFLAGS = -m32 -nostdinc -nostdinc++ \
+		 -isystem $(GUEST_GCCINC) \
+		 -I$(SIX_GUEST_TOP)/library/include \
+		 -I$(SIX_GUEST_TOP)/include \
+		 -fno-pic -fno-pie -fno-builtin -fno-stack-protector \
+		 -std=gnu++17 -fno-exceptions -fno-rtti \
+		 -fno-use-cxa-atexit -fno-threadsafe-statics \
+		 -g -O0 -w -DSIX=1
+
 %.o: %.c
 	$(GUEST_CC) $(GUEST_CFLAGS) -MMD -MF $(dir $@).$(notdir $@).d -c -o $@ $<
+
+%.o: %.cpp
+	$(GUEST_CXX) $(GUEST_CXXFLAGS) $(EXTRA_CXXFLAGS) -MMD -MF $(dir $@).$(notdir $@).d -c -o $@ $<
 
 #
 # Assembly.  Capital .S so the preprocessor runs -- setjmp_i386.S uses

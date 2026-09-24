@@ -74,7 +74,11 @@ void usb_sd_get_meta(int *online, char *label, char *uuid, char *fstype,
 void usb_sd_set_online(int online, const char *label, const char *uuid,
 		       const char *fstype)
 {
+	extern void force_umount_dev(kdev_t dev);
 	if (usb_sd_online && usb_sd_fd >= 0) {
+		force_umount_dev(MKDEV(DM_MAJOR, 3));
+		force_umount_dev(MKDEV(SCSI_DISK_MAJOR, 1));
+		force_umount_dev(MKDEV(SCSI_DISK_MAJOR, 0));
 		sync_dev(MKDEV(SCSI_DISK_MAJOR, 0));
 		sync_dev(MKDEV(SCSI_DISK_MAJOR, 1));
 	}

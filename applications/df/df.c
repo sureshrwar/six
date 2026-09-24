@@ -49,6 +49,8 @@ static void device_name(const char *path, long f_type, char *out, int outlen)
 
 	if (major == 3)
 		snprintf(out, outlen, "/dev/hd%c", 'a' + (minor >> 6));
+	else if (major == 8)
+		snprintf(out, outlen, "/dev/sda%d", minor);
 	else if (major == 62)
 		snprintf(out, outlen, "/dev/dm-%d", minor);
 	else if (major == 0 && (unsigned long)f_type == 0x65735546UL)
@@ -106,6 +108,10 @@ int main(int argc, char **argv)
 		"/aux/storage-1",
 		"/aux/linear",
 		"/aux/crypt",
+		"/mnt/media_rw/4A8F-9C21",
+		"/mnt/media_rw/5B9E-7D31",
+		"/mnt/media_rw/6A1B-8E42",
+		"/mnt/expand/CRYPT-8A01",
 		NULL
 	};
 

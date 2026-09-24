@@ -174,6 +174,10 @@ int main(int argc, char **argv)
 		if (msg.code == IVOLD_LISTENER_ON_VOLUME_STATE_CHANGED) {
 			char f[6][48];
 			parse_pipe_fields(msg.data, f);
+			sm.usb_disk_present = 1;
+			if (!sm.disk_id[0]) strcpy(sm.disk_id, "disk:8,0");
+			if (!sm.disk_model[0]) strcpy(sm.disk_model, "SanDisk Ultra USB 3.0");
+			if (!sm.disk_flags[0]) strcpy(sm.disk_flags, "USB");
 			if (f[0][0]) strncpy(sm.vol_id, f[0], 23);
 			if (f[1][0]) strncpy(sm.vol_type, f[1], 15);
 			if (f[2][0]) strncpy(sm.vol_state, f[2], 15);

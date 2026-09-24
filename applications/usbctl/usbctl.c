@@ -98,7 +98,14 @@ int main(int argc, char **argv)
 		}
 
 		/* Ensure any previous mount is cleanly unmounted before hotplugging */
+		umount("/dev/block/vold/public:8,1");
+		umount("/dev/block/vold/public:8_1");
+		umount("/dev/sda1");
+		umount("/mnt/media_rw/4A8F-9C21");
+		umount("/mnt/media_rw/5B9E-7D31");
+		umount("/mnt/media_rw/6A1B-8E42");
 		umount("/mnt/media_rw/usb");
+		umount("/mnt/expand/CRYPT-8A01");
 		umount("/mnt/expand/usb");
 
 		/* Single atomic kernel operation: attach disk/x86/usb_<fs>.img and emit ACTION=add uevent */
@@ -121,13 +128,21 @@ int main(int argc, char **argv)
 
 		printf("=== Kernel NETLINK_KOBJECT_UEVENT Emitted (SEQNUM=%u) ===\n%s",
 		       uev.seqnum, uev.raw_env);
+		usleep(200000);
 		close(bfd);
 		return 0;
 	}
 
 	if (strcmp(cmd, "unplug") == 0) {
 		/* Unmount first so buffers flush cleanly before physical detach */
+		umount("/dev/block/vold/public:8,1");
+		umount("/dev/block/vold/public:8_1");
+		umount("/dev/sda1");
+		umount("/mnt/media_rw/4A8F-9C21");
+		umount("/mnt/media_rw/5B9E-7D31");
+		umount("/mnt/media_rw/6A1B-8E42");
 		umount("/mnt/media_rw/usb");
+		umount("/mnt/expand/CRYPT-8A01");
 		umount("/mnt/expand/usb");
 
 		memset(&uev, 0, sizeof(uev));
@@ -144,6 +159,7 @@ int main(int argc, char **argv)
 		}
 		printf("=== Kernel NETLINK_KOBJECT_UEVENT Emitted (SEQNUM=%u) ===\n%s",
 		       uev.seqnum, uev.raw_env);
+		usleep(200000);
 		close(bfd);
 		return 0;
 	}

@@ -630,6 +630,20 @@ static int do_umount(kdev_t dev,int unmount_root)
         return 0;
 }
 
+void force_umount_dev(kdev_t dev)
+{
+        struct inode dummy_inode;
+        if (!get_super(dev))
+                return;
+        if (do_umount(dev, 0) == 0) {
+                fsync_dev(dev);
+                memset(&dummy_inode, 0, sizeof(dummy_inode));
+                dummy_inode.i_rdev = dev;
+                blkdev_release(&dummy_inode);
+                fsync_dev(dev);
+        }
+}
+
 
 /*
  * Now umount can handle mount points as well as block devices.
