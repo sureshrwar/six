@@ -75,6 +75,7 @@ applications/*/vi
 applications/*/life
 applications/*/ttt
 applications/*/gomoku
+applications/*/reversi
 applications/*/cal
 applications/*/dhrystone
 applications/*/tetris

@@ -335,6 +335,7 @@ TESTS = [
             "cal 9 2026 && "
             "banner SIX && "
             "sixanim && "
+            "echo 'd3q' | reversi && "
             "dhrystone"
         ),
         expected_substrings=[
@@ -347,6 +348,8 @@ TESTS = [
             "4+0 records out",
             "regression_moo",
             "2026",
+            "SIX REVERSI",
+            "Computer (O) played",
             "Dhrystone",
         ],
     ),

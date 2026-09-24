@@ -95,6 +95,7 @@ file  /bin/mv               0755  applications/mv/mv
 file  /bin/nettest          0755  applications/nettest/nettest
 file  /bin/ps               0755  applications/ps/ps
 file  /bin/pwd              0755  applications/pwd/pwd
+file  /bin/reversi          0755  applications/reversi/reversi
 file  /bin/rm               0755  applications/rm/rm
 file  /bin/rmdir            0755  applications/rmdir/rmdir
 file  /bin/robots           0755  applications/robots/robots

@@ -124,7 +124,8 @@ SUBDIRS	=	start \
 		storaged \
 		usbctl \
 		sm \
-		sadbd
+		sadbd \
+		reversi
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
