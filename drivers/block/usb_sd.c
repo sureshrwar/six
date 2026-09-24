@@ -150,6 +150,8 @@ void usb_sd_set_online(int online, const char *label, const char *uuid,
 		usb_sd_online = 0;
 		sd_sizes[0] = 0;
 		sd_sizes[1] = 0;
+		set_device_ro(MKDEV(SCSI_DISK_MAJOR, 0), 0);
+		set_device_ro(MKDEV(SCSI_DISK_MAJOR, 1), 0);
 		printk("usb 1-1: USB disconnect, device number 2 ([sda] detached)\n");
 	}
 }
@@ -181,6 +183,11 @@ int usb_sd_rw_sector(int minor, unsigned long phys_sec,
 			return -EIO;
 		return 0;
 	} else {
+		if (is_read_only(kdev) || is_read_only(MKDEV(SCSI_DISK_MAJOR, 0))) {
+			if (bh)
+				brelse(bh);
+			return -EROFS;
+		}
 		lseek(usb_sd_fd, (long)phys_sec * 512L, 0);
 		if (write(usb_sd_fd, buf, 512) != 512) {
 			if (bh)
@@ -256,6 +263,11 @@ void do_sd_request(void)
 				continue;
 			}
 		} else if (CURRENT->cmd == WRITE) {
+			if (is_read_only(CURRENT->rq_dev) ||
+			    is_read_only(MKDEV(SCSI_DISK_MAJOR, 0))) {
+				end_request(0);
+				continue;
+			}
 			if (write(usb_sd_fd, CURRENT->buffer, bytes) != (int)bytes) {
 				end_request(0);
 				continue;
@@ -296,6 +308,7 @@ static int usb_sd_ioctl(struct inode *inode, struct file *file,
 		fsync_dev(inode->i_rdev);
 		invalidate_buffers(inode->i_rdev);
 		return 0;
+	RO_IOCTLS(inode->i_rdev, arg)
 	default:
 		return -EINVAL;
 	}
@@ -306,6 +319,9 @@ static int usb_sd_open(struct inode *inode, struct file *file)
 	int minor = MINOR(inode->i_rdev);
 	if (!usb_sd_is_online() || (minor != 0 && minor != 1))
 		return -ENODEV;
+	if (file && (file->f_mode & 2) &&
+	    (is_read_only(inode->i_rdev) || is_read_only(MKDEV(SCSI_DISK_MAJOR, 0))))
+		return -EROFS;
 	return 0;
 }
 

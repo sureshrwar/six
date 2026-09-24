@@ -1291,13 +1291,17 @@ ntfs_volume *ntfs_device_mount(struct ntfs_device *dev, ntfs_mount_flags flags)
 			else
 				goto error_exit;
 			}
-		if (ntfs_volume_check_logfile(vol) < 0) {
-			/* Always reject cached metadata for now */
+		if (ntfs_volume_check_logfile(vol) < 0 ||
+		    ((vol->flags & VOLUME_IS_DIRTY) && !(flags & NTFS_MNT_RECOVER))) {
+			/* Always reject cached metadata or dirty volume when norecover is set */
 			if (!(flags & NTFS_MNT_RECOVER) || (errno == EPERM)) {
 				if (flags & NTFS_MNT_MAY_RDONLY)
 					need_fallback_ro = TRUE;
-				else
+				else {
+					ntfs_log_error("%s", unclean_journal_msg);
+					errno = EOPNOTSUPP;
 					goto error_exit;
+				}
 			} else {
 				ntfs_log_info("The file system wasn't safely "
 					      "closed on Windows. Fixing.\n");

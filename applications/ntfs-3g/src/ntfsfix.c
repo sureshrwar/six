@@ -1,5 +1,9 @@
 /*
  * applications/ntfs-3g/src/ntfsfix.c — NTFS consistency check/fix utility (/bin/ntfsfix) for SIX
+ *
+ * Standard ntfsfix behavior:
+ *   ntfsfix <device>          Reset $LogFile and set VOLUME_IS_DIRTY (schedules chkdsk)
+ *   ntfsfix -d <device>       Reset $LogFile and clear VOLUME_IS_DIRTY
  */
 
 #include "config.h"
@@ -7,31 +11,64 @@
 #include <stdlib.h>
 #include <string.h>
 #include "volume.h"
+#include "layout.h"
 
 int main(int argc, char **argv)
 {
     const char *dev = NULL;
+    int clear_dirty = 0;
     int i;
     ntfs_volume *vol;
+    le16 flags;
 
     for (i = 1; i < argc; i++) {
-        if (argv[i][0] == '-')
+        if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--clear-dirty") == 0) {
+            clear_dirty = 1;
             continue;
+        }
+        if (strcmp(argv[i], "--dirty") == 0 || argv[i][0] == '-') {
+            continue;
+        }
         dev = argv[i];
     }
 
     if (!dev) {
-        fprintf(stderr, "Usage: ntfsfix [-b] [-d] device\n");
+        fprintf(stderr, "Usage: ntfsfix [-b] [-d] [--dirty] device\n");
         return 1;
     }
 
     printf("Mounting volume... ");
-    vol = ntfs_mount(dev, NTFS_MNT_RDONLY);
+    vol = ntfs_mount(dev, NTFS_MNT_RECOVER);
     if (!vol) {
         printf("FAILED\n");
         return 1;
     }
     printf("OK\n");
+
+    printf("Going to empty the journal ($LogFile)... ");
+    if (ntfs_logfile_reset(vol) != 0) {
+        printf("FAILED\n");
+        ntfs_umount(vol, FALSE);
+        return 1;
+    }
+    printf("OK\n");
+
+    flags = vol->flags;
+    if (clear_dirty) {
+        flags &= ~VOLUME_IS_DIRTY;
+        printf("Clearing dirty flag on partition... ");
+    } else {
+        flags |= VOLUME_IS_DIRTY;
+        printf("Setting required flags on partition... ");
+    }
+
+    if (ntfs_volume_write_flags(vol, flags) != 0) {
+        printf("FAILED\n");
+        ntfs_umount(vol, FALSE);
+        return 1;
+    }
+    printf("OK (%s)\n", clear_dirty ? "VOLUME_IS_DIRTY cleared" : "VOLUME_IS_DIRTY set");
+
     ntfs_umount(vol, FALSE);
     printf("NTFS partition %s was processed successfully.\n", dev);
     return 0;

@@ -148,18 +148,28 @@ TESTS = [
     ),
     TestCase(
         name="vold.usb_ntfs_fd_and_path_modes",
-        description="NTFS-3G in both vold FUSE/block fd mode (ag/41989403) and direct path mode + mkntfs/ntfsfix",
+        description="NTFS-3G in vold FUSE/block fd mode (R/W + dirty R/O fallback + ntfsfix -d recovery) and direct path mode",
         cmd=(
             "usbctl plug ntfs && "
             "echo 'ntfs_vold_fd_mode_ok' > /mnt/media_rw/6A1B-8E42/vold_fd.txt && "
             "cat /mnt/media_rw/6A1B-8E42/vold_fd.txt && "
+            "sm unmount public:8,1 && "
+            "ntfsfix /dev/sda1 && "
+            "sm mount public:8,1 && "
+            "grep 'fuse.ntfs-3g ro' /proc/mounts && "
+            "cat /mnt/media_rw/6A1B-8E42/vold_fd.txt && "
+            "sm unmount public:8,1 && "
+            "ntfsfix -d /dev/sda1 && "
+            "sm mount public:8,1 && "
+            "grep 'fuse.ntfs-3g rw' /proc/mounts && "
             "sm partition disk:8,0 ntfs && "
             "usbctl unplug && "
             "grep 'ForkExecvpAsyncAsUser' /tmp/vold.log && "
+            "grep 'attempting R/O fallback' /tmp/vold.log && "
             "grep 'Reaping NTFS driver PID' /tmp/vold.log && "
             "mkdir -p /tmp/direct_ntfs && "
             "mkntfs -f -Q /dev/sda1 && "
-            "ntfsfix /dev/sda1 && "
+            "ntfsfix -d /dev/sda1 && "
             "ntfs-3g /dev/sda1 /tmp/direct_ntfs && "
             "echo 'ntfs_direct_path_mode_ok' > /tmp/direct_ntfs/direct.txt && "
             "cat /tmp/direct_ntfs/direct.txt && "
@@ -168,6 +178,11 @@ TESTS = [
         ),
         expected_substrings=[
             "ntfs_vold_fd_mode_ok",
+            "VOLUME_IS_DIRTY set",
+            "fuse.ntfs-3g ro",
+            "VOLUME_IS_DIRTY cleared",
+            "fuse.ntfs-3g rw",
+            "attempting R/O fallback",
             "partitioned disk:8,0 as ntfs",
             "--ready-fd",
             "/dev/fd/",

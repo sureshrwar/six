@@ -98,6 +98,8 @@ status_t Mount(const std::string& source, const std::string& target, int ownerUi
                          fuseFd, ownerUid, ownerGid, permMask, permMask);
     if (ro) {
         options += ",ro";
+    } else {
+        options += ",norecover";
     }
 
     cmd.push_back(options);
