@@ -13,6 +13,7 @@ struct statvfs {
     unsigned long f_fsid;
     unsigned long f_flag;
     unsigned long f_namemax;
+    unsigned long f_type;
 };
 #define ST_RDONLY 1
 #define ST_NOSUID 2

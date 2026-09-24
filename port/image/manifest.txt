@@ -140,6 +140,16 @@ file  /bin/ntfs-3g          0755  applications/ntfs-3g/ntfs-3g
 file  /bin/ntfs-3g.probe    0755  applications/ntfs-3g/ntfs-3g.probe
 file  /bin/mkntfs           0755  applications/ntfs-3g/mkntfs
 file  /bin/ntfsfix          0755  applications/ntfs-3g/ntfsfix
+file  /bin/ntfsinfo         0755  applications/ntfs-3g/ntfsinfo
+file  /bin/ntfslabel        0755  applications/ntfs-3g/ntfslabel
+file  /bin/ntfsls           0755  applications/ntfs-3g/ntfsls
+file  /bin/ntfscat          0755  applications/ntfs-3g/ntfscat
+file  /bin/ntfscluster      0755  applications/ntfs-3g/ntfscluster
+file  /bin/ntfscmp          0755  applications/ntfs-3g/ntfscmp
+file  /bin/ntfscp           0755  applications/ntfs-3g/ntfscp
+file  /bin/ntfsresize       0755  applications/ntfs-3g/ntfsresize
+file  /bin/ntfsclone        0755  applications/ntfs-3g/ntfsclone
+file  /bin/ntfsundelete     0755  applications/ntfs-3g/ntfsundelete
 file  /bin/uname            0755  applications/uname/uname
 file  /bin/dmesg            0755  applications/dmesg/dmesg
 file  /bin/free             0755  applications/free/free

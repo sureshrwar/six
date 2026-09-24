@@ -4041,6 +4041,13 @@ static int ntfs_open(const char *device)
 		ntfs_log_perror("Failed to mount '%s'", device);
 		goto err_out;
 	}
+	if (!ctx->ro && !ctx->recover && (ctx->vol->flags & VOLUME_IS_DIRTY)) {
+		ntfs_log_error("Volume '%s' is scheduled for check (VOLUME_IS_DIRTY) and norecover is set.\n", device);
+		ntfs_umount(ctx->vol, FALSE);
+		ctx->vol = NULL;
+		errno = EOPNOTSUPP;
+		goto err_out;
+	}
 	if (ctx->sync && ctx->vol->dev)
 		NDevSetSync(ctx->vol->dev);
 	if (ctx->compression)

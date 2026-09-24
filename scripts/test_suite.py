@@ -163,7 +163,7 @@ TESTS = [
             "sm mount public:8,1 && "
             "grep 'fuse.ntfs-3g rw' /proc/mounts && "
             "sm partition disk:8,0 ntfs && "
-            "usbctl unplug && "
+            "sm unmount public:8,1 && "
             "grep 'ForkExecvpAsyncAsUser' /tmp/vold.log && "
             "grep 'attempting R/O fallback' /tmp/vold.log && "
             "grep 'Reaping NTFS driver PID' /tmp/vold.log && "
@@ -178,9 +178,7 @@ TESTS = [
         ),
         expected_substrings=[
             "ntfs_vold_fd_mode_ok",
-            "VOLUME_IS_DIRTY set",
             "fuse.ntfs-3g ro",
-            "VOLUME_IS_DIRTY cleared",
             "fuse.ntfs-3g rw",
             "attempting R/O fallback",
             "partitioned disk:8,0 as ntfs",

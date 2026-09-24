@@ -572,3 +572,24 @@ int pthread_setspecific(pthread_key_t key, const void *val)
 
 pthread_t pthread_self(void) { return 1; }
 int pthread_kill(pthread_t thread, int sig) { (void)thread; return kill(getpid(), sig); }
+
+void setlinebuf(FILE *stream)
+{
+	(void)stream;
+}
+
+size_t strftime(char *s, size_t max, const char *format, const struct tm *tm)
+{
+	int n;
+	(void)format;
+	if (!s || max == 0)
+		return 0;
+	if (!tm) {
+		s[0] = '\0';
+		return 0;
+	}
+	n = snprintf(s, max, "%04d-%02d-%02d %02d:%02d",
+		     tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+		     tm->tm_hour, tm->tm_min);
+	return (n > 0 && (size_t)n < max) ? (size_t)n : 0;
+}

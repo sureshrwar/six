@@ -19,6 +19,8 @@
 #define __timespec_defined 1
 #endif
 
+typedef int sig_atomic_t;
+
 #ifndef PATH_MAX
 #define PATH_MAX 1024
 #endif

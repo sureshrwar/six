@@ -4,6 +4,7 @@ GUEST_CFLAGS += -I. \
 		-Iinclude/compat \
 		-Iinclude/fuse-lite \
 		-Iinclude/ntfs-3g \
+		-Intfsprogs \
 		-Isrc \
 		-DHAVE_CONFIG_H \
 		-DFUSE_USE_VERSION=26 \
@@ -62,9 +63,42 @@ MAIN_OBJS = \
 	src/ntfs-3g_common.o \
 	six_compat.o
 
+NTFSPROGS_BINS = \
+	mkntfs \
+	ntfsfix \
+	ntfsinfo \
+	ntfslabel \
+	ntfsls \
+	ntfscat \
+	ntfscluster \
+	ntfscmp \
+	ntfscp \
+	ntfsresize \
+	ntfsclone \
+	ntfsundelete
+
+NTFSPROGS_OBJS = \
+	ntfsprogs/attrdef.o \
+	ntfsprogs/boot.o \
+	ntfsprogs/cluster.o \
+	ntfsprogs/sd.o \
+	ntfsprogs/utils.o \
+	ntfsprogs/mkntfs.o \
+	ntfsprogs/ntfsfix.o \
+	ntfsprogs/ntfsinfo.o \
+	ntfsprogs/ntfslabel.o \
+	ntfsprogs/ntfsls.o \
+	ntfsprogs/ntfscat.o \
+	ntfsprogs/ntfscluster.o \
+	ntfsprogs/ntfscmp.o \
+	ntfsprogs/ntfscp.o \
+	ntfsprogs/ntfsresize.o \
+	ntfsprogs/ntfsclone.o \
+	ntfsprogs/ntfsundelete.o
+
 OBJS = $(MAIN_OBJS) $(FUSE_OBJS) $(NTFS_OBJS)
 
-all: ntfs-3g ntfs-3g.probe mkntfs ntfsfix
+all: ntfs-3g ntfs-3g.probe $(NTFSPROGS_BINS)
 
 ntfs-3g: $(OBJS) $(GUEST_CRT) $(GUEST_LIBC)
 	$(call guest_link,$@,$(OBJS))
@@ -74,13 +108,53 @@ ntfs-3g.probe: src/ntfs-3g.probe.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUES
 	$(call guest_link,$@,src/ntfs-3g.probe.o $(NTFS_OBJS) six_compat.o)
 	strip $@
 
-mkntfs: src/mkntfs.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUEST_LIBC)
-	$(call guest_link,$@,src/mkntfs.o $(NTFS_OBJS) six_compat.o)
+mkntfs: ntfsprogs/attrdef.o ntfsprogs/boot.o ntfsprogs/sd.o ntfsprogs/mkntfs.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUEST_LIBC)
+	$(call guest_link,$@,ntfsprogs/attrdef.o ntfsprogs/boot.o ntfsprogs/sd.o ntfsprogs/mkntfs.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o)
 	strip $@
 
-ntfsfix: src/ntfsfix.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUEST_LIBC)
-	$(call guest_link,$@,src/ntfsfix.o $(NTFS_OBJS) six_compat.o)
+ntfsfix: ntfsprogs/ntfsfix.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUEST_LIBC)
+	$(call guest_link,$@,ntfsprogs/ntfsfix.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o)
+	strip $@
+
+ntfsinfo: ntfsprogs/ntfsinfo.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUEST_LIBC)
+	$(call guest_link,$@,ntfsprogs/ntfsinfo.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o)
+	strip $@
+
+ntfslabel: ntfsprogs/ntfslabel.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUEST_LIBC)
+	$(call guest_link,$@,ntfsprogs/ntfslabel.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o)
+	strip $@
+
+ntfsls: ntfsprogs/ntfsls.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUEST_LIBC)
+	$(call guest_link,$@,ntfsprogs/ntfsls.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o)
+	strip $@
+
+ntfscat: ntfsprogs/ntfscat.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUEST_LIBC)
+	$(call guest_link,$@,ntfsprogs/ntfscat.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o)
+	strip $@
+
+ntfscluster: ntfsprogs/ntfscluster.o ntfsprogs/cluster.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUEST_LIBC)
+	$(call guest_link,$@,ntfsprogs/ntfscluster.o ntfsprogs/cluster.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o)
+	strip $@
+
+ntfscmp: ntfsprogs/ntfscmp.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUEST_LIBC)
+	$(call guest_link,$@,ntfsprogs/ntfscmp.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o)
+	strip $@
+
+ntfscp: ntfsprogs/ntfscp.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUEST_LIBC)
+	$(call guest_link,$@,ntfsprogs/ntfscp.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o)
+	strip $@
+
+ntfsresize: ntfsprogs/ntfsresize.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUEST_LIBC)
+	$(call guest_link,$@,ntfsprogs/ntfsresize.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o)
+	strip $@
+
+ntfsclone: ntfsprogs/ntfsclone.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUEST_LIBC)
+	$(call guest_link,$@,ntfsprogs/ntfsclone.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o)
+	strip $@
+
+ntfsundelete: ntfsprogs/ntfsundelete.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUEST_LIBC)
+	$(call guest_link,$@,ntfsprogs/ntfsundelete.o ntfsprogs/utils.o $(NTFS_OBJS) six_compat.o)
 	strip $@
 
 clean:
-	rm -f $(OBJS) src/ntfs-3g.probe.o src/mkntfs.o src/ntfsfix.o ntfs-3g ntfs-3g.probe mkntfs ntfsfix
+	rm -f $(OBJS) $(NTFSPROGS_OBJS) src/ntfs-3g.probe.o ntfs-3g ntfs-3g.probe $(NTFSPROGS_BINS)

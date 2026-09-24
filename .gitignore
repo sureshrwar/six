@@ -164,6 +164,16 @@ applications/ntfs-3g/ntfs-3g
 applications/ntfs-3g/ntfs-3g.probe
 applications/ntfs-3g/mkntfs
 applications/ntfs-3g/ntfsfix
+applications/ntfs-3g/ntfsinfo
+applications/ntfs-3g/ntfslabel
+applications/ntfs-3g/ntfsls
+applications/ntfs-3g/ntfscat
+applications/ntfs-3g/ntfscluster
+applications/ntfs-3g/ntfscmp
+applications/ntfs-3g/ntfscp
+applications/ntfs-3g/ntfsresize
+applications/ntfs-3g/ntfsclone
+applications/ntfs-3g/ntfsundelete
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h
