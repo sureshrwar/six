@@ -378,6 +378,10 @@ void proc_root_init(void)
 		PROC_DM, 2, "dm",
 		S_IFREG | S_IRUGO, 1, 0, 0,
 	});
+	proc_register(&proc_root, &(struct proc_dir_entry) {
+		PROC_BINDER, 6, "binder",
+		S_IFREG | S_IRUGO, 1, 0, 0,
+	});
 
 	proc_register( &proc_root, &(struct proc_dir_entry)
 	   { PROC_MTAB, 6, "mounts", S_IFREG | S_IRUGO, 1, 0, 0, } );

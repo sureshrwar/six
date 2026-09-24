@@ -48,7 +48,8 @@ enum root_directory_inos {
 	PROC_MD,
 	PROC_RTC,
 	PROC_LOCKS,
-	PROC_DM
+	PROC_DM,
+	PROC_BINDER
 };
 
 enum pid_directory_inos {

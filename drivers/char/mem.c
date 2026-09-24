@@ -336,6 +336,10 @@ int chr_dev_init(void)
                 printk("unable to get major %d for memory devs\n", MEM_MAJOR);
         rand_initialize();
         tty_init();
+        {
+                extern int binder_init(void);
+                binder_init();
+        }
 #if (!SIX)
 #ifdef CONFIG_PRINTER
         lp_init();

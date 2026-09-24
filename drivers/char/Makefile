@@ -23,13 +23,13 @@ O_TARGET := char.o
 M_OBJS   :=
 O_OBJS   := tty_io.o n_tty.o console.o \
 	tty_ioctl.o pty.o vt.o mem.o vc_screen.o random.o \
-	consolemap.o selection.o tga.o keyboard.o defkeymap.o
+	consolemap.o selection.o tga.o keyboard.o defkeymap.o binder.o
 else
 L_TARGET := char.a
 M_OBJS   :=
 L_OBJS   := tty_io.o n_tty.o console.o \
 	tty_ioctl.o pty.o vt.o mem.o vc_screen.o random.o \
-	consolemap.o selection.o
+	consolemap.o selection.o binder.o
 endif
 
 

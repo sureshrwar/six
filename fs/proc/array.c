@@ -1092,6 +1092,10 @@ static int get_root_array(char * page, int type, char **start, off_t offset, int
 			extern int get_dm_status_proc(char *buf);
 			return get_dm_status_proc(page);
 		}
+		case PROC_BINDER: {
+			extern int get_binder_info(char *buf);
+			return get_binder_info(page);
+		}
 	}
 	return -EBADF;
 }

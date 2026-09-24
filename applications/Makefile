@@ -117,7 +117,9 @@ SUBDIRS	=	start \
 		top \
 		dmsetup \
 		mkfs \
-		lsblk
+		lsblk \
+		servicemanager \
+		service
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
