@@ -334,7 +334,7 @@ if [ "$MODE" = "bin" ]; then
 fi
 
 USB_EXT2_IMG="disk/x86/usb_ext2.img"
-if [ ! -s "$USB_EXT2_IMG" ]; then
+if [ ! -s "$USB_EXT2_IMG" ] || ! file "$USB_EXT2_IMG" 2>/dev/null | grep -q "ext2 filesystem"; then
 	USB_STAGE=$(mktemp -d)
 	mkdir -p "$USB_STAGE/DCIM"
 	cat > "$USB_STAGE/README_USB.txt" <<'EOF'

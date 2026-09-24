@@ -515,8 +515,8 @@ ntfs-aux-image:
 aux-image-clean:
 	rm -f disk/x86/aux_storage-1 disk/sparc/aux_storage-1 \
 	      disk/x86/aux_storage-2 disk/sparc/aux_storage-2 \
-	      disk/x86/usb_ext2.img disk/x86/usb_ext4.img disk/x86/usb_ntfs.img \
-	      disk/sparc/usb_ext2.img disk/sparc/usb_ext4.img disk/sparc/usb_ntfs.img
+	      disk/x86/usb_ext2.img disk/x86/usb_ext4.img disk/x86/usb_ntfs.img disk/x86/usb_crypt.img \
+	      disk/sparc/usb_ext2.img disk/sparc/usb_ext4.img disk/sparc/usb_ntfs.img disk/sparc/usb_crypt.img
 
 
 linuxsubdirs: dummy

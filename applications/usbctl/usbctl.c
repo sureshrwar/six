@@ -108,7 +108,52 @@ int main(int argc, char **argv)
 		umount("/mnt/expand/CRYPT-8A01");
 		umount("/mnt/expand/usb");
 
-		/* Single atomic kernel operation: attach disk/x86/usb_<fs>.img and emit ACTION=add uevent */
+		/* 1. Prepare block device attachment first so we can verify superblock */
+		memset(&uev, 0, sizeof(uev));
+		strcpy(uev.action, "prepare");
+		strcpy(uev.subsystem, "block");
+		strcpy(uev.devpath, "/devices/pci0000:00/usb1/1-1/block/sda/sda1");
+		strcpy(uev.devname, "sda1");
+		uev.major = 8;
+		uev.minor = 1;
+		strcpy(uev.fstype, fstype);
+		strncpy(uev.label, label, sizeof(uev.label) - 1);
+		strncpy(uev.uuid, uuid, sizeof(uev.uuid) - 1);
+		ioctl(bfd, BINDER_IOC_UEVENT_EMIT, &uev);
+
+		if (strcmp(fstype, "ext2") == 0) {
+			unsigned char sb[64];
+			int sfd = open("/dev/sda1", 0);
+			int valid_ext2 = 0;
+			if (sfd >= 0) {
+				if (lseek(sfd, 1024, 0) == 1024 && read(sfd, sb, 64) == 64) {
+					unsigned short magic = (unsigned short)sb[56] | ((unsigned short)sb[57] << 8);
+					if (magic == 0xEF53)
+						valid_ext2 = 1;
+				}
+				close(sfd);
+			}
+			if (!valid_ext2) {
+				int pid = fork();
+				if (pid == 0) {
+					char *av[5] = { "mkfs.ext2", "-L", (char *)label, "/dev/sda1", NULL };
+					char *ev[2] = { "PATH=/bin:/sbin", NULL };
+					int nfd = open("/dev/null", 2);
+					if (nfd >= 0) {
+						dup2(nfd, 1);
+						dup2(nfd, 2);
+						if (nfd > 2) close(nfd);
+					}
+					execve("/bin/mkfs.ext2", av, ev);
+					_exit(1);
+				} else if (pid > 0) {
+					int st = 0;
+					waitpid(pid, &st, 0);
+				}
+			}
+		}
+
+		/* 2. Emit ACTION=add uevent for vold */
 		memset(&uev, 0, sizeof(uev));
 		strcpy(uev.action, "add");
 		strcpy(uev.subsystem, "block");

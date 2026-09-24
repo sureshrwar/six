@@ -106,7 +106,7 @@ void Disk::createPrivateVolume(dev_t device, const std::string& /*partGuid*/) {
         strcpy(uev.devname, "sda1");
         uev.major = 8;
         uev.minor = 1;
-        strcpy(uev.fstype, "ext2");
+        strcpy(uev.fstype, "crypt");
         strcpy(uev.label, "ADOPTABLE_USB");
         strcpy(uev.uuid, "CRYPT-8A01");
         ioctl(bfd, BINDER_IOC_UEVENT_EMIT, &uev);

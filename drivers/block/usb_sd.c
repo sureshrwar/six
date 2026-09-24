@@ -75,7 +75,13 @@ void usb_sd_set_online(int online, const char *label, const char *uuid,
 		       const char *fstype)
 {
 	extern void force_umount_dev(kdev_t dev);
-	if (usb_sd_online && usb_sd_fd >= 0) {
+	int was_online = usb_sd_online && (usb_sd_fd >= 0);
+	char prev_path[64];
+
+	strncpy(prev_path, usb_sd_img_path, sizeof(prev_path) - 1);
+	prev_path[sizeof(prev_path) - 1] = '\0';
+
+	if (was_online) {
 		force_umount_dev(MKDEV(DM_MAJOR, 3));
 		force_umount_dev(MKDEV(SCSI_DISK_MAJOR, 1));
 		force_umount_dev(MKDEV(SCSI_DISK_MAJOR, 0));
@@ -96,17 +102,24 @@ void usb_sd_set_online(int online, const char *label, const char *uuid,
 			path = "./disk/x86/usb_ntfs.img";
 		else if (fstype && strcmp(fstype, "ext4") == 0)
 			path = "./disk/x86/usb_ext4.img";
+		else if ((fstype && strcmp(fstype, "crypt") == 0) ||
+			 (uuid && strcmp(uuid, "CRYPT-8A01") == 0))
+			path = "./disk/x86/usb_crypt.img";
 
 		strncpy(usb_sd_img_path, path, sizeof(usb_sd_img_path) - 1);
 		usb_sd_img_path[sizeof(usb_sd_img_path) - 1] = '\0';
 
-		usb_sd_fd = open(usb_sd_img_path, 2); /* O_RDWR */
+		usb_sd_fd = open(usb_sd_img_path, 2 | 0100, 0644); /* O_RDWR | O_CREAT */
 		if (usb_sd_fd < 0) {
 			printk("usb_sd: cannot open host image %s\n", usb_sd_img_path);
 			usb_sd_online = 0;
 			sd_sizes[0] = 0;
 			sd_sizes[1] = 0;
 			return;
+		}
+		{
+			extern int ftruncate(int fd, unsigned long length);
+			ftruncate(usb_sd_fd, USB_SD_SECTORS * 512UL);
 		}
 
 		usb_sd_online = 1;
@@ -124,13 +137,15 @@ void usb_sd_set_online(int online, const char *label, const char *uuid,
 			strncpy(usb_sd_fstype, fstype, sizeof(usb_sd_fstype) - 1);
 			usb_sd_fstype[sizeof(usb_sd_fstype) - 1] = '\0';
 		}
-		printk("usb 1-1: new high-speed USB device number 2 using six_xhci (%s)\n",
-		       usb_sd_img_path);
-		printk("usb-storage 1-1:1.0: USB Mass Storage device detected\n");
-		printk("sd 0:0:0:0: [sda] %lu 512-byte logical blocks (%lu KB)\n",
-		       USB_SD_SECTORS, USB_SD_SECTORS >> 1);
-		printk(" sda: sda1 (label=%s, uuid=%s, type=%s)\n",
-		       usb_sd_label, usb_sd_uuid, usb_sd_fstype);
+		if (!was_online || strcmp(prev_path, usb_sd_img_path) != 0) {
+			printk("usb 1-1: new high-speed USB device number 2 using six_xhci (%s)\n",
+			       usb_sd_img_path);
+			printk("usb-storage 1-1:1.0: USB Mass Storage device detected\n");
+			printk("sd 0:0:0:0: [sda] %lu 512-byte logical blocks (%lu KB)\n",
+			       USB_SD_SECTORS, USB_SD_SECTORS >> 1);
+			printk(" sda: sda1 (label=%s, uuid=%s, type=%s)\n",
+			       usb_sd_label, usb_sd_uuid, usb_sd_fstype);
+		}
 	} else {
 		usb_sd_online = 0;
 		sd_sizes[0] = 0;
