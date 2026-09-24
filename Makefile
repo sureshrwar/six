@@ -434,6 +434,13 @@ else
 SIX_ROOT_MODE := full
 endif
 
+# Cancel GNU make's built-in "%: %.c" and "%: %.o" implicit rules at the top
+# level so that prerequisites in $(SIX_IMAGE_FILES) / $(SIX_BIN_FILES) (e.g.
+# applications/foo/foo when applications/foo/foo.c is touched) are never
+# compiled by the top-level host $(CC) before linuxsubdirs runs.
+%: %.c
+%: %.o
+
 $(SIX_BIN_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_VERITY_TOOL) $(SIX_BIN_FILES) | linuxsubdirs
 	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict --mode bin --fstype ext4 --out $(SIX_BIN_IMAGE)
 

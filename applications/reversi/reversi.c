@@ -422,7 +422,6 @@ static void render_board(void)
     }
 
     printf("\n  Status: %s\n", g_status);
-    fflush(stdout);
 }
 
 static void check_and_run_ai_turns(void)

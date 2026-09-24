@@ -163,12 +163,12 @@ while read -r type path mode a b c; do
 	if [ "$(head -c 4 "$a" | od -An -tx1 | tr -d ' ')" = "7f454c46" ]; then
 		desc="$(LC_ALL=C file -b "$a")"
 		case "$desc" in
-		*"ELF 32-bit LSB"*80386* | *"ELF 32-bit LSB"*i386*)
+		*"ELF 32-bit LSB executable"*80386*"statically linked"* | *"ELF 32-bit LSB executable"*i386*"statically linked"* | *"ELF 32-bit LSB relocatable"*80386* | *"ELF 32-bit LSB relocatable"*i386*)
 			;;
 		*)
 			badarch=$((badarch + 1))
 			echo "mkimage: WRONG ARCH  $a" >&2
-			echo "mkimage:              expected 32-bit LSB Intel 80386, got: $desc" >&2
+			echo "mkimage:              expected static 32-bit LSB executable/relocatable Intel 80386, got: $desc" >&2
 			;;
 		esac
 	fi
