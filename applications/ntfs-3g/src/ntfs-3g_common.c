@@ -656,13 +656,14 @@ int ntfs_parse_options(struct ntfs_options *popts, void (*usage)(void),
 {
 	int c;
 
-	static const char *sopt = "-o:hnsvV";
+	static const char *sopt = "-o:hnsvVR:";
 	static const struct option lopt[] = {
 		{ "options",	 required_argument,	NULL, 'o' },
 		{ "help",	 no_argument,		NULL, 'h' },
 		{ "no-mtab",	 no_argument,		NULL, 'n' },
 		{ "verbose",	 no_argument,		NULL, 'v' },
 		{ "version",	 no_argument,		NULL, 'V' },
+		{ "ready-fd",	 required_argument,	NULL, 'R' },
 		{ NULL,		 0,			NULL,  0  }
 	};
 
@@ -694,6 +695,9 @@ int ntfs_parse_options(struct ntfs_options *popts, void (*usage)(void),
 						"point.\n", EXEC_NAME);
 				return -1;
 			}
+			break;
+		case 'R':
+			popts->ready_fd = atoi(optarg);
 			break;
 		case 'o':
 			if (popts->options)

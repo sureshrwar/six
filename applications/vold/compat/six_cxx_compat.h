@@ -79,6 +79,34 @@ pid_t getpid(void);
 int execv(const char *path, char *const argv[]);
 pid_t waitpid(pid_t pid, int *status, int options);
 int usleep(unsigned long usec);
+int dup2(int oldfd, int newfd);
+int pipe(int pipefd[2]);
+int fcntl(int fd, int cmd, ...);
+int setuid(uid_t uid);
+int setgid(gid_t gid);
+int kill(pid_t pid, int sig);
+
+#ifndef WNOHANG
+#define WNOHANG 1
+#endif
+#ifndef SIGKILL
+#define SIGKILL 9
+#endif
+#ifndef SIGTERM
+#define SIGTERM 15
+#endif
+#ifndef MS_RDONLY
+#define MS_RDONLY 1
+#endif
+#ifndef MS_NOSUID
+#define MS_NOSUID 2
+#endif
+#ifndef MS_NODEV
+#define MS_NODEV 4
+#endif
+#ifndef MS_NOEXEC
+#define MS_NOEXEC 8
+#endif
 
 #include <fcntl.h>
 #include <sys/socket.h>

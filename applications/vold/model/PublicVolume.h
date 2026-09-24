@@ -35,6 +35,13 @@ private:
     std::string mFsUuid;
     std::string mFsLabel;
     std::string mMntOpts;
+
+    /*
+     * PID of the lower-tier userspace filesystem driver daemon (e.g. ntfs-3g FUSE).
+     * This driver mounts the raw block device under /mnt/media_rw/ before any
+     * upper-tier MediaProvider FUSE or sdcardfs layer is mounted on top.
+     */
+    pid_t mDriverPid;
 };
 
 }  // namespace vold

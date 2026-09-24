@@ -87,6 +87,16 @@ char *ntfs_realpath_canonicalize(const char *path, char *canonical)
 	if (path == NULL)
 		return NULL;
 
+	/*
+	 * Preserve pre-opened file descriptors passed from parent (e.g. Android vold).
+	 * Do not resolve /dev/fd/ symlinks to the underlying block device node.
+	 */
+	if (strncmp(path, "/dev/fd/", 8) == 0 || strncmp(path, "/proc/self/fd/", 14) == 0) {
+		strncpy(canonical, path, PATH_MAX);
+		canonical[PATH_MAX] = '\0';
+		return canonical;
+	}
+
 	if (!ntfs_realpath(path, canonical))
 		return NULL;
 

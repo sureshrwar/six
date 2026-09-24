@@ -158,6 +158,8 @@ applications/*/usbctl
 applications/*/sm
 applications/ntfs-3g/ntfs-3g
 applications/ntfs-3g/ntfs-3g.probe
+applications/ntfs-3g/mkntfs
+applications/ntfs-3g/ntfsfix
 applications/advent/advent
 applications/advent/setup
 applications/advent/advtext.h

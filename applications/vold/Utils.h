@@ -26,6 +26,10 @@ status_t ForceUnmount(const std::string& path);
 status_t ForkExecvp(const std::vector<std::string>& args,
                     std::vector<std::string>* output = nullptr);
 
+pid_t ForkExecvpAsyncAsUser(const std::vector<std::string>& args, uid_t uid, gid_t gid,
+                            char* context = nullptr,
+                            const std::vector<int>& fdsToKeep = std::vector<int>());
+
 status_t ReadMetadataUntrusted(const std::string& path, std::string* fsType,
                                std::string* fsUuid, std::string* fsLabel);
 

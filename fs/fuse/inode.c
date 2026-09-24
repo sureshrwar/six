@@ -460,6 +460,10 @@ static struct file_system_type fuse_fs_type = {
 	fuse_read_super, "fuse", 0, NULL
 };
 
+static struct file_system_type fuse_ntfs3g_fs_type = {
+	fuse_read_super, "fuse.ntfs-3g", 0, NULL
+};
+
 /*
  * Block-backed FUSE ("fuseblk", requires_dev = 1) used by filesystems such
  * as ntfs-3g when mounting a block device (/dev/hdb) via FUSE.
@@ -474,6 +478,7 @@ int init_fuse_fs(void)
 		printk("FUSE: unable to register /dev/fuse on major %d\n",
 		       MISC_MAJOR);
 	register_filesystem(&fuse_fs_type);
+	register_filesystem(&fuse_ntfs3g_fs_type);
 	register_filesystem(&fuseblk_fs_type);
 	return 0;
 }

@@ -96,6 +96,23 @@ void Disk::createPublicVolume(dev_t device, const std::string& fstype,
 }
 
 void Disk::createPrivateVolume(dev_t device, const std::string& /*partGuid*/) {
+    int bfd = open("/dev/binder", O_RDWR);
+    if (bfd >= 0) {
+        struct binder_uevent_msg uev;
+        memset(&uev, 0, sizeof(uev));
+        strcpy(uev.action, "prepare");
+        strcpy(uev.subsystem, "block");
+        strcpy(uev.devpath, "/devices/pci0000:00/usb1/1-1/block/sda/sda1");
+        strcpy(uev.devname, "sda1");
+        uev.major = 8;
+        uev.minor = 1;
+        strcpy(uev.fstype, "ext2");
+        strcpy(uev.label, "ADOPTABLE_USB");
+        strcpy(uev.uuid, "CRYPT-8A01");
+        ioctl(bfd, BINDER_IOC_UEVENT_EMIT, &uev);
+        close(bfd);
+    }
+
     std::string keyHex =
         "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
     mkdir("/data", 0755);

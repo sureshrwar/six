@@ -4337,6 +4337,7 @@ int main(int argc, char *argv[])
 	struct stat sbuf;
 	unsigned long existing_mount;
 	int err, fd;
+	opts.ready_fd = -1;
 
 	/*
 	 * Make sure file descriptors 0, 1 and 2 are open, 
@@ -4346,7 +4347,7 @@ int main(int argc, char *argv[])
 		fd = open("/dev/null", O_RDWR);
 		if (fd > 2)
 			close(fd);
-	} while (fd >= 0 && fd <= 2);
+	} while ((fd >= 0) && (fd <= 2));
 
 #ifndef FUSE_INTERNAL
 	if ((getuid() != geteuid()) || (getgid() != getegid())) {
@@ -4411,7 +4412,13 @@ int main(int argc, char *argv[])
 
 	ctx->security.uid = 0;
 	ctx->security.gid = 0;
-	if ((opts.mnt_point[0] == '/')
+
+	/* Skip stat(opts.mnt_point) when running in pre-mounted FUSE mode
+	 * (e.g. spawned by vold with -o fd=...) to prevent FUSE self-deadlock. */
+	int is_premounted_fd = (opts.options &&
+		(strncmp(opts.options, "fd=", 3) == 0 || strstr(opts.options, ",fd=") != NULL));
+
+	if (!is_premounted_fd && (opts.mnt_point[0] == '/')
 	   && !stat(opts.mnt_point,&sbuf)) {
 		/* collect owner of mount point, useful for default mapping */
 		ctx->security.uid = sbuf.st_uid;
@@ -4432,7 +4439,8 @@ int main(int argc, char *argv[])
 	if (drop_privs())
 		goto err_out;
 #endif	
-	if (stat(opts.device, &sbuf)) {
+	if (strncmp(opts.device, "/dev/fd/", 8) == 0 ?
+		fstat(atoi(opts.device + 8), &sbuf) : stat(opts.device, &sbuf)) {
 		ntfs_log_perror("Failed to access '%s'", opts.device);
 		err = NTFS_VOLUME_NO_PRIVILEGE;
 		goto err_out;
@@ -4575,6 +4583,16 @@ int main(int argc, char *argv[])
 	    && !ctx->uid && ctx->gid)
 		ntfs_log_error("Warning : using problematic uid==0 and gid!=0\n");
 	
+	/* Notify vold that the volume mounted successfully and the loop is starting */
+	if (opts.ready_fd >= 0) {
+		char ready_byte = '1';
+		if (write(opts.ready_fd, &ready_byte, 1) != 1) {
+			ntfs_log_perror("Failed to write to ready_fd");
+		}
+		close(opts.ready_fd);
+		opts.ready_fd = -1;
+	}
+
 	fuse_loop(fh);
 	
 	err = 0;

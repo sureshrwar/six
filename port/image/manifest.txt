@@ -138,6 +138,8 @@ file  /bin/weather          0755  applications/weather/weather
 file  /bin/ext4info         0755  applications/ext4info/ext4info
 file  /bin/ntfs-3g          0755  applications/ntfs-3g/ntfs-3g
 file  /bin/ntfs-3g.probe    0755  applications/ntfs-3g/ntfs-3g.probe
+file  /bin/mkntfs           0755  applications/ntfs-3g/mkntfs
+file  /bin/ntfsfix          0755  applications/ntfs-3g/ntfsfix
 file  /bin/uname            0755  applications/uname/uname
 file  /bin/dmesg            0755  applications/dmesg/dmesg
 file  /bin/free             0755  applications/free/free

@@ -26,7 +26,8 @@ PublicVolume::PublicVolume(dev_t device, const std::string& nickname,
       mDevice(device),
       mFsType(fstype),
       mFsLabel(nickname),
-      mMntOpts(mntopts) {
+      mMntOpts(mntopts),
+      mDriverPid(-1) {
     setId(StringPrintf("public:%u,%u", major(device), minor(device)));
     mDevPath = StringPrintf("/dev/block/vold/%s", getId().c_str());
 }
@@ -86,7 +87,12 @@ status_t PublicVolume::doMount() {
     } else if (mFsType == "ntfs" && ntfs::IsSupported()) {
         ret = ntfs::Check(mDevPath);
         if (ret == OK) {
-            ret = ntfs::Mount(mDevPath, mRawPath, AID_ROOT, AID_MEDIA_RW, 0007);
+            ret = ntfs::Mount(mDevPath, mRawPath, AID_ROOT, AID_MEDIA_RW, 0007, false, &mDriverPid);
+            if (ret != OK) {
+                PLOG(ERROR) << getId() << " failed R/W mount for " << mDevPath
+                            << ", attempting R/O fallback";
+                ret = ntfs::Mount(mDevPath, mRawPath, AID_ROOT, AID_MEDIA_RW, 0007, true, &mDriverPid);
+            }
         }
     } else if (mFsType == "ext2" && ext2::IsSupported()) {
         ret = ext2::Check(mDevPath, mRawPath);
@@ -113,6 +119,32 @@ status_t PublicVolume::doMount() {
 status_t PublicVolume::doUnmount() {
     ForceUnmount(mDevPath);
     ForceUnmount(mRawPath);
+
+    if (mFsType == "ntfs" && mDriverPid > 0) {
+        LOG(INFO) << "Reaping NTFS driver PID " << mDriverPid;
+
+        bool exited = false;
+        for (int i = 0; i < 20; ++i) {
+            int status = 0;
+            pid_t res = waitpid(mDriverPid, &status, WNOHANG);
+            if (res == mDriverPid || (res == -1 && errno == 10 /* ECHILD */)) {
+                exited = true;
+                break;
+            }
+            usleep(100000);  // 100ms
+        }
+        if (!exited) {
+            LOG(WARNING) << "NTFS driver PID " << mDriverPid
+                         << " did not exit cleanly after unmount, sending SIGTERM/SIGKILL";
+            kill(mDriverPid, SIGTERM);
+            usleep(100000);
+            kill(mDriverPid, SIGKILL);
+            int status = 0;
+            waitpid(mDriverPid, &status, 0);
+        }
+        mDriverPid = -1;
+    }
+
     unlink("/mnt/media_rw/usb");
     rmdir(mRawPath.c_str());
     return OK;

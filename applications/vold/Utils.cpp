@@ -101,6 +101,61 @@ status_t ForkExecvp(const std::vector<std::string>& args,
     return (status == 0) ? OK : UNKNOWN_ERROR;
 }
 
+pid_t ForkExecvpAsyncAsUser(const std::vector<std::string>& args, uid_t uid, gid_t gid,
+                            char* /*context*/, const std::vector<int>& fdsToKeep) {
+    if (args.empty()) return -1;
+
+    std::string cmdline;
+    for (size_t i = 0; i < args.size(); i++) {
+        if (i > 0) cmdline += " ";
+        cmdline += args[i];
+    }
+    LOG(INFO) << "ForkExecvpAsyncAsUser (uid=" << uid << ", gid=" << gid << "): " << cmdline;
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        int nullFd = open("/dev/null", O_RDWR);
+        if (nullFd != -1) {
+            dup2(nullFd, 0);
+            dup2(nullFd, 1);
+            dup2(nullFd, 2);
+            if (nullFd > 2) {
+                close(nullFd);
+            }
+        }
+
+        for (size_t i = 0; i < fdsToKeep.size(); i++) {
+            int fd = fdsToKeep[i];
+            int flags = fcntl(fd, F_GETFD, 0);
+            if (flags != -1) {
+                fcntl(fd, F_SETFD, flags & ~FD_CLOEXEC);
+            }
+        }
+
+        if (gid != 0) {
+            setgid(gid);
+        }
+        if (uid != 0) {
+            setuid(uid);
+        }
+
+        char* argv[16];
+        size_t n = args.size();
+        if (n > 15) n = 15;
+        for (size_t i = 0; i < n; i++) {
+            argv[i] = (char*)args[i].c_str();
+        }
+        argv[n] = nullptr;
+        execv(argv[0], argv);
+        _exit(127);
+    }
+    if (pid < 0) {
+        PLOG(ERROR) << "fork in ForkExecvpAsyncAsUser";
+        return -1;
+    }
+    return pid;
+}
+
 status_t ReadMetadataUntrusted(const std::string& path, std::string* fsType,
                                std::string* fsUuid, std::string* fsLabel) {
     unsigned char buf[2048];

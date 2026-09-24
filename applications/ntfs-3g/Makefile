@@ -64,7 +64,7 @@ MAIN_OBJS = \
 
 OBJS = $(MAIN_OBJS) $(FUSE_OBJS) $(NTFS_OBJS)
 
-all: ntfs-3g ntfs-3g.probe
+all: ntfs-3g ntfs-3g.probe mkntfs ntfsfix
 
 ntfs-3g: $(OBJS) $(GUEST_CRT) $(GUEST_LIBC)
 	$(call guest_link,$@,$(OBJS))
@@ -74,5 +74,13 @@ ntfs-3g.probe: src/ntfs-3g.probe.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUES
 	$(call guest_link,$@,src/ntfs-3g.probe.o $(NTFS_OBJS) six_compat.o)
 	strip $@
 
+mkntfs: src/mkntfs.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUEST_LIBC)
+	$(call guest_link,$@,src/mkntfs.o $(NTFS_OBJS) six_compat.o)
+	strip $@
+
+ntfsfix: src/ntfsfix.o $(NTFS_OBJS) six_compat.o $(GUEST_CRT) $(GUEST_LIBC)
+	$(call guest_link,$@,src/ntfsfix.o $(NTFS_OBJS) six_compat.o)
+	strip $@
+
 clean:
-	rm -f $(OBJS) src/ntfs-3g.probe.o ntfs-3g ntfs-3g.probe
+	rm -f $(OBJS) src/ntfs-3g.probe.o src/mkntfs.o src/ntfsfix.o ntfs-3g ntfs-3g.probe mkntfs ntfsfix

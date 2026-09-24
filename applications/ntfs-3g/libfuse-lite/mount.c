@@ -60,6 +60,7 @@ struct mount_opts {
     int allow_root;
     int ishelp;
     int flags;
+    int fd;
 #ifdef __SOLARIS__
     int nonempty;
     int blkdev;
@@ -116,6 +117,7 @@ static const struct fuse_opt fuse_mount_opts[] = {
 #else /* __SOLARIS__ */
     FUSE_MOUNT_OPT("allow_other",       allow_other),
     FUSE_MOUNT_OPT("allow_root",        allow_root),
+    FUSE_MOUNT_OPT("fd=%i",             fd),
     FUSE_MOUNT_OPT("blkdev",            blkdev),
     FUSE_MOUNT_OPT("fsname=%s",         fsname),
     FUSE_OPT_KEY("allow_other",         KEY_KERN_OPT),
@@ -481,6 +483,9 @@ static int fuse_mount_fusermount(const char *mountpoint, const char *opts,
 static int fuse_mount_sys(const char *mnt, struct mount_opts *mo,
                           const char *mnt_opts)
 {
+    if (mo->fd != -1) {
+        return mo->fd;
+    }
     char tmp[128];
     const char *devname = "/dev/fuse";
     char *source = NULL;
@@ -618,6 +623,7 @@ int fuse_kern_mount(const char *mountpoint, struct fuse_args *args)
 #endif /* __SOLARIS__ */
 
     memset(&mo, 0, sizeof(mo));
+    mo.fd = -1;
 #ifndef __SOLARIS__
     if (getuid())
 	    mo.flags = MS_NOSUID | MS_NODEV;
@@ -665,6 +671,11 @@ int fuse_kern_mount(const char *mountpoint, struct fuse_args *args)
                  goto out;
     }
 #endif /* __SOLARIS__ */
+
+    if (mo.fd != -1) {
+        res = mo.fd;
+        goto out;
+    }
 
     if (mo.allow_other && mo.allow_root) {
         fprintf(stderr, "fuse: 'allow_other' and 'allow_root' options are mutually exclusive\n");

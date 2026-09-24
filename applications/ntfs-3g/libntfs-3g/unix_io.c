@@ -124,6 +124,22 @@ static int ntfs_device_unix_io_open(struct ntfs_device *dev, int flags)
 		errno = EBUSY;
 		return -1;
 	}
+	/* Support pre-opened block device descriptor (/dev/fd/N) passed from vold */
+	if (strncmp(dev->d_name, "/dev/fd/", 8) == 0) {
+		int preopened_fd = atoi(dev->d_name + 8);
+		if (fstat(preopened_fd, &sbuf) == 0) {
+			if (S_ISBLK(sbuf.st_mode))
+				NDevSetBlock(dev);
+			dev->d_private = ntfs_malloc(sizeof(int));
+			if (!dev->d_private)
+				return -1;
+			*(int*)dev->d_private = preopened_fd;
+			NDevSetOpen(dev);
+			if ((flags & O_RDWR) != O_RDWR)
+				NDevSetReadOnly(dev);
+			return 0;
+		}
+	}
 	if (stat(dev->d_name, &sbuf)) {
 		ntfs_log_perror("Failed to access '%s'", dev->d_name);
 		return -1;
