@@ -490,7 +490,7 @@ def run_shard(
             import threading
 
             def _worker():
-                sadb_bin = os.path.join(repo_root, "sadb")
+                sadb_bin = os.path.join(repo_root, "tools", "sadb")
                 try:
                     subprocess.run(
                         [sadb_bin, "wait-for-device"],

@@ -359,6 +359,7 @@ six:	linuxsubdirs init/version.o init/main.o
 	$(FILESYSTEMS) \
 	$(LIBS)
 	@$(NM) -n $(INSTALL_PATH)/six > $(INSTALL_PATH)/System.map
+	@ln -sf tools/sadb $(INSTALL_PATH)/sadb
 
 endif
 
@@ -636,7 +637,7 @@ clean:	image-clean aux-image-clean
 	$(MAKE) -C applications clean
 	find . -name '*.[oa]' -not -path './CVS/*' -delete
 	find . -name '.*.o.d' -delete
-	rm -f $(ROOT)/six arch/six/kernel/.trace_flag .version include/linux/compile.h
+	rm -f $(ROOT)/six $(ROOT)/sadb arch/six/kernel/.trace_flag .version include/linux/compile.h
 else
 clean:  archclean
         rm -f kernel/ksyms.lst include/linux/compile.h

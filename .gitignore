@@ -2,6 +2,7 @@
 *.o
 *.a
 /six
+/sadb
 System.map
 vmlinux
 .depend
@@ -18,6 +19,8 @@ include/linux/compile.h
 *~
 *.orig
 *.rej
+*.swp
+.*.swp
 core
 
 # Port scratch area (build logs etc). Disk images are NOT ignored:

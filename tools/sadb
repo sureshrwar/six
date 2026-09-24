@@ -55,6 +55,9 @@ def parse_info_file(path):
     return info
 
 
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+
+
 def discover_instances():
     """Return list of dict(serial, port, sock, cwd, pid) for active SIX instances."""
     found = {}
@@ -62,6 +65,9 @@ def discover_instances():
     candidates = []
     if os.path.exists(".six_sadb.info"):
         candidates.append(os.path.abspath(".six_sadb.info"))
+    repo_info = os.path.join(REPO_ROOT, ".six_sadb.info")
+    if os.path.exists(repo_info) and repo_info not in candidates:
+        candidates.append(repo_info)
     candidates.extend(sorted(glob.glob("/tmp/six_sadb_*.info")))
 
     for path in candidates:
@@ -134,12 +140,13 @@ def connect_instance(target_serial=None, target_port=None, timeout=2.0):
 
     if not chosen:
         # Try local UNIX socket or default TCP 5555 directly
-        if os.path.exists(".six_sadb.sock"):
-            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.settimeout(timeout)
-            s.connect(".six_sadb.sock")
-            s.settimeout(None)
-            return s
+        for sock_cand in (".six_sadb.sock", os.path.join(REPO_ROOT, ".six_sadb.sock")):
+            if os.path.exists(sock_cand):
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                s.settimeout(timeout)
+                s.connect(sock_cand)
+                s.settimeout(None)
+                return s
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(timeout)
         s.connect(("127.0.0.1", 5555))
