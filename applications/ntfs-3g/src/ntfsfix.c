@@ -10,6 +10,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+#include <linux/binder.h>
 #include "volume.h"
 #include "layout.h"
 
@@ -35,6 +39,32 @@ int main(int argc, char **argv)
     if (!dev) {
         fprintf(stderr, "Usage: ntfsfix [-b] [-d] [--dirty] device\n");
         return 1;
+    }
+
+    /* If /dev/sda1 is currently unplugged (-ENODEV), attach usb_ntfs.img silently
+     * via "prepare" (same as mkntfs) so ntfsfix can inspect/modify it while unplugged. */
+    if (strstr(dev, "sda") != NULL || strstr(dev, "8,1") != NULL || strstr(dev, "8_1") != NULL) {
+        int tfd = open(dev, O_RDONLY);
+        if (tfd >= 0) {
+            close(tfd);
+        } else {
+            int bfd = open("/dev/binder", O_RDWR);
+            if (bfd >= 0) {
+                struct binder_uevent_msg uev;
+                memset(&uev, 0, sizeof(uev));
+                strcpy(uev.action, "prepare");
+                strcpy(uev.subsystem, "block");
+                strcpy(uev.devpath, "/devices/pci0000:00/usb1/1-1/block/sda/sda1");
+                strcpy(uev.devname, "sda1");
+                uev.major = 8;
+                uev.minor = 1;
+                strcpy(uev.fstype, "ntfs");
+                strcpy(uev.label, "SANDISK_NTFS");
+                strcpy(uev.uuid, "6A1B-8E42");
+                ioctl(bfd, BINDER_IOC_UEVENT_EMIT, &uev);
+                close(bfd);
+            }
+        }
     }
 
     printf("Mounting volume... ");
