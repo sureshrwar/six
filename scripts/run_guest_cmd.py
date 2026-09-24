@@ -84,7 +84,7 @@ def run_guest_commands(commands, six_bin="./six", timeout=60.0, show_boot=False,
                         time.sleep(0.3)
                         os.write(master, payload.encode("utf-8"))
                         time.sleep(0.3)
-                        if ":q" in payload:
+                        if ":q" in payload or ":wq" in payload or "ZZ" in payload:
                             raw_mode = False
                     start = time.time()
                 elif buf.endswith("# "):

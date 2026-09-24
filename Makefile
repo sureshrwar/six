@@ -722,3 +722,7 @@ include Rules.make
 
 vim_run:
 	./six
+
+test:
+	./scripts/test_suite.py
+

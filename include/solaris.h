@@ -3,7 +3,7 @@
 /*
  * ram related stuff
  */
-#define RAM	32	
+#define RAM	64	
 #define SOLARIS_RAM_SIZE RAM*1024*1024
 /*
  * Unused: the RAM base is computed at runtime in grow_ram() and published
