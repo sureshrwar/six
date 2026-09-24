@@ -176,3 +176,5 @@ library/*/lib/*.a
 
 # Records the value of SIX_TRACE_GUEST_SYSCALLS so make can notice changes.
 .trace_flag
+__pycache__/
+
