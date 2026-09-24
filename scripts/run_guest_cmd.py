@@ -40,6 +40,7 @@ def run_guest_commands(
     winsize=None,
     cwd=None,
     on_command_sent=None,
+    on_output=None,
 ):
     repo_root = cwd or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     pid, master = pty.fork()
@@ -68,6 +69,8 @@ def run_guest_commands(
                     if not data:
                         break
                     buf += data
+                    if on_output:
+                        on_output(buf)
                 except OSError:
                     # Child ./six exited cleanly after 'halt' -> reboot()
                     break

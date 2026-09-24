@@ -368,53 +368,69 @@ def build_guest_command_queue(selected_tests):
     return queue
 
 
+GREEN_PASSED = "\033[1;32mPASSED\033[0m"
+RED_FAILED = "\033[1;31mFAILED\033[0m"
+
+
+def evaluate_single_test(raw_output, tc):
+    begin_marker = f"__BEGIN:{tc.name}__"
+    end_pattern = re.compile(rf"__END:{re.escape(tc.name)}:(\d+)__")
+
+    b_idx = raw_output.find(begin_marker)
+    if b_idx == -1:
+        return None
+
+    sub = raw_output[b_idx + len(begin_marker) :]
+    m = end_pattern.search(sub)
+    if not m:
+        return None
+
+    rc = int(m.group(1))
+    body = sub[: m.start()].strip()
+    missing = [s for s in tc.expected_substrings if s not in body]
+    passed = (rc == 0) and (len(missing) == 0)
+    reason = ""
+    if rc != 0:
+        reason = f"Non-zero exit status: {rc}"
+    elif missing:
+        reason = f"Missing expected output: {missing}"
+
+    return {
+        "passed": passed,
+        "rc": rc,
+        "output": body,
+        "reason": reason,
+    }
+
+
 def parse_test_results(raw_output, selected_tests):
     results = {}
     for tc in selected_tests:
-        begin_marker = f"__BEGIN:{tc.name}__"
-        end_pattern = re.compile(rf"__END:{re.escape(tc.name)}:(\d+)__")
-
-        b_idx = raw_output.find(begin_marker)
-        if b_idx == -1:
+        res = evaluate_single_test(raw_output, tc)
+        if res is None:
+            b_idx = raw_output.find(f"__BEGIN:{tc.name}__")
             results[tc.name] = {
                 "passed": False,
                 "rc": -1,
-                "output": "",
-                "reason": "Test start marker not found (guest command timed out or aborted)",
+                "output": raw_output[b_idx:] if b_idx != -1 else "",
+                "reason": "Test end marker not found (guest command timed out or aborted)",
             }
-            continue
-
-        sub = raw_output[b_idx + len(begin_marker) :]
-        m = end_pattern.search(sub)
-        if not m:
-            results[tc.name] = {
-                "passed": False,
-                "rc": -1,
-                "output": sub,
-                "reason": "Test end marker not found",
-            }
-            continue
-
-        rc = int(m.group(1))
-        body = sub[: m.start()].strip()
-        missing = [s for s in tc.expected_substrings if s not in body]
-        passed = (rc == 0) and (len(missing) == 0)
-        reason = ""
-        if rc != 0:
-            reason = f"Non-zero exit status: {rc}"
-        elif missing:
-            reason = f"Missing expected output: {missing}"
-
-        results[tc.name] = {
-            "passed": passed,
-            "rc": rc,
-            "output": body,
-            "reason": reason,
-        }
+        else:
+            results[tc.name] = res
     return results
 
 
-def run_shard(shard_id, total_shards, shard_tests, repo_root, timeout, use_temp_workspace, idx_map, total_tests):
+def run_shard(
+    shard_id,
+    total_shards,
+    shard_tests,
+    repo_root,
+    timeout,
+    use_temp_workspace,
+    idx_map,
+    total_tests,
+    print_lock=None,
+):
     worker_prefix = f"[Worker {shard_id}/{total_shards}] " if total_shards > 1 else ""
     work_dir = repo_root
     tmp_dir = None
@@ -446,6 +462,8 @@ def run_shard(shard_id, total_shards, shard_tests, repo_root, timeout, use_temp_
         )
 
         tc_by_name = {tc.name: tc for tc in shard_tests}
+        active_test = [None]
+        completed_tests = set()
 
         def on_cmd(cmd):
             m = re.match(r'^echo "__B""EGIN:(.+)__"$', cmd)
@@ -454,10 +472,37 @@ def run_shard(shard_id, total_shards, shard_tests, repo_root, timeout, use_temp_
                 tc = tc_by_name.get(tname)
                 idx = idx_map.get(tname, 0)
                 desc = f" ({tc.description})" if tc else ""
-                print(
-                    f"[INFO] {worker_prefix}[{idx}/{total_tests}] Running test suite '{tname}'{desc}...",
-                    flush=True,
-                )
+                active_test[0] = tc
+                if total_shards == 1:
+                    sys.stdout.write(
+                        f"[INFO] [{idx}/{total_tests}] Running test suite '{tname}'{desc}..."
+                    )
+                    sys.stdout.flush()
+
+        def on_out(buf):
+            tc = active_test[0]
+            if tc and tc.name not in completed_tests:
+                res = evaluate_single_test(buf, tc)
+                if res is not None:
+                    completed_tests.add(tc.name)
+                    status_str = GREEN_PASSED if res["passed"] else RED_FAILED
+                    if total_shards == 1:
+                        sys.stdout.write(f"{status_str}\n")
+                        sys.stdout.flush()
+                    else:
+                        idx = idx_map.get(tc.name, 0)
+                        desc = f" ({tc.description})"
+                        line = (
+                            f"[INFO] {worker_prefix}[{idx}/{total_tests}] "
+                            f"Running test suite '{tc.name}'{desc}...{status_str}\n"
+                        )
+                        if print_lock:
+                            with print_lock:
+                                sys.stdout.write(line)
+                                sys.stdout.flush()
+                        else:
+                            sys.stdout.write(line)
+                            sys.stdout.flush()
 
         cmd_queue = build_guest_command_queue(shard_tests)
         raw_out = run_guest_commands(
@@ -466,7 +511,13 @@ def run_shard(shard_id, total_shards, shard_tests, repo_root, timeout, use_temp_
             timeout=timeout,
             cwd=work_dir,
             on_command_sent=on_cmd,
+            on_output=on_out,
         )
+        # If the last active test in sequential mode timed out without __END__, close its line
+        if total_shards == 1 and active_test[0] and active_test[0].name not in completed_tests:
+            sys.stdout.write(f"{RED_FAILED}\n")
+            sys.stdout.flush()
+
         return parse_test_results(raw_out, shard_tests)
     finally:
         if tmp_dir and os.path.exists(tmp_dir):
@@ -558,8 +609,10 @@ def main():
             total_tests=len(selected),
         )
     else:
+        import threading
         from concurrent.futures import ThreadPoolExecutor
 
+        print_lock = threading.Lock()
         shards = [[] for _ in range(jobs)]
         for i, tc in enumerate(selected):
             shards[i % jobs].append(tc)
@@ -577,6 +630,7 @@ def main():
                     use_temp_workspace=True,
                     idx_map=idx_map,
                     total_tests=len(selected),
+                    print_lock=print_lock,
                 )
                 for w_idx, shard in enumerate(shards)
                 if shard
@@ -586,7 +640,6 @@ def main():
 
     elapsed = time.time() - t0
 
-    print("\n=== Test Results ===", flush=True)
     passed_count = 0
     failed_count = 0
 
@@ -594,13 +647,13 @@ def main():
         res = results[tc.name]
         if res["passed"]:
             passed_count += 1
-            print(f"  [PASS] {tc.name:<34} ({tc.description})")
             if args.verbose:
+                print(f"\n--- Output for {tc.name} ---")
                 for line in res["output"].splitlines():
-                    print(f"         | {line}")
+                    print(f"  | {line}")
         else:
             failed_count += 1
-            print(f"  [FAIL] {tc.name:<34} -> {res['reason']}")
+            print(f"\n  [FAIL] {tc.name} -> {res['reason']}")
             for line in res["output"].splitlines()[-25:]:
                 print(f"         | {line}")
 

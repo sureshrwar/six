@@ -139,7 +139,7 @@ struct dummy_drive_struct {
 /*
  * same for both sparc and x86
  */
-#define STACK_BASE      0x10000000
+#define STACK_BASE      0x20000000
 #define DEFAULT_STACK_SIZE      PAGE_SIZE*2
 #endif
 
