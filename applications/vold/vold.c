@@ -84,6 +84,56 @@ static int run_helper(char *prog, char *arg1)
 	return -1;
 }
 
+static int run_helper2(char *prog, char *arg1, char *arg2)
+{
+	int pid, status = 0;
+	char *argv[4];
+
+	argv[0] = prog;
+	argv[1] = arg1;
+	argv[2] = arg2;
+	argv[3] = 0;
+
+	pid = fork();
+	if (pid == 0) {
+		int null_fd = open("/dev/null", 2);
+		if (null_fd >= 0) {
+			dup2(null_fd, 1);
+			dup2(null_fd, 2);
+			if (null_fd > 2)
+				close(null_fd);
+		}
+		execve(prog, argv, 0);
+		_exit(127);
+	}
+	if (pid > 0) {
+		waitpid(pid, &status, 0);
+		return status;
+	}
+	return -1;
+}
+
+static const char *vold_probe_fs(const char *dev)
+{
+	unsigned char buf[2048];
+	int fd;
+
+	fd = open(dev, 0);
+	if (fd < 0)
+		return NULL;
+	memset(buf, 0, sizeof(buf));
+	read(fd, buf, sizeof(buf));
+	close(fd);
+
+	/* NTFS Boot Sector OEM ID at offset 0x03: "NTFS    " */
+	if (memcmp(buf + 3, "NTFS    ", 8) == 0)
+		return "ntfs";
+	/* ext2/ext4 superblock magic 0xEF53 at offset 1080 (0x438) */
+	if (buf[1080] == 0x53 && buf[1081] == 0xef)
+		return "ext2";
+	return NULL;
+}
+
 static int setup_dm_crypt_usb(const char *key_hex)
 {
 	int fd;
@@ -108,7 +158,7 @@ static int setup_dm_crypt_usb(const char *key_hex)
 	req.ro = 0;
 	req.num_targets = 1;
 	req.targets[0].start_sector = 0;
-	req.targets[0].num_sectors = 1024;
+	req.targets[0].num_sectors = 4096;
 	req.targets[0].type = DM_TARGET_CRYPT;
 	req.targets[0].bdev = (8 << 8) | 1;
 	strcpy(req.targets[0].dev_name, "/dev/sda1");
@@ -171,6 +221,8 @@ static void notify_storage_manager(int bfd, unsigned int code, const char *paylo
 
 static int vold_do_mount(int bfd)
 {
+	const char *probed;
+
 	if (!vstate.disk_present)
 		return -1;
 	if (strcmp(vstate.state, "MOUNTED") == 0)
@@ -183,8 +235,18 @@ static int vold_do_mount(int bfd)
 	mkdir("/mnt/expand/usb", 0755);
 
 	umount(vstate.mount_path);
-	if (mount(vstate.dev_node, vstate.mount_path, "ext2", 0, 0) < 0)
-		return -1;
+
+	probed = vold_probe_fs(vstate.dev_node);
+	if ((probed && strcmp(probed, "ntfs") == 0) ||
+	    strcmp(vstate.fstype, "ntfs") == 0) {
+		strcpy(vstate.fstype, "ntfs");
+		strcpy(vstate.vol_type, "PUBLIC(NTFS)");
+		if (run_helper2("/bin/ntfs-3g", vstate.dev_node, vstate.mount_path) != 0)
+			return -1;
+	} else {
+		if (mount(vstate.dev_node, vstate.mount_path, "ext2", 0, 0) < 0)
+			return -1;
+	}
 
 	strcpy(vstate.state, "MOUNTED");
 	{
@@ -255,7 +317,7 @@ static int vold_do_partition(int bfd, const char *mode)
 				const char *msg =
 					"Android Adoptable Storage (vold dm-crypt ChaCha20-256)\n"
 					"Backing Device: /dev/sda1 (8:1)\n"
-					"Mapped Device:  /dev/mapper/crypt_usb (/dev/dm-2)\n"
+					"Mapped Device:  /dev/mapper/crypt_usb\n"
 					"Key Location:   /data/misc/vold/expand_usb.key\n";
 				write(fd, msg, strlen(msg));
 				close(fd);
@@ -263,6 +325,29 @@ static int vold_do_partition(int bfd, const char *mode)
 			sync();
 		}
 		return 0;
+	} else if (mode && strcmp(mode, "ntfs") == 0) {
+		struct binder_uevent_msg uev;
+		memset(&uev, 0, sizeof(uev));
+		strcpy(uev.action, "prepare");
+		strcpy(uev.subsystem, "block");
+		strcpy(uev.devpath, "/devices/pci0000:00/usb1/1-1/block/sda/sda1");
+		strcpy(uev.devname, "sda1");
+		uev.major = 8;
+		uev.minor = 1;
+		strcpy(uev.fstype, "ntfs");
+		strcpy(uev.label, "SANDISK_NTFS");
+		strcpy(uev.uuid, "6A1B-8E42");
+		ioctl(bfd, BINDER_IOC_UEVENT_EMIT, &uev);
+
+		strcpy(vstate.vol_id, "public:8,1");
+		strcpy(vstate.vol_type, "PUBLIC(NTFS)");
+		strcpy(vstate.dev_node, "/dev/sda1");
+		strcpy(vstate.mount_path, "/mnt/media_rw/usb");
+		strcpy(vstate.label, "SANDISK_NTFS");
+		strcpy(vstate.uuid, "6A1B-8E42");
+		strcpy(vstate.fstype, "ntfs");
+		vstate.encrypted = 0;
+		return vold_do_mount(bfd);
 	} else {
 		run_helper("/bin/mkfs.ext2", "/dev/sda1");
 		strcpy(vstate.vol_id, "public:8,1");
@@ -278,7 +363,7 @@ static int vold_do_partition(int bfd, const char *mode)
 				      0100 | 01000 | 2, 0644);
 			if (fd >= 0) {
 				const char *msg =
-					"SanDisk Ultra USB 3.0 Flash Drive (512 KB)\n"
+					"SanDisk Ultra USB 3.0 Flash Drive (2048 KB)\n"
 					"Auto-mounted by Android vold + StorageManagerService over /dev/binder!\n";
 				write(fd, msg, strlen(msg));
 				close(fd);

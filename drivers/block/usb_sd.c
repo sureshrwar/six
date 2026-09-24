@@ -22,7 +22,7 @@
 #include <asm/segment.h>
 #include <asm/system.h>
 
-#define USB_SD_SECTORS		1024UL		/* 512 KB (1024 x 512B sectors) */
+#define USB_SD_SECTORS		4096UL		/* 2048 KB (4096 x 512B sectors) */
 #define USB_SD_MAX_MINORS	16
 
 static unsigned char usb_sd_ram[USB_SD_SECTORS * 512];
@@ -76,6 +76,14 @@ void usb_sd_set_online(int online, const char *label, const char *uuid,
 	invalidate_buffers(MKDEV(SCSI_DISK_MAJOR, 1));
 
 	if (online) {
+		if (fstype && strcmp(fstype, "ntfs") == 0) {
+			int nfd = open("./disk/x86/usb_ntfs.img", 0);
+			if (nfd >= 0) {
+				lseek(nfd, 0L, 0);
+				read(nfd, usb_sd_ram, USB_SD_SECTORS * 512);
+				close(nfd);
+			}
+		}
 		usb_sd_online = 1;
 		sd_sizes[0] = (int)(USB_SD_SECTORS >> (BLOCK_SIZE_BITS - 9));
 		sd_sizes[1] = (int)(USB_SD_SECTORS >> (BLOCK_SIZE_BITS - 9));

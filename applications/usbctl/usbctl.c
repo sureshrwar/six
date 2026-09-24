@@ -80,9 +80,9 @@ static void populate_usb_filesystem(const char *label, const char *uuid)
 static void usage(void)
 {
 	printf("Usage:\n");
-	printf("  usbctl status                  Show simulated USB controller & drive state\n");
-	printf("  usbctl plug [LABEL] [UUID]     Plug in simulated USB drive & emit NETLINK_KOBJECT_UEVENT\n");
-	printf("  usbctl unplug                  Unplug simulated USB drive & emit NETLINK_KOBJECT_UEVENT\n");
+	printf("  usbctl status                       Show simulated USB controller & drive state\n");
+	printf("  usbctl plug [ext2|ntfs] [LABEL]     Plug in simulated USB drive & emit NETLINK_KOBJECT_UEVENT\n");
+	printf("  usbctl unplug                       Unplug simulated USB drive & emit NETLINK_KOBJECT_UEVENT\n");
 }
 
 int main(int argc, char **argv)
@@ -121,10 +121,23 @@ int main(int argc, char **argv)
 	}
 
 	if (strcmp(argv[1], "plug") == 0) {
-		const char *label = (argc >= 3) ? argv[2] : "SAN_DISK_USB";
-		const char *uuid  = (argc >= 4) ? argv[3] : "4A8F-9C21";
+		int is_ntfs = 0;
+		const char *label = "SAN_DISK_USB";
+		const char *uuid  = "4A8F-9C21";
 
-		/* Step 1: Bring /dev/sda1 online quietly so we can format & populate it */
+		if (argc >= 3 && (strcmp(argv[2], "ntfs") == 0 || strcmp(argv[2], "--ntfs") == 0)) {
+			is_ntfs = 1;
+			label = (argc >= 4) ? argv[3] : "SANDISK_NTFS";
+			uuid  = (argc >= 5) ? argv[4] : "6A1B-8E42";
+		} else if (argc >= 3 && (strcmp(argv[2], "ext2") == 0 || strcmp(argv[2], "--ext2") == 0)) {
+			label = (argc >= 4) ? argv[3] : "SAN_DISK_USB";
+			uuid  = (argc >= 5) ? argv[4] : "4A8F-9C21";
+		} else {
+			if (argc >= 3) label = argv[2];
+			if (argc >= 4) uuid  = argv[3];
+		}
+
+		/* Step 1: Bring /dev/sda1 online so we can format & populate it */
 		memset(&uev, 0, sizeof(uev));
 		strcpy(uev.action, "prepare");
 		strcpy(uev.subsystem, "block");
@@ -132,13 +145,15 @@ int main(int argc, char **argv)
 		strcpy(uev.devname, "sda1");
 		uev.major = 8;
 		uev.minor = 1;
-		strcpy(uev.fstype, "ext2");
+		strcpy(uev.fstype, is_ntfs ? "ntfs" : "ext2");
 		strncpy(uev.label, label, sizeof(uev.label) - 1);
 		strncpy(uev.uuid, uuid, sizeof(uev.uuid) - 1);
 		ioctl(bfd, BINDER_IOC_UEVENT_EMIT, &uev);
 
-		run_mkfs("/dev/sda1");
-		populate_usb_filesystem(label, uuid);
+		if (!is_ntfs) {
+			run_mkfs("/dev/sda1");
+			populate_usb_filesystem(label, uuid);
+		}
 
 		/* Step 2: Emit the actual kernel NETLINK_KOBJECT_UEVENT (ACTION=add) */
 		strcpy(uev.action, "add");

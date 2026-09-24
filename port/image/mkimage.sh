@@ -333,5 +333,25 @@ if [ "$MODE" = "bin" ]; then
 	python3 port/image/mkverity.py "$OUT" include/linux/verity_roothash.h || exit 1
 fi
 
+USB_NTFS_IMG="disk/x86/usb_ntfs.img"
+if [ ! -s "$USB_NTFS_IMG" ]; then
+	MKNTFS=$(command -v mkntfs || command -v /usr/sbin/mkntfs || command -v /sbin/mkntfs || true)
+	NTFSCP=$(command -v ntfscp || command -v /usr/sbin/ntfscp || command -v /sbin/ntfscp || true)
+	if [ -n "$MKNTFS" ] && [ -n "$NTFSCP" ]; then
+		TMP_README=$(mktemp)
+		cat > "$TMP_README" <<'EOF'
+=== SanDisk Extreme NTFS USB 3.2 Flash Drive ===
+Label:      SANDISK_NTFS
+UUID:       6A1B-8E42
+Device:     /dev/sda1 (8:1, 2048 KB NTFS)
+Mounted by: Android vold -> /bin/ntfs-3g (FUSE /dev/fuse) -> /mnt/media_rw/usb
+EOF
+		dd if=/dev/zero of="$USB_NTFS_IMG" bs=1024 count=2048 status=none
+		"$MKNTFS" -q -F -f -s 512 -c 4096 -p 0 -H 16 -S 63 -L "SANDISK_NTFS" "$USB_NTFS_IMG" >/dev/null 2>&1 || true
+		"$NTFSCP" -f "$USB_NTFS_IMG" "$TMP_README" README_USB.txt >/dev/null 2>&1 || true
+		rm -f "$TMP_README"
+	fi
+fi
+
 echo "mkimage: wrote $OUT ($MODE) as $FSTYPE ($(stat -c %s "$OUT") bytes, $present file(s), $missing missing)"
 exit 0

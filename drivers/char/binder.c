@@ -621,13 +621,13 @@ static int binder_ioctl(struct inode *inode, struct file *filp,
 		if (strcmp(kev.action, "prepare") == 0) {
 			usb_sd_set_online(1, kev.label, kev.uuid, kev.fstype);
 			kev.online = 1;
-			kev.sectors = 1024;
+			kev.sectors = 4096;
 			memcpy_tofs((void *)arg, &kev, sizeof(kev));
 			return 0;
 		} else if (strcmp(kev.action, "add") == 0) {
 			usb_sd_set_online(1, kev.label, kev.uuid, kev.fstype);
 			kev.online = 1;
-			kev.sectors = 1024;
+			kev.sectors = 4096;
 		} else if (strcmp(kev.action, "remove") == 0) {
 			usb_sd_set_online(0, NULL, NULL, NULL);
 			kev.online = 0;

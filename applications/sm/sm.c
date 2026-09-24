@@ -34,6 +34,7 @@ static void usage(void)
 	printf("  sm mount <vol-id>                  Mount a storage volume via Binder -> vold\n");
 	printf("  sm unmount <vol-id>                Unmount a storage volume via Binder -> vold\n");
 	printf("  sm partition <disk-id> public      Format disk as portable ext2 USB storage\n");
+	printf("  sm partition <disk-id> ntfs        Format disk as portable NTFS USB storage (FUSE ntfs-3g)\n");
 	printf("  sm partition <disk-id> private     Format disk as Adoptable Storage (dm-crypt ChaCha20-256)\n");
 }
 
