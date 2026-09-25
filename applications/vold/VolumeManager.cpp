@@ -198,6 +198,13 @@ int VolumeManager::stop() {
 }
 
 void VolumeManager::handleBlockEvent(NetlinkEvent* evt) {
+    {
+        int wfd = open("/sys/power/wake_lock", 1);
+        if (wfd >= 0) {
+            write(wfd, "vold.block_event\n", 17);
+            close(wfd);
+        }
+    }
     const char* eventPathStr = evt->findParam("DEVPATH");
     const char* devTypeStr = evt->findParam("DEVTYPE");
     const char* majorStr = evt->findParam("MAJOR");
@@ -268,6 +275,13 @@ void VolumeManager::handleBlockEvent(NetlinkEvent* evt) {
         default: {
             LOG(WARNING) << "Unexpected block event action " << static_cast<int>(evt->getAction());
             break;
+        }
+    }
+    {
+        int ufd = open("/sys/power/wake_unlock", 1);
+        if (ufd >= 0) {
+            write(ufd, "vold.block_event\n", 17);
+            close(ufd);
         }
     }
 }

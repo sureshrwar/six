@@ -213,6 +213,33 @@ TESTS = [
         ],
     ),
     TestCase(
+        name="power.suspend_and_wakelocks",
+        description="Android Opportunistic Suspend / Resume (/sys/power/*, wakeup_count, wake_lock, wakealarm, /proc/wakelocks, ISystemSuspend)",
+        cmd=(
+            "cat /sys/power/state && "
+            "echo test_suspend_lock > /sys/power/wake_lock && "
+            "echo mem > /sys/power/state ; "
+            "cat /sys/power/suspend_stats && "
+            "echo test_suspend_lock > /sys/power/wake_unlock && "
+            "echo 80ms > /sys/power/wakealarm && "
+            "c=`cat /sys/power/wakeup_count`; echo $c > /sys/power/wakeup_count && "
+            "echo mem > /sys/power/state && "
+            "cat /sys/power/suspend_stats && "
+            "cat /proc/wakelocks && "
+            "service check suspend"
+        ),
+        expected_substrings=[
+            "freeze mem on",
+            "active wakelock: test_suspend_lock",
+            "wakeup_source_active(test_suspend_lock)",
+            "syscore_suspend: timekeeping suspended, entering PSCI_SYSTEM_SUSPEND (mem)",
+            "syscore_resume: woken by irq:8:rtc_alarm",
+            "last_wakeup_reason: irq:8:rtc_alarm",
+            "\"test_suspend_lock\"",
+            "Service suspend: found",
+        ],
+    ),
+    TestCase(
         name="unix.file_ops",
         description="File and directory operations (mkdir, touch, cp, mv, ln, readlink, chmod, stat, du, rm)",
         cmd=(

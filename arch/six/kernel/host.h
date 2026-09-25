@@ -83,4 +83,8 @@ int  six_host_sadb_send_all(int fd, const void *buf, int len);
 /* Kernel symbol resolution for stack traces via dladdr(). */
 int  six_host_sprint_symbol(unsigned long addr, char *buf, int buflen);
 
+/* Host power management suspend entry (stops ITIMER_REAL and sleeps on wakeup IRQs) */
+int  six_host_pm_suspend_enter(int wakealarm_ms, const int *sadb_fds, int num_sadb_fds,
+			       char *wake_reason, int reason_len, unsigned long *slept_ms_out);
+
 #endif /* _SIX_HOST_H */

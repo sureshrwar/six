@@ -439,7 +439,9 @@ endif
 # applications/foo/foo when applications/foo/foo.c is touched) are never
 # compiled by the top-level host $(CC) before linuxsubdirs runs.
 %: %.c
+%: %.cpp
 %: %.o
+%: %.s
 
 SIX_BIN_FSTYPE ?= erofs
 SIX_EROFS_TOOL	= port/image/mkerofs.py

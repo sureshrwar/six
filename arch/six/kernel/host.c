@@ -35,6 +35,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <sys/time.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <netinet/in.h>
@@ -682,6 +683,106 @@ int six_host_sadb_send_all(int fd, const void *buf, int len)
 void six_host_idle_sleep(void)
 {
 	usleep(2000);
+}
+
+int six_host_pm_suspend_enter(int wakealarm_ms, const int *sadb_fds, int num_sadb_fds,
+			      char *wake_reason, int reason_len, unsigned long *slept_ms_out)
+{
+	struct itimerval zero_itv, saved_itv;
+	struct timeval t0, t1;
+	struct pollfd pfds[16];
+	int pfd_type[16]; /* 1 = tty1_console, 2 = sadb_transport */
+	int nfds = 0;
+	int timeout_ms;
+	int ret, i;
+	unsigned long elapsed_ms = 1;
+
+	memset(&zero_itv, 0, sizeof(zero_itv));
+	memset(&saved_itv, 0, sizeof(saved_itv));
+	/* Gate off the 100Hz host timer interrupt (PSCI_SYSTEM_SUSPEND / S3) */
+	setitimer(ITIMER_VIRTUAL, &zero_itv, &saved_itv);
+
+	gettimeofday(&t0, NULL);
+
+	if (TERMFD >= 0 && nfds < 16) {
+		pfds[nfds].fd = TERMFD;
+		pfds[nfds].events = POLLIN;
+		pfds[nfds].revents = 0;
+		pfd_type[nfds] = 1;
+		nfds++;
+	}
+	if (TERMFD != 0 && nfds < 16) {
+		pfds[nfds].fd = 0;
+		pfds[nfds].events = POLLIN;
+		pfds[nfds].revents = 0;
+		pfd_type[nfds] = 1;
+		nfds++;
+	}
+	if (sadb_unix_listen_fd >= 0 && nfds < 16) {
+		pfds[nfds].fd = sadb_unix_listen_fd;
+		pfds[nfds].events = POLLIN;
+		pfds[nfds].revents = 0;
+		pfd_type[nfds] = 2;
+		nfds++;
+	}
+	if (sadb_tcp_listen_fd >= 0 && nfds < 16) {
+		pfds[nfds].fd = sadb_tcp_listen_fd;
+		pfds[nfds].events = POLLIN;
+		pfds[nfds].revents = 0;
+		pfd_type[nfds] = 2;
+		nfds++;
+	}
+	for (i = 0; i < num_sadb_fds && nfds < 16; i++) {
+		if (sadb_fds[i] >= 0) {
+			pfds[nfds].fd = sadb_fds[i];
+			pfds[nfds].events = POLLIN;
+			pfds[nfds].revents = 0;
+			pfd_type[nfds] = 2;
+			nfds++;
+		}
+	}
+
+	timeout_ms = (wakealarm_ms > 0) ? wakealarm_ms : 15000;
+	ret = poll(pfds, nfds, timeout_ms);
+
+	gettimeofday(&t1, NULL);
+	if (t1.tv_sec >= t0.tv_sec) {
+		long ds = (long)(t1.tv_sec - t0.tv_sec);
+		long du = (long)(t1.tv_usec - t0.tv_usec);
+		long total = ds * 1000L + (du / 1000L);
+		if (total > 0)
+			elapsed_ms = (unsigned long)total;
+	}
+	if (slept_ms_out)
+		*slept_ms_out = elapsed_ms;
+
+	if (wake_reason && reason_len > 0) {
+		const char *reason = "irq:8:rtc_alarm";
+		if (ret > 0) {
+			for (i = 0; i < nfds; i++) {
+				if (pfds[i].revents & (POLLIN | POLLHUP | POLLERR)) {
+					if (pfd_type[i] == 2)
+						reason = "irq:61:sadb_transport";
+					else
+						reason = "irq:1:tty1_console";
+					break;
+				}
+			}
+		} else if (ret < 0 && errno == EINTR) {
+			reason = "irq:1:tty1_console";
+		}
+		snprintf(wake_reason, reason_len, "%s", reason);
+	}
+
+	/* Restore the 100Hz timer interrupt tick */
+	if (saved_itv.it_interval.tv_sec == 0 && saved_itv.it_interval.tv_usec == 0) {
+		saved_itv.it_interval.tv_sec = 0;
+		saved_itv.it_interval.tv_usec = 10000;
+		saved_itv.it_value.tv_sec = 0;
+		saved_itv.it_value.tv_usec = 10000;
+	}
+	setitimer(ITIMER_VIRTUAL, &saved_itv, NULL);
+	return 0;
 }
 
 static pid_t tls_bridge_pid = -1;

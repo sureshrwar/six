@@ -58,6 +58,16 @@ void sadb_dev_poll(void)
 	}
 }
 
+int sadb_get_active_host_fds(int *fds_out, int max_fds)
+{
+	int i, n = 0;
+	for (i = 0; i < SADB_MAX_SLOTS && n < max_fds; i++) {
+		if (sadb_slots[i].in_use && sadb_slots[i].host_fd >= 0)
+			fds_out[n++] = sadb_slots[i].host_fd;
+	}
+	return n;
+}
+
 static int sadb_open(struct inode *inode, struct file *file)
 {
 	file->private_data = NULL;

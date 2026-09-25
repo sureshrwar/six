@@ -131,6 +131,14 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
+	{
+		struct binder_service_info susp_svc;
+		memset(&susp_svc, 0, sizeof(susp_svc));
+		strcpy(susp_svc.name, "suspend");
+		strcpy(susp_svc.descriptor, "android.system.suspend.ISystemSuspend");
+		ioctl(bfd, BINDER_IOC_REGISTER_SVC, &susp_svc);
+	}
+
 	printf("storaged: StorageManagerService started (pid=%d, handle=%d [android.os.storage.IStorageManager])\n",
 	       getpid(), svc.handle);
 

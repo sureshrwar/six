@@ -46,6 +46,13 @@ dir   /var/mail             0777
 dir   /var/spool            0755
 dir   /var/spool/mail       0777
 dir   /sys                  0755
+dir   /sys/power            0755
+node  /sys/power/state          0666  c  60  0
+node  /sys/power/wake_lock      0666  c  60  1
+node  /sys/power/wake_unlock    0666  c  60  2
+node  /sys/power/wakeup_count   0666  c  60  3
+node  /sys/power/suspend_stats  0666  c  60  4
+node  /sys/power/wakealarm      0666  c  60  5
 dir   /sys/fs               0755
 dir   /sys/fs/pstore        0755
 file  /sys/fs/hangman       0666  port/image/rootfs/sys/fs/hangman

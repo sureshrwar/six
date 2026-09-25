@@ -50,7 +50,8 @@ enum root_directory_inos {
 	PROC_LOCKS,
 	PROC_DM,
 	PROC_BINDER,
-	PROC_SADB
+	PROC_SADB,
+	PROC_WAKELOCKS
 };
 
 enum pid_directory_inos {

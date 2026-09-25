@@ -1100,6 +1100,10 @@ static int get_root_array(char * page, int type, char **start, off_t offset, int
 			extern int sadb_get_proc_info(char *buf);
 			return sadb_get_proc_info(page);
 		}
+		case PROC_WAKELOCKS: {
+			extern int get_wakelocks_info(char *buf);
+			return get_wakelocks_info(page);
+		}
 	}
 	return -EBADF;
 }
