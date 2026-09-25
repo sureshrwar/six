@@ -144,20 +144,21 @@ if [ "$FSTYPE" = "ntfs" ]; then
 	[ -s "$OUT" ] || { echo "mkaux: mkntfs produced nothing" >&2; exit 1; }
 	"$NTFSCP" -f "$OUT" "$STAGE/README" README
 elif [ "$FSTYPE" = "ext4" ]; then
-	# The same three features have to be off as for the root image, for
-	# the same reasons -- see the long comment in mkimage.sh:
-	#   ^metadata_csum  SIX has no crc32c, so it can neither verify nor
-	#                   maintain the checksums it would be required to.
-	#   ^64bit          64-byte group descriptors; SIX is strictly 32-bit
-	#                   and uses the 32-byte layout.
-	#   ^orphan_file    an unknown INCOMPAT bit makes ext4_read_super()
-	#                   refuse the mount.
+	# Use an explicit feature allowlist starting with -O none so the build is
+	# immune to host /etc/mke2fs.conf defaults (e.g. metadata_csum,
+	# metadata_csum_seed, 64bit, orphan_file) across e2fsprogs versions:
+	#   metadata_csum(_seed)  SIX has no crc32c, so it can neither verify nor
+	#                         maintain the checksums it would be required to.
+	#   64bit                 64-byte group descriptors; SIX is strictly 32-bit
+	#                         and uses the 32-byte layout.
+	#   orphan_file           an unknown INCOMPAT bit makes ext4_read_super()
+	#                         refuse the mount.
 	fakeroot -- mke2fs -q -F \
 		-t ext4 \
 		-b "$BLOCK_SIZE" \
 		-N "$INODE_COUNT" \
 		-I 256 \
-		-O ^metadata_csum,^64bit,^orphan_file -m 0 \
+		-O none,has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize,ext_attr,resize_inode,dir_index,filetype,sparse_super,large_file -m 0 \
 		-L "$LABEL" \
 		-d "$STAGE" \
 		"$OUT" "$BLOCK_COUNT"

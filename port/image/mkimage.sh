@@ -277,6 +277,11 @@ fi
 # -m 5      5% reserved, matching the 256-of-5120 blocks the 2005 image had
 # -U        a fixed UUID, so two builds of the same tree are identical
 # -d        populate from the staging tree
+# Explicit ext4 feature allowlist starting with -O none so the build is
+# immune to host /etc/mke2fs.conf changes (e.g. metadata_csum_seed, orphan_file,
+# 64bit) across different e2fsprogs versions.
+EXT4_FEATURES="none,has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize,ext_attr,resize_inode,dir_index,filetype,sparse_super,large_file"
+
 if [ "$FSTYPE" = ext4 ]; then
 	mke2fs -q -F \
 		-t ext4 \
@@ -284,7 +289,7 @@ if [ "$FSTYPE" = ext4 ]; then
 		-b "$BLOCK_SIZE" \
 		-N "$INODE_COUNT" \
 		-I 256 \
-		-O ^metadata_csum,^64bit,^orphan_file -m 2 \
+		-O "$EXT4_FEATURES" -m 2 \
 		-U 13bcf00c-78b2-11d9-8fdf-f213c4292cfb \
 		-d "$STAGE" \
 		"$OUT" "$BLOCK_COUNT"
@@ -364,7 +369,7 @@ Mounted by: Android vold -> kernel ext4 -> /mnt/media_rw/usb
 EOF
 	echo "Camera DCIM sample photo metadata (SanDisk ext4 USB)" > "$USB_STAGE/DCIM/IMG_0001.TXT"
 	fakeroot -- mke2fs -q -F -t ext4 -b 1024 -N 256 -I 256 \
-		-O ^metadata_csum,^64bit,^orphan_file -m 0 \
+		-O "none,has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize,ext_attr,resize_inode,dir_index,filetype,sparse_super,large_file" -m 0 \
 		-L "SANDISK_EXT4" -d "$USB_STAGE" "$USB_EXT4_IMG" 2048 2>/dev/null || true
 	rm -rf "$USB_STAGE"
 fi
