@@ -742,7 +742,7 @@ int six_host_pm_suspend_enter(int wakealarm_ms, const int *sadb_fds, int num_sad
 		}
 	}
 
-	timeout_ms = (wakealarm_ms > 0) ? wakealarm_ms : 15000;
+	timeout_ms = (wakealarm_ms > 0) ? wakealarm_ms : 60000;
 	{
 		char pm_path[64];
 		FILE *pmf;
@@ -762,7 +762,52 @@ int six_host_pm_suspend_enter(int wakealarm_ms, const int *sadb_fds, int num_sad
 			fclose(pmf);
 		}
 	}
-	ret = poll(pfds, nfds, timeout_ms);
+	{
+		static const char *zzz_frames[6] = {
+			"z     ",
+			"zZ    ",
+			"zZz   ",
+			"zZzZ  ",
+			"zZzZ. ",
+			"zZzZ.."
+		};
+		int remaining = timeout_ms;
+		int frame = 0;
+		int out_fd = (TERMFD >= 0) ? TERMFD : 1;
+		int animated = (timeout_ms >= 400);
+
+		ret = 0;
+		while (remaining > 0) {
+			int step = (animated && remaining > 400) ? 400 : remaining;
+			if (animated) {
+				char anim_buf[128];
+				int alen;
+				unsigned long cur_ms = (unsigned long)(timeout_ms - remaining);
+				if (wakealarm_ms > 0) {
+					alen = snprintf(anim_buf, sizeof(anim_buf),
+							"\r  [ %s ] Deep Sleep (S3-MEM) | %lu.%lus / %d.%ds (Press ANY KEY to wake)   ",
+							zzz_frames[frame % 6],
+							cur_ms / 1000UL, (cur_ms % 1000UL) / 100UL,
+							timeout_ms / 1000, (timeout_ms % 1000) / 100);
+				} else {
+					alen = snprintf(anim_buf, sizeof(anim_buf),
+							"\r  [ %s ] Deep Sleep (S3-MEM) | %lu.%lus elapsed (Press ANY KEY to wake)   ",
+							zzz_frames[frame % 6],
+							cur_ms / 1000UL, (cur_ms % 1000UL) / 100UL);
+				}
+				if (alen > 0)
+					write(out_fd, anim_buf, alen);
+				frame++;
+			}
+			ret = poll(pfds, nfds, step);
+			if (ret != 0)
+				break;
+			remaining -= step;
+		}
+		if (animated) {
+			write(out_fd, "\r                                                                          \r", 76);
+		}
+	}
 	{
 		char pm_path[64];
 		snprintf(pm_path, sizeof(pm_path), "/tmp/six_pm_%d.state", (int)getpid());

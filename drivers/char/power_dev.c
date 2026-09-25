@@ -70,7 +70,7 @@ static unsigned long pm_saved_wakeup_count = 0;
 static int pm_events_check_enabled = 0;
 static int pm_autosuspend_enabled = 0;
 static int pm_in_suspend = 0;
-static int pm_wakealarm_ms = 200; /* default 200ms RTC alarm if none specified */
+static int pm_wakealarm_ms = 0; /* 0 = interactive sleep (60s) with live Zzz animation */
 
 extern int sadb_get_active_host_fds(int *fds_out, int max_fds);
 extern void sadb_dev_poll(void);
@@ -362,6 +362,7 @@ static int pm_enter_suspend(const char *state_str)
 
 	pm_in_suspend = 0;
 	pm_autosuspend_enabled = 0;
+	pm_wakealarm_ms = 0;
 	pm_wake_lock("PowerManagerService.Display");
 
 	sadb_dev_poll();
