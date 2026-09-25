@@ -593,23 +593,7 @@ def run_shard(
             t = threading.Thread(target=_worker, daemon=True)
             t.start()
 
-        def on_cmd(cmd):
-            m = re.match(r'^echo "__B""EGIN:(.+)__"$', cmd)
-            if m:
-                tname = m.group(1)
-                tc = tc_by_name.get(tname)
-                idx = idx_map.get(tname, 0)
-                desc = f" ({tc.description})" if tc else ""
-                active_test[0] = tc
-                if tname == "sadb.bridge_and_shell":
-                    run_host_sadb_exercise()
-                if total_shards == 1:
-                    sys.stdout.write(
-                        f"[INFO] [{idx}/{total_tests}] Running test suite '{tname}'{desc}..."
-                    )
-                    sys.stdout.flush()
-
-        def on_out(buf):
+        def flush_active_test(buf):
             tc = active_test[0]
             if tc and tc.name not in completed_tests:
                 res = evaluate_single_test(buf, tc)
@@ -633,6 +617,29 @@ def run_shard(
                         else:
                             sys.stdout.write(line)
                             sys.stdout.flush()
+
+        last_buf = [""]
+
+        def on_cmd(cmd):
+            m = re.match(r'^echo "__B""EGIN:(.+)__"$', cmd)
+            if m:
+                flush_active_test(last_buf[0])
+                tname = m.group(1)
+                tc = tc_by_name.get(tname)
+                idx = idx_map.get(tname, 0)
+                desc = f" ({tc.description})" if tc else ""
+                active_test[0] = tc
+                if tname == "sadb.bridge_and_shell":
+                    run_host_sadb_exercise()
+                if total_shards == 1:
+                    sys.stdout.write(
+                        f"[INFO] [{idx}/{total_tests}] Running test suite '{tname}'{desc}..."
+                    )
+                    sys.stdout.flush()
+
+        def on_out(buf):
+            last_buf[0] = buf
+            flush_active_test(buf)
 
         cmd_queue = build_guest_command_queue(shard_tests)
         raw_out = run_guest_commands(

@@ -19,6 +19,7 @@ import argparse
 import fcntl
 import os
 import pty
+import re
 import select
 import signal
 import struct
@@ -100,9 +101,9 @@ def run_guest_commands(
                         if ":q" in payload or ":wq" in payload or "ZZ" in payload:
                             raw_mode = False
                     start = time.time()
-                elif buf.endswith("# "):
+                elif re.search(r"root@[^\r\n]*# $", buf):
                     prompt_pos = buf.rfind("# ")
-                    if prompt_pos > last_prompt_pos and "root@" in buf[:prompt_pos]:
+                    if prompt_pos > last_prompt_pos:
                         last_prompt_pos = prompt_pos
                         next_cmd = cmd_queue.pop(0)
                         if on_command_sent:
