@@ -743,7 +743,32 @@ int six_host_pm_suspend_enter(int wakealarm_ms, const int *sadb_fds, int num_sad
 	}
 
 	timeout_ms = (wakealarm_ms > 0) ? wakealarm_ms : 15000;
+	{
+		char pm_path[64];
+		FILE *pmf;
+		snprintf(pm_path, sizeof(pm_path), "/tmp/six_pm_%d.state", (int)getpid());
+		pmf = fopen(pm_path, "w");
+		if (pmf) {
+			fprintf(pmf,
+				"state=suspended\nmode=PSCI_SYSTEM_SUSPEND(mem)\npid=%d\nt0_sec=%ld\nt0_usec=%ld\nwakealarm_ms=%d\n",
+				(int)getpid(), (long)t0.tv_sec, (long)t0.tv_usec, timeout_ms);
+			fclose(pmf);
+		}
+		pmf = fopen("/tmp/.six-power-state", "w");
+		if (pmf) {
+			fprintf(pmf,
+				"state=suspended\nmode=PSCI_SYSTEM_SUSPEND(mem)\npid=%d\nt0_sec=%ld\nt0_usec=%ld\nwakealarm_ms=%d\n",
+				(int)getpid(), (long)t0.tv_sec, (long)t0.tv_usec, timeout_ms);
+			fclose(pmf);
+		}
+	}
 	ret = poll(pfds, nfds, timeout_ms);
+	{
+		char pm_path[64];
+		snprintf(pm_path, sizeof(pm_path), "/tmp/six_pm_%d.state", (int)getpid());
+		unlink(pm_path);
+		unlink("/tmp/.six-power-state");
+	}
 
 	gettimeofday(&t1, NULL);
 	if (t1.tv_sec >= t0.tv_sec) {

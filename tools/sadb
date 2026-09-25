@@ -186,7 +186,48 @@ def read_line(sock):
     return buf.decode("utf-8", errors="replace")
 
 
+def query_passive_suspend_state(inst):
+    pid = inst.get("pid")
+    candidates = []
+    if pid:
+        candidates.append(f"/tmp/six_pm_{pid}.state")
+    candidates.append("/tmp/.six-power-state")
+    for path in candidates:
+        if not os.path.exists(path):
+            continue
+        try:
+            kv = {}
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if "=" in line:
+                        k, v = line.split("=", 1)
+                        kv[k] = v
+            f_pid = int(kv.get("pid", 0))
+            if f_pid > 0:
+                os.kill(f_pid, 0)
+            t0 = float(kv.get("t0_sec", 0)) + float(kv.get("t0_usec", 0)) / 1e6
+            elapsed = max(0.0, time.time() - t0) if t0 > 0 else 0.0
+            wake_s = float(kv.get("wakealarm_ms", 15000)) / 1000.0
+            return {
+                "serial": inst.get("serial", "emulator-5554"),
+                "state": (
+                    f"suspended (PSCI_SYSTEM_SUSPEND: mem, host_itimer=OFF, "
+                    f"sleeping={elapsed:.1f}s/{wake_s:.1f}s)"
+                ),
+                "product": "six_x86",
+                "model": "SIX_Linux_2.0.11",
+                "device": "six",
+            }
+        except (OSError, ValueError):
+            continue
+    return None
+
+
 def query_device_info(inst):
+    passive = query_passive_suspend_state(inst)
+    if passive is not None:
+        return passive
     try:
         sock = connect_instance(
             target_serial=inst.get("serial"),

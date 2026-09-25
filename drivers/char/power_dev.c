@@ -317,8 +317,16 @@ static int pm_enter_suspend(const char *state_str)
 	printk("Disabling non-boot CPUs ...\n");
 	printk("syscore_suspend: timekeeping suspended, entering PSCI_SYSTEM_SUSPEND (%s)\n",
 	       state_str);
+	printk("======================================================================\n");
+	printk("  [ Zzz... SYSTEM SUSPENDED (PSCI_SYSTEM_SUSPEND / S3-MEM) ]\n");
+	printk("  * CPU & 100Hz Timer : GATED OFF (0%% Host CPU)\n");
+	printk("  * User-Space Tasks  : %d FROZEN in __refrigerator()\n", frozen_tasks);
+	printk("  * Wakeup Sources    : Keyboard (IRQ 1), sadb (IRQ 61), RTC (%dms)\n",
+	       pm_wakealarm_ms);
+	printk("  >>> Press ANY KEY or run './sadb shell' to wake up <<<\n");
+	printk("======================================================================\n");
 
-	/* 5. Host hardware sleep with ITIMER_REAL gated off */
+	/* 5. Host hardware sleep with ITIMER_VIRTUAL gated off */
 	num_sadb = sadb_get_active_host_fds(sadb_fds, 8);
 	six_host_pm_suspend_enter(pm_wakealarm_ms, sadb_fds, num_sadb,
 				  wake_reason, sizeof(wake_reason), &slept_ms);
@@ -338,6 +346,12 @@ static int pm_enter_suspend(const char *state_str)
 	pm_stats.last_wakeup_reason[sizeof(pm_stats.last_wakeup_reason) - 1] = '\0';
 	pm_wakeup_event_count++;
 
+	printk("======================================================================\n");
+	printk("  [ SYSTEM RESUMED ] Woken by %s after %lu ms\n", wake_reason, slept_ms);
+	printk("  * CLOCK_MONOTONIC (CPU)  : +0 ms (0 ticks during deep sleep)\n");
+	printk("  * CLOCK_BOOTTIME  (Wall) : +%lu ms (total deep sleep: %lu ms)\n",
+	       slept_ms, pm_stats.total_sleep_time_ms);
+	printk("======================================================================\n");
 	printk("syscore_resume: woken by %s after %lu ms (CLOCK_BOOTTIME += %lu ms)\n",
 	       wake_reason, slept_ms, slept_ms);
 	printk("Enabling non-boot CPUs ...\n");
@@ -394,7 +408,9 @@ static int power_read(struct inode *inode, struct file *file, char *buf, int cou
 		len = sprintf(kbuf, "%lu\n", pm_wakeup_event_count);
 		break;
 
-	case PM_MINOR_SUSPEND_STATS:
+	case PM_MINOR_SUSPEND_STATS: {
+		unsigned long mono_ms = jiffies * (1000UL / HZ);
+		unsigned long boot_ms = mono_ms + pm_stats.total_sleep_time_ms;
 		len = sprintf(kbuf,
 			      "success: %lu\n"
 			      "fail: %lu\n"
@@ -404,6 +420,8 @@ static int power_read(struct inode *inode, struct file *file, char *buf, int cou
 			      "last_wakeup_reason: %s\n"
 			      "last_sleep_time_ms: %lu\n"
 			      "total_sleep_time_ms: %lu\n"
+			      "clock_monotonic_ms: %lu\n"
+			      "clock_boottime_ms: %lu\n"
 			      "wakeup_count: %lu\n"
 			      "autosuspend: %s\n",
 			      pm_stats.success,
@@ -414,9 +432,12 @@ static int power_read(struct inode *inode, struct file *file, char *buf, int cou
 			      pm_stats.last_wakeup_reason,
 			      pm_stats.last_sleep_time_ms,
 			      pm_stats.total_sleep_time_ms,
+			      mono_ms,
+			      boot_ms,
 			      pm_wakeup_event_count,
 			      pm_autosuspend_enabled ? "armed (screen_off)" : "interactive (screen_on)");
 		break;
+	}
 
 	case PM_MINOR_WAKEALARM:
 		len = sprintf(kbuf, "%dms\n", pm_wakealarm_ms);
