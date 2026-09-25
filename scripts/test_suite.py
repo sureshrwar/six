@@ -442,6 +442,41 @@ TESTS = [
             "SanDisk Extreme EROFS Read-Only Flash Drive",
         ],
     ),
+    TestCase(
+        name="kernel.hung_task_sys_info",
+        description="Panic/kernel/hung_task sys_info bitmask configuration and live khungtaskd D-state detection",
+        cmd=(
+            "sysctl -w kernel.panic_sys_info=tasks,mem,locks && "
+            "sysctl -w kernel.panic_sys_info=+ftrace,-mem && "
+            "sysctl -w kernel.kernel_sys_info=timers,blocked_tasks && "
+            "sysctl -w kernel.hung_task_panic=0 && "
+            "sysctl -w kernel.hung_task_warnings=1 && "
+            "sysctl -w kernel.hung_task_timeout_secs=1 && "
+            "sysctl -w kernel.hung_task_sys_info=blocked_tasks,timers && "
+            "set_d && "
+            "sleep 3 && "
+            "clear_d && "
+            "sysctl kernel.hung_task_detect_count && "
+            "sysctl kernel.hung_task_warnings && "
+            "sysctl -w kernel.hung_task_timeout_secs=120 && "
+            "sysctl -w kernel.hung_task_warnings=10 && "
+            "sysctl -w kernel.hung_task_sys_info=0 && "
+            "sysctl -w kernel.panic_sys_info=0 && "
+            "sysctl -w kernel.kernel_sys_info=0"
+        ),
+        expected_substrings=[
+            "kernel.panic_sys_info = 11 (0x0b: tasks,mem,locks)",
+            "kernel.panic_sys_info = 25 (0x19: tasks,locks,ftrace)",
+            "kernel.kernel_sys_info = 68 (0x44: timers,blocked_tasks)",
+            "kernel.hung_task_sys_info = 68 (0x44: timers,blocked_tasks)",
+            "blocked for more than 1 seconds.",
+            "blocked on a buffer likely last held by task kflushd",
+            "Blocked tasks (TASK_UNINTERRUPTIBLE / D state):",
+            "Timer List Dump",
+            "Showing all locks held in the system",
+            "kernel.hung_task_warnings = 0",
+        ],
+    ),
 ]
 
 
