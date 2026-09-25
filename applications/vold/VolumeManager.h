@@ -39,12 +39,45 @@ public:
     int reset();
     int unmountAll();
 
+    class DiskSource {
+    public:
+        DiskSource(const std::string& sysPattern, const std::string& nickname, int partnum,
+                   int flags, const std::string& fstype = "", const std::string& mntopts = "")
+            : mSysPattern(sysPattern),
+              mNickname(nickname),
+              mPartNum(partnum),
+              mFlags(flags),
+              mFsType(fstype),
+              mMntOpts(mntopts) {}
+
+        bool matches(const std::string& sysPath) const;
+
+        const std::string& getSysPattern() const { return mSysPattern; }
+        const std::string& getNickname() const { return mNickname; }
+        int getPartNum() const { return mPartNum; }
+        int getFlags() const { return mFlags; }
+        const std::string& getFsType() const { return mFsType; }
+        const std::string& getMntOpts() const { return mMntOpts; }
+
+    private:
+        std::string mSysPattern;
+        std::string mNickname;
+        int mPartNum;
+        int mFlags;
+        std::string mFsType;
+        std::string mMntOpts;
+    };
+
+    void addDiskSource(const std::shared_ptr<DiskSource>& diskSource);
+    int loadFstabConfig(const char* fstabPath = "/etc/fstab");
+
 private:
     VolumeManager();
 
     static VolumeManager* sInstance;
 
     std::shared_ptr<android::os::IVoldListener> mListener;
+    std::list<std::shared_ptr<DiskSource>> mDiskSources;
     std::list<std::shared_ptr<Disk>> mDisks;
     std::list<std::shared_ptr<VolumeBase>> mInternalEmulatedVolumes;
 };

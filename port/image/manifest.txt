@@ -197,6 +197,7 @@ dir   /aux/crypt            0755
 
 # --- /etc (init binary + configuration recovered from the SPARC root disk) -
 file  /etc/init             0755  applications/init/init
+file  /etc/fstab            0644  port/image/rootfs/etc/fstab
 file  /etc/hostname         0644  port/image/rootfs/etc/hostname
 file  /etc/hosts                  0644  port/image/rootfs/etc/hosts
 dir   /etc/demos                  0755

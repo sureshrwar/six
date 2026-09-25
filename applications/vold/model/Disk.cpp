@@ -12,6 +12,7 @@
 
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
+#include <errno.h>
 
 using android::base::StringPrintf;
 
@@ -190,6 +191,10 @@ status_t Disk::partitionFs(const std::string& fsType) {
 }
 
 status_t Disk::partitionPrivate() {
+    if (!(mFlags & Flags::kAdoptable)) {
+        LOG(ERROR) << "Disk " << getId() << " is not adoptable (missing encryptable=userdata in /etc/fstab)";
+        return -EINVAL;
+    }
     destroyAllVolumes();
 
     dev_t partDevice = makedev(major(mDevice), minor(mDevice) + 1);

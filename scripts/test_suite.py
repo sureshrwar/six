@@ -100,14 +100,18 @@ TESTS = [
     ),
     TestCase(
         name="binder.services",
-        description="Android Binder IPC servicemanager, vold, and storaged (mount) registration",
+        description="Android Binder IPC servicemanager, vold (/etc/fstab DiskSource), and storaged (mount) registration",
         cmd=(
+            "cat /etc/fstab && "
+            "grep 'fstab DiskSource registered' /tmp/vold.log && "
             "service list && "
             "service check vold && "
             "service check mount && "
             "sm list-disks"
         ),
         expected_substrings=[
+            "voldmanaged=usb:auto,encryptable=userdata",
+            "fstab DiskSource registered",
             "vold",
             "mount",
             "Service vold: found",
