@@ -68,11 +68,14 @@ static struct six_suspend_stats pm_stats = {
 static unsigned long pm_wakeup_event_count = 0;
 static unsigned long pm_saved_wakeup_count = 0;
 static int pm_events_check_enabled = 0;
+static int pm_autosuspend_enabled = 0;
+static int pm_in_suspend = 0;
 static int pm_wakealarm_ms = 200; /* default 200ms RTC alarm if none specified */
 
 extern int sadb_get_active_host_fds(int *fds_out, int max_fds);
 extern void sadb_dev_poll(void);
-extern int sync_buffers(kdev_t dev, int wait);
+
+static int pm_enter_suspend(const char *state_str);
 
 static struct six_wakelock *find_or_alloc_wakelock(const char *name, int create)
 {
@@ -96,6 +99,27 @@ static struct six_wakelock *find_or_alloc_wakelock(const char *name, int create)
 	return &wl_table[free_idx];
 }
 
+static const char *pm_first_active_wakelock(void)
+{
+	int i;
+	for (i = 0; i < MAX_WAKELOCKS; i++) {
+		if (wl_table[i].in_use && wl_table[i].active)
+			return wl_table[i].name;
+	}
+	return NULL;
+}
+
+static const char *pm_first_active_non_display_wakelock(void)
+{
+	int i;
+	for (i = 0; i < MAX_WAKELOCKS; i++) {
+		if (wl_table[i].in_use && wl_table[i].active &&
+		    strcmp(wl_table[i].name, "PowerManagerService.Display") != 0)
+			return wl_table[i].name;
+	}
+	return NULL;
+}
+
 int pm_wake_lock(const char *name)
 {
 	struct six_wakelock *wl;
@@ -112,6 +136,8 @@ int pm_wake_lock(const char *name)
 		wl->active_since_jiffies = jiffies;
 	}
 	wl->last_change_jiffies = jiffies;
+	if (strcmp(name, "PowerManagerService.Display") == 0)
+		pm_autosuspend_enabled = 0;
 	return 0;
 }
 
@@ -119,12 +145,18 @@ int pm_wake_unlock(const char *name)
 {
 	struct six_wakelock *wl;
 	unsigned long held_ms;
+	int is_display_unlock = 0;
 
 	if (!name || !name[0])
 		return -EINVAL;
 	wl = find_or_alloc_wakelock(name, 0);
 	if (!wl)
 		return -ENOENT;
+
+	if (strcmp(name, "PowerManagerService.Display") == 0) {
+		is_display_unlock = 1;
+		pm_autosuspend_enabled = 1;
+	}
 
 	if (wl->active) {
 		held_ms = (jiffies - wl->active_since_jiffies) * (1000UL / HZ);
@@ -139,17 +171,33 @@ int pm_wake_unlock(const char *name)
 		pm_wakeup_event_count++;
 	}
 	wl->last_change_jiffies = jiffies;
-	return 0;
-}
 
-static const char *pm_first_active_wakelock(void)
-{
-	int i;
-	for (i = 0; i < MAX_WAKELOCKS; i++) {
-		if (wl_table[i].in_use && wl_table[i].active)
-			return wl_table[i].name;
+	/*
+	 * Android SystemSuspend Opportunistic Autosuspend:
+	 *  - If Display just turned off (PowerManagerService.Display unlocked),
+	 *    attempt opportunistic suspend immediately (which succeeds if no
+	 *    other wakelock is held, or defers and arms autosuspend if one is).
+	 *  - If autosuspend is armed and the LAST blocking wakelock was just
+	 *    unlocked, automatically enter suspend without requiring userspace
+	 *    to write to /sys/power/state!
+	 */
+	if (!pm_in_suspend && pm_autosuspend_enabled) {
+		const char *blocker = pm_first_active_wakelock();
+		if (!blocker) {
+			if (!is_display_unlock) {
+				printk("SystemSuspend: '%s' unlocked -> entering suspend (mem)\n",
+				       name);
+			}
+			pm_saved_wakeup_count = pm_wakeup_event_count;
+			pm_events_check_enabled = 1;
+			pm_enter_suspend("mem");
+		} else if (is_display_unlock) {
+			pm_enter_suspend("mem");
+			printk("SystemSuspend: autosuspend armed (blocked by '%s')\n",
+			       blocker);
+		}
 	}
-	return NULL;
+	return 0;
 }
 
 unsigned long pm_get_total_sleep_ms(void)
@@ -169,8 +217,8 @@ static int pm_enter_suspend(const char *state_str)
 
 	printk("PM: suspend entry (%s)\n", state_str);
 
-	/* 1. Check active WakeLocks and wakeup_count race condition */
-	active_wl = pm_first_active_wakelock();
+	/* 1. Check active WakeLocks (ignoring Display if direct /sys/power/state write) */
+	active_wl = pm_first_active_non_display_wakelock();
 	if (active_wl) {
 		pm_stats.fail++;
 		sprintf(pm_stats.last_failed_step, "wakeup_source_active(%s)", active_wl);
@@ -189,6 +237,21 @@ static int pm_enter_suspend(const char *state_str)
 		return -EBUSY;
 	}
 	pm_events_check_enabled = 0;
+	pm_in_suspend = 1;
+
+	/* Ensure Display wakelock is marked inactive during suspend */
+	{
+		struct six_wakelock *dwl = find_or_alloc_wakelock("PowerManagerService.Display", 0);
+		if (dwl && dwl->active) {
+			unsigned long held_ms = (jiffies - dwl->active_since_jiffies) * (1000UL / HZ);
+			if (held_ms == 0) held_ms = 1;
+			dwl->total_time_ms += held_ms;
+			if (held_ms > dwl->max_time_ms) dwl->max_time_ms = held_ms;
+			dwl->active = 0;
+			dwl->active_since_jiffies = 0;
+			dwl->wake_count++;
+		}
+	}
 
 	/* 2. Sync filesystems */
 	printk("PM: Syncing filesystems ... ");
@@ -240,6 +303,10 @@ static int pm_enter_suspend(const char *state_str)
 	printk("Restarting tasks ... (%d tasks thawed) done.\n", frozen_tasks);
 	printk("PM: suspend exit\n");
 
+	pm_in_suspend = 0;
+	pm_autosuspend_enabled = 0;
+	pm_wake_lock("PowerManagerService.Display");
+
 	sadb_dev_poll();
 	return 0;
 }
@@ -279,7 +346,7 @@ static int power_read(struct inode *inode, struct file *file, char *buf, int cou
 		break;
 
 	case PM_MINOR_WAKEUP_COUNT:
-		if (pm_first_active_wakelock() != NULL)
+		if (pm_first_active_non_display_wakelock() != NULL)
 			return -EBUSY;
 		len = sprintf(kbuf, "%lu\n", pm_wakeup_event_count);
 		break;
@@ -294,7 +361,8 @@ static int power_read(struct inode *inode, struct file *file, char *buf, int cou
 			      "last_wakeup_reason: %s\n"
 			      "last_sleep_time_ms: %lu\n"
 			      "total_sleep_time_ms: %lu\n"
-			      "wakeup_count: %lu\n",
+			      "wakeup_count: %lu\n"
+			      "autosuspend: %s\n",
 			      pm_stats.success,
 			      pm_stats.fail,
 			      pm_stats.failed_freeze,
@@ -303,7 +371,8 @@ static int power_read(struct inode *inode, struct file *file, char *buf, int cou
 			      pm_stats.last_wakeup_reason,
 			      pm_stats.last_sleep_time_ms,
 			      pm_stats.total_sleep_time_ms,
-			      pm_wakeup_event_count);
+			      pm_wakeup_event_count,
+			      pm_autosuspend_enabled ? "armed (screen_off)" : "interactive (screen_on)");
 		break;
 
 	case PM_MINOR_WAKEALARM:
@@ -360,7 +429,12 @@ static int power_write(struct inode *inode, struct file *file, const char *buf, 
 	case PM_MINOR_STATE:
 		if (strcmp(p, "on") == 0) {
 			pm_events_check_enabled = 0;
+			pm_wake_lock("PowerManagerService.Display");
 			return count;
+		}
+		if (strcmp(p, "autosuspend") == 0) {
+			err = pm_wake_unlock("PowerManagerService.Display");
+			return (err < 0) ? err : count;
 		}
 		if (strcmp(p, "mem") == 0 || strcmp(p, "freeze") == 0 || strcmp(p, "standby") == 0) {
 			err = pm_enter_suspend(p);
@@ -378,7 +452,7 @@ static int power_write(struct inode *inode, struct file *file, const char *buf, 
 
 	case PM_MINOR_WAKEUP_COUNT: {
 		unsigned long val = simple_strtoul(p, NULL, 10);
-		if (pm_first_active_wakelock() != NULL || val != pm_wakeup_event_count) {
+		if (pm_first_active_non_display_wakelock() != NULL || val != pm_wakeup_event_count) {
 			pm_stats.fail++;
 			strcpy(pm_stats.last_failed_step, "wakeup_count_race");
 			return -EINVAL;
@@ -457,7 +531,8 @@ int power_dev_init(void)
 		printk("power: unable to register chrdev major %d\n", POWER_MAJOR);
 		return -EIO;
 	}
-	/* Seed default Android PowerManagerService.WakeLocks entry (unlocked) */
+	/* Seed default Android PowerManagerService wakelocks: Display=ON, WakeLocks=0 */
+	pm_wake_lock("PowerManagerService.Display");
 	pm_wake_lock("PowerManagerService.WakeLocks");
 	pm_wake_unlock("PowerManagerService.WakeLocks");
 	printk("PM: Android Opportunistic Suspend & WakeLock driver initialized (/sys/power/*, /proc/wakelocks)\n");

@@ -125,6 +125,7 @@ SUBDIRS	=	start \
 		usbctl \
 		sm \
 		sadbd \
+		power \
 		reversi
 
 all:

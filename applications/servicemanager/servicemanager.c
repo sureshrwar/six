@@ -175,16 +175,82 @@ int main(int argc, char **argv)
 		} else if (msg.target_handle == h_power) {
 			/* Built-in IPowerManager service */
 			if (msg.code == 1) {
+				char active_wls[128] = {0};
+				int wl_cnt = 0, i;
+				int wfd = open("/sys/power/wake_lock", 0, 0);
+				if (wfd >= 0) {
+					int n = read(wfd, active_wls, sizeof(active_wls) - 1);
+					if (n > 0) {
+						if (active_wls[n - 1] == '\n')
+							active_wls[n - 1] = '\0';
+					}
+					close(wfd);
+				}
+				if (active_wls[0]) {
+					wl_cnt = 1;
+					for (i = 0; active_wls[i]; i++) {
+						if (active_wls[i] == ' ')
+							wl_cnt++;
+					}
+					if (strstr(active_wls, "PowerManagerService.Display"))
+						wl_cnt--;
+				}
 				snprintf(msg.data, sizeof(msg.data),
-					 "PowerState=AWAKE interactive=true wakelocks=%d caller_pid=%d",
-					 power_wakelocks, msg.sender_pid);
+					 "PowerState=%s interactive=%s wakelocks=%d active=[%s] caller_pid=%d",
+					 strstr(active_wls, "PowerManagerService.Display") ? "AWAKE" : "DOZE_AUTOSUSPEND",
+					 strstr(active_wls, "PowerManagerService.Display") ? "true" : "false",
+					 wl_cnt,
+					 active_wls[0] ? active_wls : "none",
+					 msg.sender_pid);
 				msg.data_size = strlen(msg.data) + 1;
 				msg.status = 0;
 			} else if (msg.code == 2) {
+				const char *wl_name = (msg.data_size > 1 && msg.data[0]) ? msg.data : "PowerManagerService.WakeLocks";
+				int wfd = open("/sys/power/wake_lock", 1, 0);
+				if (wfd >= 0) {
+					write(wfd, wl_name, strlen(wl_name));
+					close(wfd);
+				}
 				power_wakelocks++;
 				snprintf(msg.data, sizeof(msg.data),
-					 "WakeLock acquired (total=%d) by pid=%d",
-					 power_wakelocks, msg.sender_pid);
+					 "WakeLock '%s' acquired (total=%d) by pid=%d",
+					 wl_name, power_wakelocks, msg.sender_pid);
+				msg.data_size = strlen(msg.data) + 1;
+				msg.status = 0;
+			} else if (msg.code == 3) {
+				const char *wl_name = (msg.data_size > 1 && msg.data[0]) ? msg.data : "PowerManagerService.WakeLocks";
+				int ufd = open("/sys/power/wake_unlock", 1, 0);
+				if (ufd >= 0) {
+					write(ufd, wl_name, strlen(wl_name));
+					close(ufd);
+				}
+				if (power_wakelocks > 0)
+					power_wakelocks--;
+				snprintf(msg.data, sizeof(msg.data),
+					 "WakeLock '%s' released (remaining=%d) by pid=%d",
+					 wl_name, power_wakelocks, msg.sender_pid);
+				msg.data_size = strlen(msg.data) + 1;
+				msg.status = 0;
+			} else if (msg.code == 4) {
+				/* IPowerManager::goToSleep -> release PowerManagerService.Display */
+				int ufd = open("/sys/power/wake_unlock", 1, 0);
+				if (ufd >= 0) {
+					write(ufd, "PowerManagerService.Display", 27);
+					close(ufd);
+				}
+				snprintf(msg.data, sizeof(msg.data),
+					 "IPowerManager::goToSleep completed (Display released -> Autosuspend)");
+				msg.data_size = strlen(msg.data) + 1;
+				msg.status = 0;
+			} else if (msg.code == 5) {
+				/* IPowerManager::wakeUp -> acquire PowerManagerService.Display */
+				int wfd = open("/sys/power/wake_lock", 1, 0);
+				if (wfd >= 0) {
+					write(wfd, "PowerManagerService.Display", 27);
+					close(wfd);
+				}
+				snprintf(msg.data, sizeof(msg.data),
+					 "IPowerManager::wakeUp completed (Display=ON, interactive=true)");
 				msg.data_size = strlen(msg.data) + 1;
 				msg.status = 0;
 			} else {

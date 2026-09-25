@@ -122,6 +122,7 @@ file  /bin/tetris           0755  applications/tetris/tetris
 file  /bin/touch            0755  applications/touch/touch
 file  /bin/ttt              0755  applications/ttt/ttt
 file  /bin/tty              0755  applications/tty/tty
+file  /bin/power            0755  applications/power/power
 file  /bin/tcc              0755  applications/tcc/tcc
 file  /bin/trek             0755  applications/trek/trek
 file  /bin/vi               0755  applications/vi/vi
