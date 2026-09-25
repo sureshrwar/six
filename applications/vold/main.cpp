@@ -17,6 +17,10 @@ using android::vold::NetlinkManager;
 using android::vold::VoldNativeService;
 using android::vold::VolumeManager;
 
+static int process_config(VolumeManager* vm) {
+    return vm->loadFstabConfig("/etc/fstab");
+}
+
 int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
@@ -41,6 +45,10 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
+    if (process_config(vm) != 0) {
+        PLOG(WARNING) << "Error reading configuration (/etc/fstab)... continuing anyways";
+    }
+
     if (VoldNativeService::start() != android::OK) {
         LOG(ERROR) << "Unable to start VoldNativeService";
         exit(1);
@@ -50,8 +58,6 @@ int main(int argc, char** argv) {
         PLOG(ERROR) << "Unable to start NetlinkManager";
         exit(1);
     }
-
-    android::base::SetProperty("vold.has_adoptable", "1");
 
     VoldNativeService::Instance()->joinThreadPool();
     return 0;

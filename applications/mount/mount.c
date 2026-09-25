@@ -146,6 +146,163 @@ static int parse_options(char *opts, unsigned long *flags,
 	return 0;
 }
 
+#include <linux/fcntl.h>
+#include <linux/wait.h>
+#include <stat.h>
+
+static int is_ntfs_device(const char *dev)
+{
+	unsigned char buf[16];
+	int fd = open(dev, O_RDONLY);
+	int n;
+
+	if (fd < 0)
+		return 0;
+	n = read(fd, buf, sizeof(buf));
+	close(fd);
+	if (n >= 11 && memcmp(buf + 3, "NTFS    ", 8) == 0)
+		return 1;
+	return 0;
+}
+
+static int run_ntfs_3g(const char *dev, const char *dir)
+{
+	int pid = fork();
+	if (pid < 0)
+		return -1;
+	if (pid == 0) {
+		char *args[4];
+		args[0] = "/bin/ntfs-3g";
+		args[1] = (char *)dev;
+		args[2] = (char *)dir;
+		args[3] = NULL;
+		execve("/bin/ntfs-3g", args, NULL);
+		_exit(127);
+	}
+	{
+		int status = 0;
+		while (wait(&status) != pid)
+			;
+		return (status == 0) ? 0 : -1;
+	}
+}
+
+static int do_one_mount(const char *dev, const char *dir, const char *type,
+			unsigned long flags, void *data_ptr)
+{
+	int i, rc;
+
+	mkdir(dir, 0755);
+
+	if (type && (!strcmp(type, "ntfs") || !strcmp(type, "ntfs-3g"))) {
+		return run_ntfs_3g(dev, dir);
+	}
+
+	if (type && strcmp(type, "auto") != 0) {
+		return mount((char *)dev, (char *)dir, (char *)type, flags, data_ptr);
+	}
+
+	if (is_ntfs_device(dev)) {
+		return run_ntfs_3g(dev, dir);
+	}
+
+	rc = -1;
+	errno = EINVAL;
+	for (i = 0; autotypes[i]; i++) {
+		rc = mount((char *)dev, (char *)dir, (char *)autotypes[i], flags, data_ptr);
+		if (rc == 0)
+			return 0;
+	}
+	return rc;
+}
+
+static int is_already_mounted(const char *dir)
+{
+	FILE *f = fopen("/proc/mounts", "r");
+	char line[256];
+
+	if (!f)
+		return 0;
+	while (fgets(line, sizeof(line), f)) {
+		char m_dev[64], m_dir[64];
+		if (sscanf(line, "%63s %63s", m_dev, m_dir) == 2) {
+			if (!strcmp(m_dir, dir)) {
+				fclose(f);
+				return 1;
+			}
+		}
+	}
+	fclose(f);
+	return 0;
+}
+
+static int mount_from_fstab(const char *match_target)
+{
+	FILE *f = fopen("/etc/fstab", "r");
+	char line[512];
+	int found = 0;
+
+	if (!f) {
+		fprintf(stderr, "mount: cannot open /etc/fstab: %s\n", strerror(errno));
+		return 1;
+	}
+
+	while (fgets(line, sizeof(line), f)) {
+		char *p = line;
+		char src[128], mnt[128], fstype[64], mntflags[128], fsmgr[256];
+		unsigned long flags = MS_MGC_VAL;
+		char fs_data[512];
+		int n;
+
+		while (*p == ' ' || *p == '\t')
+			p++;
+		if (*p == '\0' || *p == '\n' || *p == '\r' || *p == '#')
+			continue;
+
+		fsmgr[0] = '\0';
+		n = sscanf(p, "%127s %127s %63s %127s %255s",
+			   src, mnt, fstype, mntflags, fsmgr);
+		if (n < 4)
+			continue;
+
+		/* Always skip voldmanaged entries in mount(8) */
+		if (strstr(mntflags, "voldmanaged=") || strstr(fsmgr, "voldmanaged="))
+			continue;
+
+		if (match_target) {
+			if (strcmp(src, match_target) != 0 && strcmp(mnt, match_target) != 0)
+				continue;
+			found = 1;
+		} else {
+			/* mount -a: skip root, /bin, none, auto, or noauto entries */
+			if (!strcmp(mnt, "/") || !strcmp(mnt, "/bin") ||
+			    !strcmp(mnt, "none") || !strcmp(mnt, "auto"))
+				continue;
+			if (strstr(mntflags, "noauto") || strstr(fsmgr, "noauto"))
+				continue;
+			if (is_already_mounted(mnt))
+				continue;
+		}
+
+		fs_data[0] = '\0';
+		parse_options(mntflags, &flags, fs_data, sizeof(fs_data));
+		if (do_one_mount(src, mnt, fstype, flags, fs_data[0] ? fs_data : 0) != 0 && match_target) {
+			fprintf(stderr, "mount: %s on %s: %s\n", src, mnt, strerror(errno));
+			fclose(f);
+			return 1;
+		}
+		if (match_target)
+			break;
+	}
+
+	fclose(f);
+	if (match_target && !found) {
+		fprintf(stderr, "mount: can't find %s in /etc/fstab\n", match_target);
+		return 1;
+	}
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	char *type = 0;
@@ -153,12 +310,15 @@ int main(int argc, char **argv)
 	unsigned long flags = MS_MGC_VAL;
 	char fs_data[512];
 	void *data_ptr = 0;
+	int mount_all_flag = 0;
 	int i, rc;
 
 	fs_data[0] = '\0';
 
 	for (i = 1; i < argc; i++) {
-		if (!strcmp(argv[i], "-t")) {
+		if (!strcmp(argv[i], "-a")) {
+			mount_all_flag = 1;
+		} else if (!strcmp(argv[i], "-t")) {
 			if (++i >= argc) {
 				usage();
 				return 1;
@@ -188,45 +348,20 @@ int main(int argc, char **argv)
 		}
 	}
 
+	if (mount_all_flag)
+		return mount_from_fstab(NULL);
+
 	if (!dev && !dir)
 		return show_mounts();
 
-	if (!dev || !dir) {
-		usage();
-		return 1;
-	}
+	if (dev && !dir)
+		return mount_from_fstab(dev);
 
 	if (fs_data[0])
 		data_ptr = fs_data;
 
-	if (type) {
-		rc = mount(dev, dir, type, flags, data_ptr);
-	} else {
-		/*
-		 * Probe.  Every failed attempt looks the same from here, so
-		 * report the last errno rather than the first: the earlier
-		 * types are the ones we expected to fail.
-		 */
-		rc = -1;
-		errno = EINVAL;
-		for (i = 0; autotypes[i]; i++) {
-			rc = mount(dev, dir, (char *)autotypes[i], flags, data_ptr);
-			if (rc == 0) {
-				type = (char *)autotypes[i];
-				break;
-			}
-		}
-	}
-
+	rc = do_one_mount(dev, dir, type, flags, data_ptr);
 	if (rc < 0) {
-		/*
-		 * Build the message in one call.  perror() writes straight to
-		 * fd 2 with write(2) while fprintf() on stderr goes through
-		 * the stdio buffer, so using both put the prefix on screen
-		 * *after* the message it introduces.  strerror() gives the
-		 * same text without the ordering problem.
-		 */
-
 		if (type)
 			fprintf(stderr, "mount: %s on %s as %s: %s\n",
 				dev, dir, type, strerror(errno));

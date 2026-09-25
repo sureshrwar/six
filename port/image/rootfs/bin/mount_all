@@ -1,11 +1,5 @@
 #!/bin/sh
-# /bin/mount_all - detect and mount primary and secondary storage
-
-mkdir -p /proc
-mount -t proc proc /proc
-
-mkdir -p /tmp
-mount -t tmpfs tmpfs /tmp
+# /bin/mount_all - mount filesystems defined in /etc/fstab
 
 primary_fs=`ext4info -t /dev/hda`
 case "$primary_fs" in
@@ -22,22 +16,13 @@ case "$secondary_fs" in
 none)
 	echo "Mounting secondary storage: not detected"
 	;;
-NTFS)
-	echo "Mounting secondary storage: NTFS filesystem detected"
-	mkdir -p /aux/storage-1
-	ntfs-3g /dev/hdb /aux/storage-1
-	;;
-ext4)
-	echo "Mounting secondary storage: ext4 filesystem detected"
-	mkdir -p /aux/storage-1
-	mount -t ext4 /dev/hdb /aux/storage-1
-	;;
-ext2)
-	echo "Mounting secondary storage: ext2 filesystem detected"
-	mkdir -p /aux/storage-1
-	mount -t ext2 /dev/hdb /aux/storage-1
+NTFS|ext4|ext2)
+	echo "Mounting secondary storage: $secondary_fs filesystem detected"
 	;;
 *)
 	echo "Mounting secondary storage: unknown filesystem"
 	;;
 esac
+
+# Mount all auto entries from /etc/fstab (/proc, /tmp, /dev/hdb -> /aux/storage-1)
+mount -a

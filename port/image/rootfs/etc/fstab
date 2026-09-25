@@ -1,0 +1,11 @@
+# /etc/fstab - SIX filesystem table and Android vold fs_mgr configuration
+#
+# <src>                      <mnt_point>      <type>  <mnt_flags>  <fs_mgr_flags>
+/dev/hda                     /                auto    rw           wait
+/dev/hdd                     /bin             ext4    ro           wait,verify
+proc                         /proc            proc    defaults     defaults
+tmpfs                        /tmp             tmpfs   defaults     defaults
+/dev/hdb                     /aux/storage-1   auto    defaults     defaults
+/dev/mapper/linear0          /aux/linear      ext2    defaults     noauto
+/dev/mapper/crypt0           /aux/crypt       ext2    defaults     noauto
+/devices/pci0000:00/usb*     auto             auto    defaults     voldmanaged=usb:auto,encryptable=userdata
