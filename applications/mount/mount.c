@@ -38,7 +38,7 @@ extern char *strerror(int errnum);
  * fs/ext2 rather than being misread.  That ordering is what makes it
  * possible to have an ext2 /dev/hdb under an ext4 root.
  */
-static const char *autotypes[] = { "ext4", "ext2", "minix", 0 };
+static const char *autotypes[] = { "ext4", "ext2", "erofs", "minix", 0 };
 
 static void usage(void)
 {

@@ -93,8 +93,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "$FSTYPE" in
-ext2|ext4) ;;
-*) echo "mkimage: --fstype must be ext2 or ext4 (got '$FSTYPE')" >&2; exit 2 ;;
+ext2|ext4|erofs) ;;
+*) echo "mkimage: --fstype must be ext2, ext4, or erofs (got '$FSTYPE')" >&2; exit 2 ;;
 esac
 
 case "$MODE" in
@@ -283,7 +283,20 @@ fi
 # 64bit) across different e2fsprogs versions.
 EXT4_FEATURES="none,has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize,ext_attr,resize_inode,dir_index,filetype,sparse_super,large_file"
 
-if [ "$FSTYPE" = ext4 ]; then
+if [ "$FSTYPE" = erofs ]; then
+	LABEL_NAME="rootfs"
+	[ "$MODE" = "bin" ] && LABEL_NAME="bin_verity"
+	python3 port/image/mkerofs.py \
+		--stage "$STAGE" \
+		--manifest "$MANIFEST" \
+		--mode "$MODE" \
+		--label "$LABEL_NAME" \
+		--uuid 13bcf00c-78b2-11d9-8fdf-f213c4292cfb \
+		--blocks "$BLOCK_COUNT" \
+		--out "$OUT" || exit 1
+
+	[ -s "$OUT" ] || { echo "mkimage: mkerofs.py produced nothing" >&2; exit 1; }
+elif [ "$FSTYPE" = ext4 ]; then
 	mke2fs -q -F \
 		-t ext4 \
 		$LABEL_OPT \
@@ -319,20 +332,22 @@ FAKEROOT_SCRIPT
 rc=$?
 [ "$rc" = 0 ] || { echo "mkimage: failed" >&2; exit "$rc"; }
 
-# The image is created "not clean" by mke2fs only if something went wrong;
-# mark it cleanly checked so the kernel's mount does not print the
-# "mounting unchecked fs" warning on every boot.
-if command -v tune2fs >/dev/null 2>&1; then
-	tune2fs -c 0 -i 0 "$OUT" >/dev/null 2>&1
-fi
+if [ "$FSTYPE" != erofs ]; then
+	# The image is created "not clean" by mke2fs only if something went wrong;
+	# mark it cleanly checked so the kernel's mount does not print the
+	# "mounting unchecked fs" warning on every boot.
+	if command -v tune2fs >/dev/null 2>&1; then
+		tune2fs -c 0 -i 0 "$OUT" >/dev/null 2>&1
+	fi
 
-# Reproducibility: mke2fs stamps the current time into the superblock.  If
-# SOURCE_DATE_EPOCH is set, rewrite the timestamps so that identical inputs
-# give a byte-identical image.
-if [ -n "${SOURCE_DATE_EPOCH:-}" ] && command -v debugfs >/dev/null 2>&1; then
-	debugfs -w -R "ssv mtime @$SOURCE_DATE_EPOCH" "$OUT" >/dev/null 2>&1
-	debugfs -w -R "ssv wtime @$SOURCE_DATE_EPOCH" "$OUT" >/dev/null 2>&1
-	debugfs -w -R "ssv lastcheck @$SOURCE_DATE_EPOCH" "$OUT" >/dev/null 2>&1
+	# Reproducibility: mke2fs stamps the current time into the superblock.  If
+	# SOURCE_DATE_EPOCH is set, rewrite the timestamps so that identical inputs
+	# give a byte-identical image.
+	if [ -n "${SOURCE_DATE_EPOCH:-}" ] && command -v debugfs >/dev/null 2>&1; then
+		debugfs -w -R "ssv mtime @$SOURCE_DATE_EPOCH" "$OUT" >/dev/null 2>&1
+		debugfs -w -R "ssv wtime @$SOURCE_DATE_EPOCH" "$OUT" >/dev/null 2>&1
+		debugfs -w -R "ssv lastcheck @$SOURCE_DATE_EPOCH" "$OUT" >/dev/null 2>&1
+	fi
 fi
 
 if [ "$MODE" = "bin" ]; then
@@ -372,6 +387,27 @@ EOF
 	fakeroot -- mke2fs -q -F -t ext4 -b 1024 -N 256 -I 256 \
 		-O "none,has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize,ext_attr,resize_inode,dir_index,filetype,sparse_super,large_file" -m 0 \
 		-L "SANDISK_EXT4" -d "$USB_STAGE" "$USB_EXT4_IMG" 2048 2>/dev/null || true
+	rm -rf "$USB_STAGE"
+fi
+
+USB_EROFS_IMG="disk/x86/usb_erofs.img"
+if [ ! -s "$USB_EROFS_IMG" ]; then
+	USB_STAGE=$(mktemp -d)
+	mkdir -p "$USB_STAGE/DCIM"
+	cat > "$USB_STAGE/README_USB.txt" <<'EOF'
+=== SanDisk Extreme EROFS Read-Only Flash Drive ===
+Label:      SANDISK_EROFS
+UUID:       7E0F-5E1E
+Device:     /dev/sda1 (8:1, 2048 KB EROFS v1, host image disk/x86/usb_erofs.img)
+Mounted by: Android vold -> kernel erofs (ro) -> /mnt/media_rw/usb
+EOF
+	echo "Camera DCIM sample photo metadata (SanDisk EROFS USB)" > "$USB_STAGE/DCIM/IMG_0001.TXT"
+	python3 port/image/mkerofs.py \
+		--stage "$USB_STAGE" \
+		--label "SANDISK_EROFS" \
+		--uuid 7e0f5e1e-0000-4000-8000-000000000001 \
+		--blocks 2048 \
+		--out "$USB_EROFS_IMG" 2>/dev/null || true
 	rm -rf "$USB_STAGE"
 fi
 

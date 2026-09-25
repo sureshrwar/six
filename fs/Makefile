@@ -14,7 +14,7 @@ L_OBJS    = $(join $(SUB_DIRS),$(SUB_DIRS:%=/%.o))
 endif
 
 MOD_LIST_NAME := FS_MODULES
-ALL_SUB_DIRS = minix ext ext2 ext4 fuse tmpfs overlay fat msdos vfat proc isofs nfs xiafs umsdos \
+ALL_SUB_DIRS = minix ext ext2 ext4 erofs fuse tmpfs overlay fat msdos vfat proc isofs nfs xiafs umsdos \
 		hpfs sysv smbfs ncpfs ufs affs
 
 O_TARGET := fs.o 
@@ -98,6 +98,7 @@ endif
 
 SUB_DIRS += tmpfs
 SUB_DIRS += overlay
+SUB_DIRS += erofs
 
 ifeq ($(CONFIG_ISO9660_FS),y)
 SUB_DIRS += isofs

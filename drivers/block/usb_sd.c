@@ -102,6 +102,8 @@ void usb_sd_set_online(int online, const char *label, const char *uuid,
 			path = "./disk/x86/usb_ntfs.img";
 		else if (fstype && strcmp(fstype, "ext4") == 0)
 			path = "./disk/x86/usb_ext4.img";
+		else if (fstype && strcmp(fstype, "erofs") == 0)
+			path = "./disk/x86/usb_erofs.img";
 		else if ((fstype && strcmp(fstype, "crypt") == 0) ||
 			 (uuid && strcmp(uuid, "CRYPT-8A01") == 0))
 			path = "./disk/x86/usb_crypt.img";

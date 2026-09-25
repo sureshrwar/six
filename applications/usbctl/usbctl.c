@@ -20,10 +20,10 @@ extern int errno;
 static void usage(void)
 {
 	printf("Usage:\n");
-	printf("  usbctl status                            Show simulated USB controller & drive state\n");
-	printf("  usbctl plug [ext2|ext4|ntfs] [LABEL]     Plug in simulated USB drive (disk/x86/usb_<fs>.img)\n");
-	printf("  usbctl ext2|ext4|ntfs [LABEL]            Shorthand for 'usbctl plug <fs>'\n");
-	printf("  usbctl unplug                            Unplug simulated USB drive & emit remove uevent\n");
+	printf("  usbctl status                                  Show simulated USB controller & drive state\n");
+	printf("  usbctl plug [ext2|ext4|erofs|ntfs] [LABEL]     Plug in simulated USB drive (disk/x86/usb_<fs>.img)\n");
+	printf("  usbctl ext2|ext4|erofs|ntfs [LABEL]            Shorthand for 'usbctl plug <fs>'\n");
+	printf("  usbctl unplug                                  Unplug simulated USB drive & emit remove uevent\n");
 }
 
 int main(int argc, char **argv)
@@ -39,9 +39,11 @@ int main(int argc, char **argv)
 	}
 
 	cmd = argv[1];
-	/* Support `usbctl ext2`, `usbctl ext4`, `usbctl ntfs` as shorthands for `usbctl plug <fs>` */
-	if (strcmp(cmd, "ext2") == 0 || strcmp(cmd, "ext4") == 0 || strcmp(cmd, "ntfs") == 0 ||
-	    strcmp(cmd, "--ext2") == 0 || strcmp(cmd, "--ext4") == 0 || strcmp(cmd, "--ntfs") == 0) {
+	/* Support `usbctl ext2`, `usbctl ext4`, `usbctl erofs`, `usbctl ntfs` as shorthands for `usbctl plug <fs>` */
+	if (strcmp(cmd, "ext2") == 0 || strcmp(cmd, "ext4") == 0 ||
+	    strcmp(cmd, "erofs") == 0 || strcmp(cmd, "ntfs") == 0 ||
+	    strcmp(cmd, "--ext2") == 0 || strcmp(cmd, "--ext4") == 0 ||
+	    strcmp(cmd, "--erofs") == 0 || strcmp(cmd, "--ntfs") == 0) {
 		cmd = "plug";
 		arg_offset = 1;
 	}
@@ -82,6 +84,10 @@ int main(int argc, char **argv)
 				fstype = "ntfs";
 				label  = (argc > arg_offset + 1) ? argv[arg_offset + 1] : "SANDISK_NTFS";
 				uuid   = (argc > arg_offset + 2) ? argv[arg_offset + 2] : "6A1B-8E42";
+			} else if (strcmp(a, "erofs") == 0 || strcmp(a, "--erofs") == 0) {
+				fstype = "erofs";
+				label  = (argc > arg_offset + 1) ? argv[arg_offset + 1] : "SANDISK_EROFS";
+				uuid   = (argc > arg_offset + 2) ? argv[arg_offset + 2] : "7E0F-5E1E";
 			} else if (strcmp(a, "ext4") == 0 || strcmp(a, "--ext4") == 0) {
 				fstype = "ext4";
 				label  = (argc > arg_offset + 1) ? argv[arg_offset + 1] : "SANDISK_EXT4";
@@ -104,6 +110,7 @@ int main(int argc, char **argv)
 		umount("/mnt/media_rw/4A8F-9C21");
 		umount("/mnt/media_rw/5B9E-7D31");
 		umount("/mnt/media_rw/6A1B-8E42");
+		umount("/mnt/media_rw/7E0F-5E1E");
 		umount("/mnt/media_rw/usb");
 		umount("/mnt/expand/CRYPT-8A01");
 		umount("/mnt/expand/usb");

@@ -214,6 +214,24 @@ status_t ReadMetadataUntrusted(const std::string& path, std::string* fsType,
         return OK;
     }
 
+    /* 3. Check EROFS v1 superblock magic (0xE0F5E1E2) at offset 1024 */
+    unsigned int erofs_magic = (unsigned int)buf[1024] |
+                               ((unsigned int)buf[1025] << 8) |
+                               ((unsigned int)buf[1026] << 16) |
+                               ((unsigned int)buf[1027] << 24);
+    if (erofs_magic == 0xE0F5E1E2U) {
+        char labelBuf[17];
+        memcpy(labelBuf, buf + 1024 + 64, 16);
+        labelBuf[16] = '\0';
+        if (fsType) *fsType = "erofs";
+        if (fsUuid) *fsUuid = "7E0F-5E1E";
+        if (fsLabel) *fsLabel = labelBuf[0] ? labelBuf : "SANDISK_EROFS";
+        LOG(INFO) << "ReadMetadataUntrusted(" << path << "): detected erofs "
+                  << "uuid=" << (fsUuid ? *fsUuid : "")
+                  << " label=" << (fsLabel ? *fsLabel : "");
+        return OK;
+    }
+
     return UNKNOWN_ERROR;
 }
 

@@ -104,6 +104,8 @@ asmlinkage int sys_setup(void)
         {
                 extern int init_tmpfs_fs(void);
                 extern int init_overlay_fs(void);
+                extern int init_erofs_fs(void);
+                init_erofs_fs();
                 init_tmpfs_fs();
                 init_overlay_fs();
         }

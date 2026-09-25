@@ -945,11 +945,17 @@ static int init(void * unused)
                 extern int dm_setup_verity_bin(void);
                 extern asmlinkage int sys_mount(char *, char *, char *, unsigned long, void *);
                 if (dm_setup_verity_bin() == 0) {
-                        int mret = sys_mount("/dev/mapper/verity_bin", "/bin", "ext4",
+                        const char *bin_fs = "erofs";
+                        int mret = sys_mount("/dev/mapper/verity_bin", "/bin", "erofs",
                                              MS_MGC_VAL | MS_RDONLY, NULL);
+                        if (mret != 0) {
+                                bin_fs = "ext4";
+                                mret = sys_mount("/dev/mapper/verity_bin", "/bin", "ext4",
+                                                 MS_MGC_VAL | MS_RDONLY, NULL);
+                        }
                         if (mret == 0) {
                                 int oret;
-                                printk("VFS: Mounted /dev/mapper/verity_bin on /bin (ext4, dm-verity sha256 read-only)\n");
+                                printk("VFS: Mounted /dev/mapper/verity_bin on /bin (%s, dm-verity sha256 read-only)\n", bin_fs);
                                 oret = sys_mount("overlay", "/bin", "overlay",
                                                  MS_MGC_VAL,
                                                  "lowerdir=/bin,upperdir=/var/overlay/bin");

@@ -23,3 +23,5 @@ vold: $(OBJS) $(GUEST_CRT) $(GUEST_LIBC)
 
 clean:
 	rm -f $(OBJS) vold .*.o.d model/.*.o.d fs/.*.o.d compat/.*.o.d
+
+-include $(wildcard model/.*.o.d fs/.*.o.d compat/.*.o.d)

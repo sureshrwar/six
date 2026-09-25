@@ -104,6 +104,8 @@ public:
             volTypeStr = "PUBLIC(EXT4)";
         } else if (mLastFsType == "ext2") {
             volTypeStr = "PUBLIC(EXT2)";
+        } else if (mLastFsType == "erofs") {
+            volTypeStr = "PUBLIC(EROFS)";
         }
 
         std::string mountPath = (state == 2) ? mLastPath : "none";

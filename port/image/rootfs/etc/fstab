@@ -2,7 +2,7 @@
 #
 # <src>                      <mnt_point>      <type>  <mnt_flags>  <fs_mgr_flags>
 /dev/hda                     /                auto    rw           wait
-/dev/hdd                     /bin             ext4    ro           wait,verify
+/dev/hdd                     /bin             erofs   ro           wait,verify
 proc                         /proc            proc    defaults     defaults
 tmpfs                        /tmp             tmpfs   defaults     defaults
 /dev/hdb                     /aux/storage-1   auto    defaults     defaults

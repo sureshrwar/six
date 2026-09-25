@@ -441,8 +441,11 @@ endif
 %: %.c
 %: %.o
 
-$(SIX_BIN_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_VERITY_TOOL) $(SIX_BIN_FILES) | linuxsubdirs
-	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict --mode bin --fstype ext4 --out $(SIX_BIN_IMAGE)
+SIX_BIN_FSTYPE ?= erofs
+SIX_EROFS_TOOL	= port/image/mkerofs.py
+
+$(SIX_BIN_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_EROFS_TOOL) $(SIX_VERITY_TOOL) $(SIX_BIN_FILES) | linuxsubdirs
+	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict --mode bin --fstype $(SIX_BIN_FSTYPE) --out $(SIX_BIN_IMAGE)
 
 # The order-only dependency on "six" keeps the image from being assembled in
 # parallel with the kernel link under make -j; the guest binaries are built

@@ -388,6 +388,24 @@ TESTS = [
             "SADB_INTERACTIVE_PTY_OK",
         ],
     ),
+    TestCase(
+        name="fs.erofs",
+        description="EROFS v1 read-only filesystem on /bin (dm-verity) and vold USB hotplug (usb_erofs.img)",
+        cmd=(
+            "grep verity_bin /proc/mounts && "
+            "grep '/bin.*erofs' /etc/fstab && "
+            "usbctl plug erofs && "
+            "sleep 1 && "
+            "sm list-volumes && "
+            "cat /mnt/media_rw/usb/README_USB.txt && "
+            "usbctl unplug"
+        ),
+        expected_substrings=[
+            "/dev/mapper/verity_bin /bin erofs ro",
+            "PUBLIC(EROFS)",
+            "SanDisk Extreme EROFS Read-Only Flash Drive",
+        ],
+    ),
 ]
 
 

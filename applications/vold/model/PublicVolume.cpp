@@ -99,6 +99,10 @@ status_t PublicVolume::doMount() {
         if (ret == OK) {
             ret = ext2::Mount(mDevPath, mRawPath, false, false, true);
         }
+    } else if (mFsType == "erofs") {
+        if (::mount(mDevPath.c_str(), mRawPath.c_str(), "erofs", 0xC0ED0001UL, NULL) != 0) {
+            ret = -errno;
+        }
     } else {
         LOG(ERROR) << getId() << " unsupported filesystem " << mFsType;
         ret = -EIO;
