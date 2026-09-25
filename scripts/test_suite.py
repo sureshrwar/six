@@ -372,12 +372,13 @@ TESTS = [
     ),
     TestCase(
         name="sadb.bridge_and_shell",
-        description="SIX Android Debug Bridge (/dev/sadb, sadbd, sadb devices/shell/push/pull)",
+        description="SIX Android Debug Bridge (/dev/sadb, sadbd, sadb devices/shell/push/pull/vi)",
         cmd=(
-            "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do if [ -f /tmp/sadb_done_flag ]; then break; fi; sleep 0.25; done && "
+            "for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do if [ -f /tmp/sadb_done_flag ]; then break; fi; sleep 0.25; done && "
             "cat /proc/sadb && "
             "cat /tmp/sadb_pushed.txt && "
             "cat /tmp/sadb_pty_out.txt && "
+            "cat /tmp/sadb_vi_out.txt && "
             "cat /tmp/sadbd.log"
         ),
         expected_substrings=[
@@ -386,6 +387,8 @@ TESTS = [
             "SADB_HOST_PUSH_PAYLOAD_OK",
             "/dev/ttyp",
             "SADB_INTERACTIVE_PTY_OK",
+            "SADB_VI_FIRST",
+            "SADB_VI_SECOND",
         ],
     ),
     TestCase(
@@ -579,7 +582,32 @@ def run_shard(
                     except subprocess.TimeoutExpired:
                         proc.kill()
                     os.close(mfd)
-                    # 4. sadb shell <cmd> to mark completion
+                    # 4. sadb shell vi /tmp/sadb_vi_out.txt (with TERM=xterm-256color and multiple ESC keystrokes)
+                    mfd2, sfd2 = pty.openpty()
+                    env_vi = dict(os.environ)
+                    env_vi["TERM"] = "xterm-256color"
+                    proc2 = subprocess.Popen(
+                        [sadb_bin, "shell", "vi", "/tmp/sadb_vi_out.txt"],
+                        cwd=work_dir,
+                        env=env_vi,
+                        stdin=sfd2,
+                        stdout=sfd2,
+                        stderr=sfd2,
+                        close_fds=True,
+                    )
+                    os.close(sfd2)
+                    time.sleep(0.25)
+                    os.write(mfd2, b"iSADB_VI_FIRST\x1b")
+                    time.sleep(0.20)
+                    os.write(mfd2, b"oSADB_VI_SECOND\x1b")
+                    time.sleep(0.20)
+                    os.write(mfd2, b":wq\r")
+                    try:
+                        proc2.wait(timeout=4)
+                    except subprocess.TimeoutExpired:
+                        proc2.kill()
+                    os.close(mfd2)
+                    # 5. sadb shell <cmd> to mark completion
                     subprocess.run(
                         [sadb_bin, "shell", "echo DONE > /tmp/sadb_done_flag"],
                         cwd=work_dir,

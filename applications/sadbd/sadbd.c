@@ -240,13 +240,22 @@ static void handle_shell(int cfd, const char *args)
 {
 	int rows = 24, cols = 80;
 	char term[64] = "vt100";
+	const char *cmd = NULL;
 	int master_fd = -1, slave_fd = -1;
 	char tty_name[32] = "/dev/ttyp0";
 	int has_pty;
 	pid_t pid;
 
-	if (args && *args)
-		sscanf(args, "%d %d %63s", &rows, &cols, term);
+	if (args && *args) {
+		int consumed = 0;
+		if (sscanf(args, "%d %d %63s%n", &rows, &cols, term, &consumed) >= 3 && consumed > 0) {
+			const char *p = args + consumed;
+			while (*p == ' ')
+				p++;
+			if (*p)
+				cmd = p;
+		}
+	}
 
 	has_pty = (open_pty_pair(&master_fd, &slave_fd, tty_name, sizeof(tty_name)) == 0);
 	if (has_pty) {
@@ -270,7 +279,7 @@ static void handle_shell(int cfd, const char *args)
 	}
 
 	if (pid == 0) {
-		char *sh_argv[3];
+		char *sh_argv[4];
 		char *sh_envp[7];
 		char term_env[80];
 
@@ -298,9 +307,16 @@ static void handle_shell(int cfd, const char *args)
 		chdir("/");
 		snprintf(term_env, sizeof(term_env), "TERM=%s", term);
 
-		sh_argv[0] = "-sh";
-		sh_argv[1] = "-i";
-		sh_argv[2] = NULL;
+		if (cmd && *cmd) {
+			sh_argv[0] = "sh";
+			sh_argv[1] = "-c";
+			sh_argv[2] = (char *)cmd;
+			sh_argv[3] = NULL;
+		} else {
+			sh_argv[0] = "-sh";
+			sh_argv[1] = "-i";
+			sh_argv[2] = NULL;
+		}
 
 		sh_envp[0] = "PATH=/bin:/sbin:/usr/bin";
 		sh_envp[1] = "HOME=/";
@@ -323,20 +339,22 @@ static void handle_shell(int cfd, const char *args)
 		unsigned char in_buf[BUF_SIZE];
 		unsigned char out_buf[BUF_SIZE];
 		int max_fd = (cfd > master_fd ? cfd : master_fd) + 1;
+		int child_exited = 0;
 
 		for (;;) {
 			fd_set rfds;
 			struct timeval tv;
 			int ret;
 
-			if (waitpid(pid, NULL, WNOHANG) > 0)
-				break;
+			if (!child_exited && waitpid(pid, NULL, WNOHANG) > 0)
+				child_exited = 1;
 
 			FD_ZERO(&rfds);
-			FD_SET(cfd, &rfds);
+			if (!child_exited)
+				FD_SET(cfd, &rfds);
 			FD_SET(master_fd, &rfds);
 			tv.tv_sec = 0;
-			tv.tv_usec = 250000;
+			tv.tv_usec = child_exited ? 0 : 250000;
 
 			ret = select(max_fd, &rfds, NULL, NULL, &tv);
 			if (ret < 0) {
@@ -344,8 +362,10 @@ static void handle_shell(int cfd, const char *args)
 					continue;
 				break;
 			}
+			if (child_exited && !FD_ISSET(master_fd, &rfds))
+				break;
 
-			if (FD_ISSET(cfd, &rfds)) {
+			if (!child_exited && FD_ISSET(cfd, &rfds)) {
 				int n = read(cfd, in_buf, sizeof(in_buf));
 				if (n <= 0)
 					break;
@@ -376,9 +396,13 @@ static void handle_shell(int cfd, const char *args)
 			}
 		}
 
-		kill(-pid, SIGHUP);
-		close(master_fd);
-		waitpid(pid, NULL, 0);
+		if (!child_exited) {
+			kill(-pid, SIGHUP);
+			close(master_fd);
+			waitpid(pid, NULL, 0);
+		} else {
+			close(master_fd);
+		}
 	}
 }
 

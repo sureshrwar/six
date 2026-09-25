@@ -54,6 +54,10 @@ asmlinkage int sys_idle(void)
                         six_eth_poll();
                 }
 #endif
+                {
+                        extern void sadb_dev_poll(void);
+                        sadb_dev_poll();
+                }
                 six_host_sti();
                 six_host_idle_sleep();
                 schedule();

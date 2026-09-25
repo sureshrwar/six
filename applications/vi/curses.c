@@ -463,11 +463,15 @@ static void starttcap(term)
 		exit(2);
 
 	  case 0:
-		write(2, "Unrecognized TERM type\n", (unsigned)23);
+		if (tgetent(kbuf, "xterm") <= 0)
+		{
+			write(2, "Unrecognized TERM type\n", (unsigned)23);
 #if OSK
-		write(2, "\l", 1);
+			write(2, "\l", 1);
 #endif
-		exit(3);
+			exit(3);
+		}
+		break;
 	}
 
 	/* get strings */

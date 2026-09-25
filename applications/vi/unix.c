@@ -173,22 +173,18 @@ int ttyread(buf, len, time)
  * to give up.
  */
 
-#include <setjmp.h>
+#include <sys/types.h>
+#include <sys/time.h>
 
-static jmp_buf env;
-
-/*ARGSUSED*/
-int dummy(signo)
-	int	signo;
-{
-	longjmp(env, 1);
-}
 int ttyread(buf, len, time)
 	char	*buf;	/* where to store the gotten characters */
 	int	len;	/* maximum number of characters to read */
-	int	time;	/* maximum time to allow for reading */
+	int	time;	/* maximum time to allow for reading (in 1/10s) */
 {
 	int	bytes;
+	fd_set	rd;
+	struct timeval t;
+	struct timeval *tp;
 
 	for (;;)
 	{
@@ -213,32 +209,32 @@ int ttyread(buf, len, time)
 			}
 		}
 
-		/* arrange for timeout */
-#if __GNUC__ || _ANSI
-		signal(SIGALRM, (void (*)()) dummy);
-#else
-		signal(SIGALRM, dummy);
-#endif
-		alarm(time);
-
-		/* perform the blocking read */
-		if (setjmp(env) == 0)
+		if (time > 0)
 		{
-			bytes = read(0, buf, len);
+			t.tv_sec = time / 10;
+			t.tv_usec = (time % 10) * 100000L;
+			tp = &t;
 		}
-		else /* I guess we timed out */
+		else
 		{
-			bytes = 0;
+			tp = (struct timeval *)0;
 		}
 
-		/* cancel the alarm */
-#if _ANSI
-		signal(SIGALRM, (void (*)())dummy); /* work around a bug in Minix */
-#else
-		signal(SIGALRM, dummy);		    /* work around a bug in Minix */
-#endif
-		alarm(0);
+		FD_ZERO(&rd);
+		FD_SET(0, &rd);
+		bytes = select(1, &rd, (fd_set *)0, (fd_set *)0, tp);
+		if (bytes < 0)
+		{
+			/* Interrupted by signal (e.g. SIGWINCH) - recheck size and retry */
+			continue;
+		}
+		if (bytes == 0)
+		{
+			/* Timed out waiting for escape sequence continuation */
+			return 0;
+		}
 
+		bytes = read(0, buf, len);
 		if (bytes < 0)
 		{
 			/* Interrupted by signal (e.g. SIGWINCH) - recheck size and retry */

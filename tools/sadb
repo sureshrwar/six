@@ -314,7 +314,7 @@ def cmd_exec(serial, port, command_str):
     return exit_code
 
 
-def cmd_interactive_shell(serial, port):
+def cmd_interactive_shell(serial, port, command_str=None):
     try:
         sock = connect_instance(serial, port)
     except OSError as e:
@@ -323,7 +323,10 @@ def cmd_interactive_shell(serial, port):
 
     cols, rows = shutil.get_terminal_size(fallback=(80, 24))
     term = os.environ.get("TERM", "vt100")
-    sock.sendall(f"SHELL {rows} {cols} {term}\n".encode("utf-8"))
+    if command_str:
+        sock.sendall(f"SHELL {rows} {cols} {term} {command_str}\n".encode("utf-8"))
+    else:
+        sock.sendall(f"SHELL {rows} {cols} {term}\n".encode("utf-8"))
     status = read_line(sock)
     if not status.startswith("OKAY"):
         sys.stderr.write(f"sadb: error: {status}\n")
@@ -567,9 +570,21 @@ def main(argv):
         print("unknown")
         return 1
     if sub == "shell":
+        force_tty = False
+        if sub_args and sub_args[0] == "-t":
+            force_tty = True
+            sub_args = sub_args[1:]
         if not sub_args:
             return cmd_interactive_shell(serial, port)
-        return cmd_exec(serial, port, " ".join(sub_args))
+        cmd_str = " ".join(sub_args)
+        first_bin = os.path.basename(sub_args[0].split()[0]) if sub_args else ""
+        interactive_bins = {
+            "vi", "top", "lynx", "lynx23", "eliza", "advent", "zork",
+            "gomoku", "reversi", "life", "matrix", "sixanim", "basic", "sh",
+        }
+        if force_tty or (os.isatty(sys.stdin.fileno()) and first_bin in interactive_bins):
+            return cmd_interactive_shell(serial, port, command_str=cmd_str)
+        return cmd_exec(serial, port, cmd_str)
     if sub == "exec-out":
         if not sub_args:
             sys.stderr.write("sadb: error: exec-out requires a command\n")

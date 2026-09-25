@@ -144,8 +144,15 @@ static inline void copy_from_read_buf(struct tty_struct *tty,
  */
 void n_tty_flush_buffer(struct tty_struct * tty)
 {
-
-
+        cli();
+        tty->read_head = tty->read_tail = tty->read_cnt = 0;
+        tty->canon_head = tty->canon_data = tty->erasing = 0;
+        memset(&tty->read_flags, 0, sizeof tty->read_flags);
+        sti();
+        if (!tty->link)
+                return;
+        if (tty->driver.unthrottle)
+                (tty->driver.unthrottle)(tty);
 }
 
 /*
@@ -153,7 +160,7 @@ void n_tty_flush_buffer(struct tty_struct * tty)
  */
 int n_tty_chars_in_buffer(struct tty_struct *tty)
 {
-
+        return 0;
 }
 
 /*
@@ -982,7 +989,10 @@ static void n_tty_receive_buf(struct tty_struct *tty, const unsigned char *cp,
 
 static int n_tty_receive_room(struct tty_struct *tty)
 {
-
+        int left = N_TTY_BUF_SIZE - tty->read_cnt - 1;
+        if (left > 0)
+                return left;
+        return 0;
 }
 
 int is_ignored(int sig)
