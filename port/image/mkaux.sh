@@ -39,6 +39,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 top=$(cd "$here/../.." && pwd)
 cd "$top"
+export MKE2FS_CONFIG="$here/mke2fs.conf"
 
 case "$(uname -m)" in
 x86_64|i?86) ARCH_DIR=disk/x86 ;;

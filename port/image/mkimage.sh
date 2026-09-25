@@ -72,6 +72,7 @@ OUT="disk/x86/root"
 STAGE="port/image/.stage"
 STRICT=0
 MODE="root"
+export MKE2FS_CONFIG="$SRCROOT/port/image/mke2fs.conf"
 
 # Which on-disk format to pack the staging tree into.  ext4 is the default;
 # ext2 is kept so fs/ext2 stays testable and so the pre-ext4 image can be
