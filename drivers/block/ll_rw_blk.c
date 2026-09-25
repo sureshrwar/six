@@ -756,6 +756,10 @@ int blk_hangman_stall_write(const char *buf, unsigned int count)
                                 wake_up(&hangman_bh[tag].b_wait);
                         }
                 }
+                {
+                        extern void pm_notify_d_state_cleared(void);
+                        pm_notify_d_state_cleared();
+                }
                 return (int)count;
         }
 

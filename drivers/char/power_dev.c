@@ -205,6 +205,16 @@ unsigned long pm_get_total_sleep_ms(void)
 	return pm_stats.total_sleep_time_ms;
 }
 
+void pm_notify_d_state_cleared(void)
+{
+	if (!pm_in_suspend && pm_autosuspend_enabled && !pm_first_active_wakelock()) {
+		printk("SystemSuspend: D-state tasks cleared -> entering suspend (mem)\n");
+		pm_saved_wakeup_count = pm_wakeup_event_count;
+		pm_events_check_enabled = 1;
+		pm_enter_suspend("mem");
+	}
+}
+
 static int pm_enter_suspend(const char *state_str)
 {
 	const char *active_wl;
@@ -261,11 +271,44 @@ static int pm_enter_suspend(const char *state_str)
 	}
 	printk("done.\n");
 
-	/* 3. Freeze user space processes (__refrigerator simulation) */
+	/* 3. Freeze user space processes (__refrigerator / try_to_freeze_tasks) */
 	printk("Freezing user space processes ... ");
-	for_each_task(p) {
-		if (p && p != current && p->pid > 1)
-			frozen_tasks++;
+	{
+		int d_tasks = 0;
+		struct task_struct *first_d = NULL;
+		for_each_task(p) {
+			if (p && p != current && p->pid > 1) {
+				if (p->state == TASK_UNINTERRUPTIBLE) {
+					d_tasks++;
+					if (!first_d)
+						first_d = p;
+				} else {
+					frozen_tasks++;
+				}
+			}
+		}
+		if (d_tasks > 0) {
+			printk("\nFreezing of tasks failed after 0.01 seconds (%d tasks refusing to freeze, wq_busy=0):\n",
+			       d_tasks);
+			for_each_task(p) {
+				if (p && p != current && p->pid > 1 && p->state == TASK_UNINTERRUPTIBLE) {
+					printk("  task:%-15s state:D pid:%-5d ppid:%-5d (uninterruptible sleep)\n",
+					       p->comm, p->pid, p->p_pptr ? p->p_pptr->pid : 0);
+				}
+			}
+			printk("Restarting tasks ... done.\n");
+			printk("PM: suspend exit\n");
+			if (pm_autosuspend_enabled) {
+				printk("SystemSuspend: autosuspend armed (blocked by D-state task '%s':%d)\n",
+				       first_d->comm, first_d->pid);
+			}
+			pm_stats.fail++;
+			pm_stats.failed_freeze++;
+			sprintf(pm_stats.last_failed_step, "freeze(%s:%d in D-state)",
+				first_d->comm, first_d->pid);
+			pm_in_suspend = 0;
+			return -EBUSY;
+		}
 	}
 	printk("(elapsed 0.00 seconds) (%d tasks frozen) done.\n", frozen_tasks);
 
