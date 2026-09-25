@@ -161,6 +161,21 @@ classify_buffer(int fd, const unsigned char *buf, int n, char *out, int outsz)
 		snprintf(out, outsz, "DOS/MBR boot sector, NTFS filesystem");
 		return;
 	}
+	if (n >= 1028 && buf[1024] == 0xe2 && buf[1025] == 0xe1 &&
+	    buf[1026] == 0xf5 && buf[1027] == 0xe0) {
+		char label[17];
+		unsigned int blks = 0, inos = 0;
+		unsigned int blksz = 1U << (buf[1024 + 12] ? buf[1024 + 12] : 10);
+		memset(label, 0, sizeof(label));
+		if (n >= 1024 + 80) {
+			blks = read_u32(buf + 1024 + 36, 0);
+			inos = read_u32(buf + 1024 + 16, 0);
+			memcpy(label, buf + 1024 + 64, 16);
+		}
+		snprintf(out, outsz, "EROFS v1 filesystem data, blocksize=%u, blocks=%u, inos=%u, label=\"%s\"",
+		         blksz, blks, inos, label[0] ? label : "none");
+		return;
+	}
 	if (n >= 1082 && buf[1080] == 0x53 && buf[1081] == 0xef) {
 		snprintf(out, outsz, "Linux rev 1.0 ext2/ext3/ext4 filesystem data");
 		return;
@@ -240,7 +255,7 @@ static int
 inspect_file(const char *path)
 {
 	struct stat st;
-	unsigned char buf[1088];
+	unsigned char buf[1200];
 	char desc[256];
 	int rc, fd, n;
 
@@ -267,8 +282,25 @@ inspect_file(const char *path)
 		snprintf(desc, sizeof(desc), "character special (%d/%d)",
 		         (int)((st.st_rdev >> 8) & 0xff), (int)(st.st_rdev & 0xff));
 	} else if (S_ISBLK(st.st_mode)) {
-		snprintf(desc, sizeof(desc), "block special (%d/%d)",
-		         (int)((st.st_rdev >> 8) & 0xff), (int)(st.st_rdev & 0xff));
+		char fsdesc[160];
+		fsdesc[0] = '\0';
+		fd = open(path, O_RDONLY);
+		if (fd >= 0) {
+			memset(buf, 0, sizeof(buf));
+			n = read(fd, (char *)buf, sizeof(buf) - 1);
+			close(fd);
+			if (n > 0) {
+				classify_buffer(-1, buf, n, fsdesc, sizeof(fsdesc));
+				if (strcmp(fsdesc, "data") == 0)
+					fsdesc[0] = '\0';
+			}
+		}
+		if (fsdesc[0])
+			snprintf(desc, sizeof(desc), "block special (%d/%d), %s",
+			         (int)((st.st_rdev >> 8) & 0xff), (int)(st.st_rdev & 0xff), fsdesc);
+		else
+			snprintf(desc, sizeof(desc), "block special (%d/%d)",
+			         (int)((st.st_rdev >> 8) & 0xff), (int)(st.st_rdev & 0xff));
 	} else if (S_ISFIFO(st.st_mode)) {
 		snprintf(desc, sizeof(desc), "fifo (named pipe)");
 	} else if (S_ISSOCK(st.st_mode)) {
