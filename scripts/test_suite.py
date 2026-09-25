@@ -201,11 +201,15 @@ TESTS = [
             "usbctl plug ext2 && "
             "sm partition disk:8,0 private && "
             "sm list-volumes && "
+            "lsblk -f && "
             "usbctl unplug"
         ),
         expected_substrings=[
             "private:8,1",
             "mounted",
+            "sda            8:0",
+            "`-sda1         8:1",
+            "  `-crypt_usb",
         ],
     ),
     TestCase(
@@ -400,12 +404,15 @@ TESTS = [
             "usbctl plug erofs && "
             "sleep 1 && "
             "sm list-volumes && "
+            "lsblk -f && "
             "cat /mnt/media_rw/usb/README_USB.txt && "
             "usbctl unplug"
         ),
         expected_substrings=[
             "/dev/mapper/verity_bin /bin erofs ro",
             "PUBLIC(EROFS)",
+            "bin_verity",
+            "SANDISK_EROFS",
             "SanDisk Extreme EROFS Read-Only Flash Drive",
         ],
     ),

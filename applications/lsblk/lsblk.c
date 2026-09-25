@@ -22,7 +22,7 @@ struct mount_entry {
 	char fstype[16];
 };
 
-static struct mount_entry mounts[16];
+static struct mount_entry mounts[32];
 static int num_mounts = 0;
 
 static void load_mounts(void)
@@ -33,7 +33,7 @@ static void load_mounts(void)
 	num_mounts = 0;
 	if (!fp)
 		return;
-	while (fgets(line, sizeof(line), fp) && num_mounts < 16) {
+	while (fgets(line, sizeof(line), fp) && num_mounts < 32) {
 		char *d = line, *m = NULL, *t = NULL, *p;
 		while (*d == ' ' || *d == '\t')
 			d++;
@@ -99,6 +99,15 @@ static void probe_fs(const char *dev_path, char *fstype, char *label)
 		strcpy(fstype, "ntfs");
 		return;
 	}
+	if (n >= 1024 + 0x50) {
+		unsigned int erofs_magic = *(unsigned int *)(buf + 1024);
+		if (erofs_magic == 0xE0F5E1E2U) {
+			strcpy(fstype, "erofs");
+			strncpy(label, (char *)(buf + 1024 + 0x40), 15);
+			label[15] = '\0';
+			return;
+		}
+	}
 	if (n >= 1024 + 0x88) {
 		unsigned short s_magic = *(unsigned short *)(buf + 1024 + 0x38);
 		unsigned int s_rev = *(unsigned int *)(buf + 1024 + 0x4c);
@@ -139,7 +148,7 @@ static const char *dm_type_str(int type)
 int main(int argc, char *argv[])
 {
 	int show_fs_details = 0;
-	int i, d, m, ctrl_fd;
+	int i, d, m, ctrl_fd, sda_fd;
 	struct dm_ioctl_req dm_list[DM_MAX_DEVICES];
 	int dm_valid[DM_MAX_DEVICES];
 	int dm_parent_shown[DM_MAX_DEVICES];
@@ -261,6 +270,102 @@ int main(int argc, char *argv[])
 				       dm_mnt);
 			}
 		}
+	}
+
+	/* Hotpluggable USB SCSI Mass Storage (/dev/sda, /dev/sda1, major 8) */
+	sda_fd = open("/dev/sda", O_RDONLY);
+	if (sda_fd >= 0) {
+		unsigned long sda_sectors = 0;
+		long sda_ro = 0;
+		if (ioctl(sda_fd, BLKGETSIZE, &sda_sectors) == 0 && sda_sectors > 0) {
+			char sz_str[16], fstype[16], label[16];
+			const char *sda_mnt, *sda1_mnt;
+			unsigned short sda_rdev = (unsigned short)((8 << 8) | 0);
+			unsigned short sda1_rdev = (unsigned short)((8 << 8) | 1);
+			int dm_cnt = 0, dm_idx = 0;
+
+			ioctl(sda_fd, BLKROGET, &sda_ro);
+			close(sda_fd);
+			sda_fd = -1;
+
+			for (m = 0; m < DM_MAX_DEVICES; m++) {
+				if (dm_valid[m] && dm_list[m].num_targets > 0 &&
+				    (dm_list[m].targets[0].bdev == sda1_rdev ||
+				     dm_list[m].targets[0].bdev == sda_rdev)) {
+					dm_cnt++;
+				}
+			}
+
+			format_size(sda_sectors, sz_str);
+			sda_mnt = find_mountpoint("/dev/sda", NULL, 0);
+			if (show_fs_details) {
+				printf("%-14s %-7s %2d %5s %2ld %-7s %-6s %-10s %s\n",
+				       "sda", "8:0", 1, sz_str, sda_ro ? 1L : 0L, "disk",
+				       "-", "-", sda_mnt);
+			} else {
+				printf("%-14s %-7s %2d %5s %2ld %-7s %-6s %s\n",
+				       "sda", "8:0", 1, sz_str, sda_ro ? 1L : 0L, "disk",
+				       "-", sda_mnt);
+			}
+
+			if (dm_cnt > 0) {
+				strcpy(fstype, "crypt");
+				strcpy(label, "");
+			} else {
+				probe_fs("/dev/sda1", fstype, label);
+			}
+			sda1_mnt = find_mountpoint("/dev/sda1", NULL, 0);
+			if (show_fs_details) {
+				printf("%-14s %-7s %2d %5s %2ld %-7s %-6s %-10s %s\n",
+				       "`-sda1", "8:1", 1, sz_str, sda_ro ? 1L : 0L, "part",
+				       fstype[0] ? fstype : "-",
+				       label[0] ? label : "-",
+				       sda1_mnt);
+			} else {
+				printf("%-14s %-7s %2d %5s %2ld %-7s %-6s %s\n",
+				       "`-sda1", "8:1", 1, sz_str, sda_ro ? 1L : 0L, "part",
+				       fstype[0] ? fstype : "-",
+				       sda1_mnt);
+			}
+
+			for (m = 0; m < DM_MAX_DEVICES; m++) {
+				char tree_name[32], majmin[16], dm_dev[32], mapper_dev[64];
+				const char *dm_mnt, *t_str;
+
+				if (!dm_valid[m] || dm_list[m].num_targets == 0 ||
+				    (dm_list[m].targets[0].bdev != sda1_rdev &&
+				     dm_list[m].targets[0].bdev != sda_rdev))
+					continue;
+
+				dm_idx++;
+				dm_parent_shown[m] = 1;
+				sprintf(tree_name, "  %s-%s",
+					(dm_idx == dm_cnt) ? "`" : "|",
+					dm_list[m].name);
+				sprintf(majmin, "%d:%d", DM_MAJOR, m);
+				format_size(dm_list[m].total_sectors, sz_str);
+				sprintf(dm_dev, "/dev/dm-%d", m);
+				sprintf(mapper_dev, "/dev/mapper/%s", dm_list[m].name);
+				probe_fs(dm_dev, fstype, label);
+				dm_mnt = find_mountpoint(mapper_dev, dm_dev, 0);
+				t_str = dm_type_str(dm_list[m].targets[0].type);
+
+				if (show_fs_details) {
+					printf("%-14s %-7s %2d %5s %2d %-7s %-6s %-10s %s\n",
+					       tree_name, majmin, 1, sz_str, dm_list[m].ro, t_str,
+					       fstype[0] ? fstype : "-",
+					       label[0] ? label : "-",
+					       dm_mnt);
+				} else {
+					printf("%-14s %-7s %2d %5s %2d %-7s %-6s %s\n",
+					       tree_name, majmin, 1, sz_str, dm_list[m].ro, t_str,
+					       fstype[0] ? fstype : "-",
+					       dm_mnt);
+				}
+			}
+		}
+		if (sda_fd >= 0)
+			close(sda_fd);
 	}
 
 	/* Also list any standalone DM targets (e.g., zero / error) */
