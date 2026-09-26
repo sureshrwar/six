@@ -95,7 +95,12 @@ hemnitz.de>
 						       context, sizeof(struct pt_regs)); \
 						six_fix_context(&current->ucontext); \
 					} while (0)
+#if (__i386__)
+extern void six_host_restore_user_context(void *uc_ptr);
+#define RESTORE_USER_CONTEXT		six_host_restore_user_context(&current->ucontext)
+#else
 #define RESTORE_USER_CONTEXT		setcontext(&current->ucontext)
+#endif
 #define RESTORE_CONTEXT			setcontext(context)
 #define ENTER_KERNEL			kernel_counter++;  \
 					current->kernel_level++

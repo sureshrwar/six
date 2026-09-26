@@ -161,6 +161,8 @@ applications/*/storaged
 applications/*/usbctl
 applications/*/sm
 applications/*/sadbd
+applications/*/power
+applications/*/gdb
 applications/ntfs-3g/ntfs-3g
 applications/ntfs-3g/ntfs-3g.probe
 applications/ntfs-3g/mkntfs

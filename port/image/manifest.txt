@@ -181,6 +181,7 @@ file  /bin/tee              0755  applications/tee/tee
 file  /bin/cut              0755  applications/cut/cut
 file  /bin/xargs            0755  applications/xargs/xargs
 file  /bin/strace           0755  applications/strace/strace
+file  /bin/gdb              0755  applications/gdb/gdb
 file  /bin/top              0755  applications/top/top
 file  /bin/dmsetup          0755  applications/dmsetup/dmsetup
 file  /bin/lsblk            0755  applications/lsblk/lsblk
@@ -286,6 +287,7 @@ file  /usr/include/sys/file.h     0644  library/include/sys/file.h
 file  /usr/include/sys/ioctl.h    0644  library/include/sys/ioctl.h
 file  /usr/include/sys/mman.h     0644  library/include/sys/mman.h
 file  /usr/include/sys/param.h    0644  library/include/sys/param.h
+file  /usr/include/sys/ptrace.h   0644  library/include/sys/ptrace.h
 file  /usr/include/sys/sixcall.h  0644  library/include/sys/sixcall.h
 file  /usr/include/sys/socket.h   0644  library/include/sys/socket.h
 file  /usr/include/sys/stat.h     0644  library/include/sys/stat.h
@@ -305,6 +307,7 @@ file  /usr/include/linux/fcntl.h       0644  include/linux/fcntl.h
 file  /usr/include/linux/errno.h       0644  include/linux/errno.h
 file  /usr/include/linux/termios.h     0644  include/linux/termios.h
 file  /usr/include/linux/signal.h      0644  include/linux/signal.h
+file  /usr/include/linux/ptrace.h      0644  include/linux/ptrace.h
 file  /usr/include/linux/dm.h          0644  include/linux/dm.h
 
 file  /usr/include/asm/types.h         0644  include/asm-six/types.h
@@ -315,6 +318,7 @@ file  /usr/include/asm/errno.h         0644  include/asm-six/errno.h
 file  /usr/include/asm/termbits.h      0644  include/asm-six/termbits.h
 file  /usr/include/asm/termios.h       0644  include/asm-six/termios.h
 file  /usr/include/asm/signal.h        0644  include/asm-six/signal.h
+file  /usr/include/asm/ptrace.h        0644  include/asm-six/ptrace.h
 file  /usr/include/asm/ioctls.h        0644  include/asm-six/ioctls.h
 file  /usr/include/asm/param.h         0644  include/asm-six/param.h
 

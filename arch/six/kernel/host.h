@@ -48,6 +48,7 @@ void six_host_block_signal(int signo);
 void six_host_unblock_signal(int signo);
 int  six_host_install_handler(int signo, six_host_handler_t fn);
 void six_host_raise_trap(void);
+void six_host_restore_user_context(void *uc_ptr);
 
 /* Host terminal.  See the long comment in host.c. */
 void six_host_get_winsize(int *rows, int *cols);
@@ -87,4 +88,12 @@ int  six_host_sprint_symbol(unsigned long addr, char *buf, int buflen);
 int  six_host_pm_suspend_enter(int wakealarm_ms, const int *sadb_fds, int num_sadb_fds,
 			       char *wake_reason, int reason_len, unsigned long *slept_ms_out);
 
+/* Host debug symbol/DWARF line table and source line lookup for /bin/gdb */
+int  six_host_load_guest_debug(const char *guest_exe_path,
+			       void *syms_out, int max_syms, int *num_syms_out,
+			       void *lines_out, int max_lines, int *num_lines_out,
+			       char (*files_out)[96], int max_files, int *num_files_out);
+int  six_host_read_source_line(const char *file, int line_no, char *buf, int buflen);
+
 #endif /* _SIX_HOST_H */
+

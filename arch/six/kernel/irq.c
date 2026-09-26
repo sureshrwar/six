@@ -1958,8 +1958,10 @@ static struct irqaction irqKILL  = { KILL_action, 0, 0, "SIGKILL", NULL, NULL};
 
 
 #if (__i386__)
+extern int _end;
 #define IS_GUEST_USER_PC(p) \
-	((unsigned long)(p) >= 0x03000000UL && (unsigned long)(p) < TASK_SIZE)
+	(((unsigned long)(p) >= 0x03000000UL && (unsigned long)(p) < 0x08048000UL) || \
+	 ((unsigned long)(p) >= (unsigned long)&_end && (unsigned long)(p) < TASK_SIZE))
 #endif
 
 static void SEGV_action(int irq, void *dev_id, struct pt_regs *regs)
@@ -1984,6 +1986,18 @@ static void SEGV_action(int irq, void *dev_id, struct pt_regs *regs)
 	panic("Fatal exception in kernel mode (SIGSEGV)");
 }
 static struct irqaction irqSEGV  = { SEGV_action, 0, 0, "SIGSEGV", NULL, NULL};
+
+extern void six_ptrace_handle_sigtrap(struct task_struct *tsk, struct pt_regs *regs);
+extern asmlinkage int sys_ptrace(long request, long pid, long addr, long data);
+
+static void TRAP_action(int irq, void *dev_id, struct pt_regs *regs)
+{
+	if (current && current->pid > 1) {
+		six_ptrace_handle_sigtrap(current, regs);
+		return;
+	}
+}
+static struct irqaction irqTRAP  = { TRAP_action, 0, 0, "SIGTRAP", NULL, NULL};
 
 void system_call(int num, void *why, struct pt_regs *context);
 
@@ -2078,6 +2092,7 @@ void init_IRQ(void)
 
         setup_x86_irq(31, &irq2);	// clock!
         setup_x86_irq(2, &irqINT);	// sigint
+        setup_x86_irq(5, &irqTRAP);	// sigtrap (int3 / ptrace)
         setup_x86_irq(SIX_HOST_WINCHSIG, &irqWINCH);	// window resize
         setup_x86_irq(11, &irqSEGV);	// segv!
         setup_x86_irq(SIX_HOST_TRAPSIG, &irqSYSCALL);	// syscall
@@ -2226,8 +2241,8 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 
 	ENTER_KERNEL;
 	current->signum = num;
-	if (num != SIX_HOST_TRAPSIG && num != 14 && num != 26 && num != 29 &&
-	    num != SIX_HOST_WINCHSIG && num != SIGSEGV)
+	if (num != SIX_HOST_TRAPSIG && num != 5 && num != 14 && num != 17 &&
+	    num != 26 && num != 29 && num != SIX_HOST_WINCHSIG && num != SIGSEGV)
 		printk("six: HOST SIGNAL %d at pc=%08x (pid=%d)\n", num, context ? context->pc : 0, current ? current->pid : -1);
 
 	if(current->kernel_level == 1)
@@ -2720,9 +2735,11 @@ void six_ptrace(struct pt_regs *u)
 		put_ret(u, copied);
 		return;
 	}
-	default:
-		put_ret(u, -EINVAL);
+	default: {
+		long data = (long)u->g7;
+		put_ret(u, (long)sys_ptrace(req, pid, addr, data));
 		return;
+	}
 	}
 }
 
@@ -2865,6 +2882,12 @@ void system_call(int num, void *why, struct pt_regs *context)
 			six_strace_push(&tev);
 		}
 	}
+	if (gc && current && (current->flags & PF_TRACESYS)) {
+		current->exit_code = SIGTRAP;
+		current->state = TASK_STOPPED;
+		notify_parent(current);
+		schedule();
+	}
 #endif
 
 	/*
@@ -2900,9 +2923,18 @@ void system_call(int num, void *why, struct pt_regs *context)
 			six_strace_push(&tev);
 		}
 	}
-	if (gc)
-		gc->ret = context->g2;
-	else
+	if (gc) {
+		if (!(syscallnum == 11 && (long)context->g2 >= 0))
+			gc->ret = context->g2;
+	} else {
 		six_call.g2 = context->g2;
+	}
+	if (gc && current && syscallnum != 1 && syscallnum != 11 &&
+	    (current->flags & PF_TRACESYS)) {
+		current->exit_code = SIGTRAP;
+		current->state = TASK_STOPPED;
+		notify_parent(current);
+		schedule();
+	}
 #endif
 }

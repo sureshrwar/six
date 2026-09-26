@@ -18,6 +18,7 @@ Supported commands:
   sadb dmesg                       Dump guest kernel ring buffer
   sadb get-state                   Print connection state ('device' or 'offline')
   sadb get-serialno                Print instance serial ('emulator-5554')
+  sadb gdb [--host|--stdio] <args> Debug a guest program or PID via in-guest or host GDB
   sadb reboot [halt]               Sync filesystems and halt/reboot the guest
 """
 
@@ -556,6 +557,129 @@ def cmd_logcat(serial, port, dump_only=False):
     return 0
 
 
+def resolve_host_elf(guest_path):
+    if not guest_path:
+        return None
+    manifest = os.path.join(REPO_ROOT, "port", "image", "manifest.txt")
+    if os.path.exists(manifest):
+        try:
+            with open(manifest, "r", encoding="utf-8") as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if len(parts) >= 4 and parts[0] == "file" and parts[1] == guest_path:
+                        cand = os.path.join(REPO_ROOT, parts[3])
+                        if os.path.exists(cand):
+                            return cand
+        except OSError:
+            pass
+    base = os.path.basename(guest_path)
+    cand = os.path.join(REPO_ROOT, "applications", base, base)
+    if os.path.exists(cand):
+        return cand
+    return None
+
+
+def cmd_gdb_stdio(serial, port, rsp_args):
+    try:
+        sock = connect_instance(serial, port)
+    except OSError as e:
+        sys.stderr.write(f"sadb: error: no devices/emulators found ({e})\n")
+        return 1
+
+    arg_str = " ".join(rsp_args).strip()
+    req = f"GDB {arg_str}\n" if arg_str else "GDB\n"
+    sock.sendall(req.encode("utf-8"))
+    status = read_line(sock)
+    if not status.startswith("OKAY"):
+        sys.stderr.write(f"sadb: error: {status}\n")
+        sock.close()
+        return 1
+
+    stdin_fd = sys.stdin.fileno()
+    stdout_fd = sys.stdout.fileno()
+    try:
+        while True:
+            rlist, _, _ = select.select([stdin_fd, sock], [], [])
+            if stdin_fd in rlist:
+                data = os.read(stdin_fd, 4096)
+                if not data:
+                    break
+                sock.sendall(data)
+            if sock in rlist:
+                data = sock.recv(4096)
+                if not data:
+                    break
+                os.write(stdout_fd, data)
+    except (OSError, KeyboardInterrupt):
+        pass
+    finally:
+        sock.close()
+    return 0
+
+
+def cmd_gdb(serial, port, sub_args):
+    if "--stdio" in sub_args:
+        rem = [a for a in sub_args if a != "--stdio"]
+        return cmd_gdb_stdio(serial, port, rem)
+
+    if "--host" in sub_args:
+        rem = [a for a in sub_args if a != "--host"]
+        guest_prog = None
+        rsp_target_args = []
+        extra_gdb_args = []
+        i = 0
+        while i < len(rem):
+            if rem[i] in ("-p", "--pid") and i + 1 < len(rem):
+                rsp_target_args.extend(["-p", rem[i + 1]])
+                i += 2
+            elif rem[i] in ("-ex", "-x") and i + 1 < len(rem):
+                extra_gdb_args.extend([rem[i], rem[i + 1]])
+                i += 2
+            elif rem[i] in ("-q", "--quiet", "-batch", "--batch"):
+                extra_gdb_args.append(rem[i])
+                i += 1
+            elif guest_prog is None and not rem[i].startswith("-"):
+                guest_prog = rem[i]
+                if not guest_prog.startswith("/"):
+                    guest_prog = "/bin/" + guest_prog
+                rsp_target_args.append(guest_prog)
+                i += 1
+            else:
+                extra_gdb_args.append(rem[i])
+                i += 1
+
+        sadb_bin = os.path.abspath(__file__)
+        stdio_cmd = f"{sadb_bin}"
+        if serial:
+            stdio_cmd += f" -s {serial}"
+        if port:
+            stdio_cmd += f" -P {port}"
+        stdio_cmd += " gdb --stdio " + " ".join(rsp_target_args)
+
+        host_gdb_cmd = ["gdb"]
+        host_elf = resolve_host_elf(guest_prog) if guest_prog else None
+        if host_elf:
+            host_gdb_cmd.append(host_elf)
+        host_gdb_cmd.extend(["-ex", "set architecture i386", "-ex", f"target remote | {stdio_cmd}"])
+        host_gdb_cmd.extend(extra_gdb_args)
+        os.execvp("gdb", host_gdb_cmd)
+        return 0
+
+    cmd_str = "/bin/gdb"
+    if sub_args:
+        quoted = []
+        for a in sub_args:
+            if " " in a or "\t" in a or ";" in a:
+                quoted.append('"' + a.replace('"', '\\"') + '"')
+            else:
+                quoted.append(a)
+        cmd_str += " " + " ".join(quoted)
+    is_batch = ("-batch" in sub_args or "--batch" in sub_args)
+    if not is_batch and os.isatty(sys.stdin.fileno()):
+        return cmd_interactive_shell(serial, port, command_str=cmd_str)
+    return cmd_exec(serial, port, cmd_str)
+
+
 def usage():
     print(__doc__.strip())
     return 0
@@ -610,6 +734,8 @@ def main(argv):
                 return 0
         print("unknown")
         return 1
+    if sub == "gdb":
+        return cmd_gdb(serial, port, sub_args)
     if sub == "shell":
         force_tty = False
         if sub_args and sub_args[0] == "-t":
@@ -621,9 +747,10 @@ def main(argv):
         first_bin = os.path.basename(sub_args[0].split()[0]) if sub_args else ""
         interactive_bins = {
             "vi", "top", "lynx", "lynx23", "eliza", "advent", "zork",
-            "gomoku", "reversi", "life", "matrix", "sixanim", "basic", "sh",
+            "gomoku", "reversi", "life", "matrix", "sixanim", "basic", "sh", "gdb",
         }
-        if force_tty or (os.isatty(sys.stdin.fileno()) and first_bin in interactive_bins):
+        is_batch = ("-batch" in sub_args or "--batch" in sub_args)
+        if force_tty or (not is_batch and os.isatty(sys.stdin.fileno()) and first_bin in interactive_bins):
             return cmd_interactive_shell(serial, port, command_str=cmd_str)
         return cmd_exec(serial, port, cmd_str)
     if sub == "exec-out":

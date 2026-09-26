@@ -1180,6 +1180,8 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 			(char **)bprm->page[0],
 			(char **)(bprm->page[0]+(bprm->argc+1)*4));
 #if (__i386__)
+	regs->esp = regs->kesp;
+	regs->ebp = 0;
 	six_fix_context(regs);
 #endif
 
@@ -1206,6 +1208,8 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	 * program that produced no output.
 	 */
 	go_user_mode();
+	if (current->flags & PF_PTRACED)
+		send_sig(SIGTRAP, current, 0);
 
 	return 0;
 }

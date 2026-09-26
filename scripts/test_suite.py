@@ -477,6 +477,32 @@ TESTS = [
             "kernel.hung_task_warnings = 0",
         ],
     ),
+    TestCase(
+        name="debug.gdb_and_ptrace",
+        description="Ptrace syscall, DWARF/.stab source-level & assembly debugging, and live PID attach via /bin/gdb",
+        cmd=(
+            'gdb -q -batch -ex "list main" -ex "b call_power_binder" -ex "r" -ex "bt" -ex "info regs" -ex "n" -ex "finish" -ex "c" /bin/power && '
+            "tcc -g /etc/demos/hello.c -o /tmp/hello_dbg && "
+            'gdb -q -batch -ex "b main" -ex "r" -ex "bt" -ex "n" -ex "n" -ex "disas main" -ex "c" /tmp/hello_dbg && '
+            "rm -f /tmp/hello_dbg && "
+            'gdb -q -batch -p 35 -ex "info proc" -ex "bt" -ex "x/2i \\$eip" -ex "detach" && '
+            "service list"
+        ),
+        expected_substrings=[
+            "Breakpoint 1 at",
+            "call_power_binder () at applications/power/power.c:53",
+            "Value returned is $eax = 0x0 (0)",
+            "[Binder IPowerManager] PowerState=AWAKE",
+            "main () at /etc/demos/hello.c:6",
+            "TCC Self-Hosting Verification on SIX",
+            "Dump of assembler code for function main:",
+            "Attaching to process 35",
+            "Reading symbols from /bin/servicemanager... done",
+            "at applications/servicemanager/servicemanager.c:118",
+            "Detaching from program: /bin/servicemanager, process 35",
+            "Found 5 services:",
+        ],
+    ),
 ]
 
 

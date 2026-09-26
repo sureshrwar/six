@@ -607,6 +607,57 @@ static void handle_logcat(int cfd, const char *arg)
 	}
 }
 
+static void handle_gdb(int cfd, const char *args)
+{
+	char argbuf[1024];
+	char *gdb_argv[16];
+	char *sh_envp[5];
+	int argc = 0;
+	int null_fd;
+	char *p;
+
+	write_all(cfd, "OKAY\n", 5);
+
+	gdb_argv[argc++] = "/bin/gdb";
+	gdb_argv[argc++] = "--rsp";
+
+	if (args && *args) {
+		strncpy(argbuf, args, sizeof(argbuf) - 1);
+		argbuf[sizeof(argbuf) - 1] = '\0';
+		p = argbuf;
+		while (*p && argc < 15) {
+			while (*p == ' ' || *p == '\t')
+				*p++ = '\0';
+			if (!*p)
+				break;
+			gdb_argv[argc++] = p;
+			while (*p && *p != ' ' && *p != '\t')
+				p++;
+		}
+	}
+	gdb_argv[argc] = NULL;
+
+	dup2(cfd, 0);
+	dup2(cfd, 1);
+	null_fd = open("/dev/null", O_WRONLY);
+	if (null_fd >= 0) {
+		dup2(null_fd, 2);
+		if (null_fd > 2)
+			close(null_fd);
+	}
+	if (cfd > 2)
+		close(cfd);
+
+	sh_envp[0] = "PATH=/bin:/sbin:/usr/bin";
+	sh_envp[1] = "HOME=/";
+	sh_envp[2] = "TERM=vt100";
+	sh_envp[3] = "USER=root";
+	sh_envp[4] = NULL;
+
+	execve("/bin/gdb", gdb_argv, sh_envp);
+	_exit(127);
+}
+
 static void handle_client(int cfd, const char *serial, int port)
 {
 	char line[2048];
@@ -624,6 +675,10 @@ static void handle_client(int cfd, const char *serial, int port)
 		handle_shell(cfd, "");
 	} else if (strncmp(line, "SHELL ", 6) == 0) {
 		handle_shell(cfd, line + 6);
+	} else if (strncmp(line, "GDB ", 4) == 0) {
+		handle_gdb(cfd, line + 4);
+	} else if (strcmp(line, "GDB") == 0) {
+		handle_gdb(cfd, "");
 	} else if (strncmp(line, "PUSH ", 5) == 0) {
 		handle_push(cfd, line + 5);
 	} else if (strncmp(line, "PULL ", 5) == 0) {

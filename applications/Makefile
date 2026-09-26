@@ -126,7 +126,8 @@ SUBDIRS	=	start \
 		sm \
 		sadbd \
 		power \
-		reversi
+		reversi \
+		gdb
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

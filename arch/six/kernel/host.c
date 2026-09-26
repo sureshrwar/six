@@ -147,6 +147,61 @@ void six_host_raise_trap(void)
 }
 
 /*
+ * Restore guest user-mode context (`current->ucontext`), including EFLAGS
+ * (`uc->psw`, word 21 at offset 0x54).
+ *
+ * glibc's 32-bit x86 `setcontext()` executes `cmp $0xfffff001, %eax` after
+ * `sigprocmask` and never restores `gregs[REG_EFL]`, which clobbers condition
+ * flags (`ZF/SF/OF/CF`) whenever a signal or `PTRACE_SINGLESTEP` trap lands
+ * between a `cmp`/`test` instruction and a conditional branch (`jcc`).
+ */
+void six_host_restore_user_context(void *uc_ptr)
+{
+#if defined(__i386__)
+	unsigned int *words = (unsigned int *)uc_ptr;
+	unsigned int cur_efl = 0;
+
+	__asm__ __volatile__("pushfl; popl %0" : "=r"(cur_efl));
+	if (words[21] != 0)
+		cur_efl = (cur_efl & ~0x0cd5U) | (words[21] & 0x0cd5U);
+	words[21] = cur_efl;
+
+	__asm__ __volatile__(
+		"movl %0, %%eax\n\t"
+		"pushl %%eax\n\t"
+		"xorl %%edx, %%edx\n\t"
+		"leal 0x6c(%%eax), %%ecx\n\t"
+		"movl $2, %%ebx\n\t"
+		"movl $126, %%eax\n\t"
+		"int $0x80\n\t"
+		"popl %%eax\n\t"
+		"movl 0x60(%%eax), %%ecx\n\t"
+		"testl %%ecx, %%ecx\n\t"
+		"jz 1f\n\t"
+		"fldenv (%%ecx)\n\t"
+		"1:\n\t"
+		"movl 0x18(%%eax), %%ecx\n\t"
+		"movw %%cx, %%fs\n\t"
+		"pushl 0x54(%%eax)\n\t"
+		"popfl\n\t"
+		"movl 0x4c(%%eax), %%ecx\n\t"
+		"movl 0x30(%%eax), %%esp\n\t"
+		"pushl %%ecx\n\t"
+		"movl 0x24(%%eax), %%edi\n\t"
+		"movl 0x28(%%eax), %%esi\n\t"
+		"movl 0x2c(%%eax), %%ebp\n\t"
+		"movl 0x34(%%eax), %%ebx\n\t"
+		"movl 0x38(%%eax), %%edx\n\t"
+		"movl 0x3c(%%eax), %%ecx\n\t"
+		"movl 0x40(%%eax), %%eax\n\t"
+		"ret\n\t"
+		:
+		: "r"(uc_ptr)
+		: "memory", "cc");
+#endif
+}
+
+/*
  * ---------------------------------------------------------------------
  * Host terminal
  *
@@ -1039,4 +1094,295 @@ int six_host_sprint_symbol(unsigned long addr, char *buf, int buflen)
 	buf[0] = '\0';
 	return 0;
 }
+
+struct host_dbg_sym {
+	unsigned long addr;
+	unsigned long size;
+	char type;
+	char name[55];
+};
+
+struct host_dbg_line {
+	unsigned long addr;
+	unsigned short line;
+	unsigned short file_idx;
+};
+
+static int six_host_resolve_guest_exe(const char *guest_path, char *host_path, int maxlen)
+{
+	FILE *fp;
+	char line[512];
+	char norm_guest[128];
+	const char *base;
+
+	if (!guest_path || !guest_path[0] || !host_path || maxlen <= 0)
+		return -1;
+
+	/* If guest_path already exists directly on host (e.g. applications/power/power) */
+	if (guest_path[0] != '/' && access(guest_path, R_OK) == 0) {
+		snprintf(host_path, maxlen, "%s", guest_path);
+		return 0;
+	}
+
+	if (guest_path[0] == '/')
+		snprintf(norm_guest, sizeof(norm_guest), "%s", guest_path);
+	else
+		snprintf(norm_guest, sizeof(norm_guest), "/bin/%s", guest_path);
+
+	fp = fopen("port/image/manifest.txt", "r");
+	if (fp) {
+		while (fgets(line, sizeof(line), fp)) {
+			char type[32], gpath[128], mode[32], hpath[256];
+			if (line[0] == '#' || line[0] == '\n')
+				continue;
+			if (sscanf(line, "%31s %127s %31s %255s", type, gpath, mode, hpath) == 4) {
+				if (strcmp(type, "file") == 0 && strcmp(gpath, norm_guest) == 0) {
+					if (access(hpath, R_OK) == 0) {
+						snprintf(host_path, maxlen, "%s", hpath);
+						fclose(fp);
+						return 0;
+					}
+				}
+			}
+		}
+		fclose(fp);
+	}
+
+	base = strrchr(norm_guest, '/');
+	base = base ? (base + 1) : norm_guest;
+	snprintf(host_path, maxlen, "applications/%s/%s", base, base);
+	if (access(host_path, R_OK) == 0)
+		return 0;
+
+	return -1;
+}
+
+static int six_host_find_or_add_file(const char *path, char (*files_out)[96],
+				     int max_files, int *num_files)
+{
+	char cwd[256];
+	const char *rel = path;
+	int i;
+
+	if (!files_out || !num_files || max_files <= 0)
+		return 0;
+
+	if (getcwd(cwd, sizeof(cwd))) {
+		size_t clen = strlen(cwd);
+		if (strncmp(path, cwd, clen) == 0 && path[clen] == '/')
+			rel = path + clen + 1;
+	}
+	while (rel[0] == '.' && rel[1] == '/')
+		rel += 2;
+
+	for (i = 0; i < *num_files; i++) {
+		if (strcmp(files_out[i], rel) == 0)
+			return i;
+	}
+	if (*num_files >= max_files)
+		return *num_files - 1;
+
+	i = (*num_files)++;
+	strncpy(files_out[i], rel, 95);
+	files_out[i][95] = '\0';
+	return i;
+}
+
+int six_host_load_guest_debug(const char *guest_exe_path,
+			      void *syms_out, int max_syms, int *num_syms_out,
+			      void *lines_out, int max_lines, int *num_lines_out,
+			      char (*files_out)[96], int max_files, int *num_files_out)
+{
+	char host_path[256];
+	char cmd[512];
+	char line[512];
+	struct host_dbg_sym *syms = (struct host_dbg_sym *)syms_out;
+	struct host_dbg_line *lines = (struct host_dbg_line *)lines_out;
+	int nsyms = 0, nlines = 0, nfiles = 0;
+	int cur_file_idx = 0;
+	struct sigaction sa_dfl, sa_old_chld;
+	FILE *fp;
+	int i, j;
+
+	if (num_syms_out) *num_syms_out = 0;
+	if (num_lines_out) *num_lines_out = 0;
+	if (num_files_out) *num_files_out = 0;
+
+	if (six_host_resolve_guest_exe(guest_exe_path, host_path, sizeof(host_path)) < 0)
+		return -1;
+
+	/* Temporarily restore default SIGCHLD so popen/pclose reaps cleanly without sun_handler */
+	memset(&sa_dfl, 0, sizeof(sa_dfl));
+	sa_dfl.sa_handler = SIG_DFL;
+	sigaction(SIGCHLD, &sa_dfl, &sa_old_chld);
+
+	if (syms && max_syms > 0) {
+		snprintf(cmd, sizeof(cmd), "nm -n -S --defined-only '%s' 2>/dev/null", host_path);
+		fp = popen(cmd, "r");
+		if (fp) {
+			while (nsyms < max_syms && fgets(line, sizeof(line), fp)) {
+				unsigned long addr = 0, sz = 0;
+				char t1[64], t2[128], t3[128];
+				char stype = 0;
+				const char *sname = NULL;
+				int n = sscanf(line, "%lx %63s %127s %127s", &addr, t1, t2, t3);
+				if (n == 4 && strlen(t2) == 1) {
+					sz = strtoul(t1, NULL, 16);
+					stype = t2[0];
+					sname = t3;
+				} else if (n == 3 && strlen(t1) == 1) {
+					sz = 0;
+					stype = t1[0];
+					sname = t2;
+				}
+				if (sname && addr >= 0x03000000UL) {
+					syms[nsyms].addr = addr;
+					syms[nsyms].size = sz;
+					syms[nsyms].type = stype;
+					strncpy(syms[nsyms].name, sname, 54);
+					syms[nsyms].name[54] = '\0';
+					nsyms++;
+				}
+			}
+			pclose(fp);
+		}
+		/* Fill in inferred sizes for functions where nm reported 0 */
+		for (i = 0; i + 1 < nsyms; i++) {
+			if (syms[i].size == 0 && syms[i + 1].addr > syms[i].addr &&
+			    (syms[i + 1].addr - syms[i].addr) < 0x10000UL) {
+				syms[i].size = syms[i + 1].addr - syms[i].addr;
+			}
+		}
+	}
+
+	if (lines && max_lines > 0 && files_out && max_files > 0) {
+		snprintf(cmd, sizeof(cmd), "readelf -wL --wide '%s' 2>/dev/null", host_path);
+		fp = popen(cmd, "r");
+		if (fp) {
+			while (fgets(line, sizeof(line), fp)) {
+				if (strncmp(line, "CU: ", 4) == 0) {
+					char cu_path[256];
+					size_t len;
+					snprintf(cu_path, sizeof(cu_path), "%s", line + 4);
+					len = strlen(cu_path);
+					while (len > 0 && (cu_path[len - 1] == '\n' ||
+							   cu_path[len - 1] == '\r' ||
+							   cu_path[len - 1] == ':')) {
+						cu_path[--len] = '\0';
+					}
+					cur_file_idx = six_host_find_or_add_file(
+						cu_path, files_out, max_files, &nfiles);
+					continue;
+				}
+				{
+					char fname[128], lstr[32], astr[64];
+					if (sscanf(line, "%127s %31s %63s", fname, lstr, astr) == 3 &&
+					    strncmp(astr, "0x", 2) == 0 &&
+					    lstr[0] >= '1' && lstr[0] <= '9') {
+						unsigned int lno = (unsigned int)atoi(lstr);
+						unsigned long laddr = strtoul(astr + 2, NULL, 16);
+						int fidx = cur_file_idx;
+						if (laddr < 0x03000000UL || lno == 0 || lno > 65535)
+							continue;
+						if (fidx < nfiles) {
+							const char *cur_base = strrchr(files_out[fidx], '/');
+							cur_base = cur_base ? (cur_base + 1) : files_out[fidx];
+							if (strcmp(cur_base, fname) != 0) {
+								fidx = six_host_find_or_add_file(
+									fname, files_out, max_files, &nfiles);
+							}
+						}
+						if (nlines > 0 && lines[nlines - 1].addr == laddr) {
+							lines[nlines - 1].line = (unsigned short)lno;
+							lines[nlines - 1].file_idx = (unsigned short)fidx;
+						} else if (nlines > 0 &&
+							   lines[nlines - 1].file_idx == fidx &&
+							   lines[nlines - 1].line == lno) {
+							/* keep the starting address of the same source line */
+						} else if (nlines < max_lines) {
+							lines[nlines].addr = laddr;
+							lines[nlines].line = (unsigned short)lno;
+							lines[nlines].file_idx = (unsigned short)fidx;
+							nlines++;
+						}
+					}
+				}
+			}
+			pclose(fp);
+		}
+		/* Insertion sort by address so binary/linear range lookup is monotonic */
+		for (i = 1; i < nlines; i++) {
+			struct host_dbg_line key = lines[i];
+			j = i - 1;
+			while (j >= 0 && lines[j].addr > key.addr) {
+				lines[j + 1] = lines[j];
+				j--;
+			}
+			lines[j + 1] = key;
+		}
+	}
+
+	sigaction(SIGCHLD, &sa_old_chld, NULL);
+
+	if (num_syms_out) *num_syms_out = nsyms;
+	if (num_lines_out) *num_lines_out = nlines;
+	if (num_files_out) *num_files_out = nfiles;
+	return 0;
+}
+
+int six_host_read_source_line(const char *file, int line_no, char *buf, int buflen)
+{
+	FILE *fp = NULL;
+	char line[512];
+	int cur = 0;
+
+	if (!file || !file[0] || line_no <= 0 || !buf || buflen <= 0)
+		return -1;
+	buf[0] = '\0';
+
+	/* Reject any path traversal outside workspace */
+	if (strstr(file, "..") != NULL)
+		return -1;
+
+	fp = fopen(file, "r");
+	if (!fp && file[0] == '/')
+		fp = fopen(file + 1, "r");
+	if (!fp && strchr(file, '/') == NULL) {
+		char try_path[256];
+		char stem[64];
+		const char *dot = strrchr(file, '.');
+		size_t slen = dot ? (size_t)(dot - file) : strlen(file);
+		if (slen >= sizeof(stem))
+			slen = sizeof(stem) - 1;
+		memcpy(stem, file, slen);
+		stem[slen] = '\0';
+		snprintf(try_path, sizeof(try_path), "applications/%s/%s", stem, file);
+		fp = fopen(try_path, "r");
+		if (!fp) {
+			snprintf(try_path, sizeof(try_path), "library/libc/%s", file);
+			fp = fopen(try_path, "r");
+		}
+		if (!fp) {
+			snprintf(try_path, sizeof(try_path), "applications/start/%s", file);
+			fp = fopen(try_path, "r");
+		}
+	}
+	if (!fp)
+		return -1;
+
+	while (fgets(line, sizeof(line), fp)) {
+		cur++;
+		if (cur == line_no) {
+			size_t len = strlen(line);
+			while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+				line[--len] = '\0';
+			snprintf(buf, buflen, "%s", line);
+			fclose(fp);
+			return (int)strlen(buf);
+		}
+	}
+	fclose(fp);
+	return -1;
+}
+
 
