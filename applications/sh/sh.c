@@ -157,8 +157,8 @@ register char **argv;
                 signal(SIGTSTP, SIG_IGN);
                 signal(SIGTTIN, SIG_IGN);
                 signal(SIGTTOU, SIG_IGN);
-        }
-        if (signal(SIGINT, SIG_IGN) != SIG_IGN)
+                signal(SIGINT, onintr);
+        } else if (signal(SIGINT, SIG_IGN) != SIG_IGN)
                 signal(SIGINT, onintr);
         dolv = argv;
         dolc = argc;
@@ -422,7 +422,7 @@ int s;                          /* ANSI C requires a parameter */
         if (talking) {
                 sh_restore_tty();
                 if (inparse) {
-                        prs("\n");
+                        prs("^C\n");
                         fail();
                 }
         }

@@ -777,6 +777,13 @@ char *outbuf;
 			sh_restore_tty();
 			return 0;
 		}
+		if (ch == 0x03) { /* Ctrl+C: cancel current line */
+			write(1, "^C\n", 3);
+			outbuf[0] = '\n';
+			outbuf[1] = '\0';
+			sh_restore_tty();
+			return 1;
+		}
 		if (ch == 0x0c) { /* Ctrl+L: clear screen and redraw */
 			write(1, "\033[2J\033[H", 7);
 			prs_prompt();
@@ -1208,7 +1215,7 @@ char *outbuf;
 				rl_delete_range(outbuf, &pos, &len, pos - 1, pos);
 			continue;
 		}
-		if (ch == 0x15) { /* Ctrl+U: kill line */
+		if (ch == 0x15 || ch == 0x18) { /* Ctrl+U / Ctrl+X: kill line */
 			rl_replace_line(outbuf, &pos, &len, "");
 			continue;
 		}

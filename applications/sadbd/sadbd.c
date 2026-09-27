@@ -181,6 +181,13 @@ static void handle_exec(int cfd, const char *cmd)
 		char *sh_envp[6];
 		int null_fd;
 
+		signal(SIGINT, SIG_DFL);
+		signal(SIGQUIT, SIG_DFL);
+		signal(SIGTSTP, SIG_DFL);
+		signal(SIGTERM, SIG_DFL);
+		signal(SIGHUP, SIG_DFL);
+		signal(SIGPIPE, SIG_DFL);
+
 		close(out_pipe[0]);
 		close(cfd);
 
@@ -282,6 +289,14 @@ static void handle_shell(int cfd, const char *args)
 		char *sh_argv[4];
 		char *sh_envp[7];
 		char term_env[80];
+		pid_t cpid;
+
+		signal(SIGINT, SIG_DFL);
+		signal(SIGQUIT, SIG_DFL);
+		signal(SIGTSTP, SIG_DFL);
+		signal(SIGTERM, SIG_DFL);
+		signal(SIGHUP, SIG_DFL);
+		signal(SIGPIPE, SIG_DFL);
 
 		if (has_pty) {
 			close(master_fd);
@@ -289,6 +304,10 @@ static void handle_shell(int cfd, const char *args)
 			setsid();
 #ifdef TIOCSCTTY
 			ioctl(slave_fd, TIOCSCTTY, 1);
+#endif
+			cpid = getpid();
+#ifdef TIOCSPGRP
+			ioctl(slave_fd, TIOCSPGRP, &cpid);
 #endif
 			dup2(slave_fd, 0);
 			dup2(slave_fd, 1);

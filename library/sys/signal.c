@@ -16,7 +16,7 @@ __sighandler_t signal(int num, __sighandler_t handler)
 	}
 
 	sigemptyset(&sa.sa_mask);
-	sa.sa_flags = 0;
+	sa.sa_flags = SA_NOMASK;
 	sa.sa_handler = handler;
 
 	if ((ret = sigaction(num, &sa, &osa)) < 0)

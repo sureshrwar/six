@@ -769,9 +769,14 @@ def run_shard(
                     )
                     os.close(sfd)
                     time.sleep(0.15)
+                    # Verify Ctrl-C (\x03) and Ctrl-X (\x18) cancel partially typed commands in sadb shell
+                    os.write(mfd, b"echo CANCELLED_BY_CTRL_C >> /tmp/sadb_pty_out.txt\x03")
+                    time.sleep(0.10)
+                    os.write(mfd, b"echo CANCELLED_BY_CTRL_X >> /tmp/sadb_pty_out.txt\x18")
+                    time.sleep(0.10)
                     os.write(
                         mfd,
-                        b"tty > /tmp/sadb_pty_out.txt; echo SADB_INTERACTIVE_PTY_OK >> /tmp/sadb_pty_out.txt; exit\r",
+                        b"tty >> /tmp/sadb_pty_out.txt; echo SADB_INTERACTIVE_PTY_OK >> /tmp/sadb_pty_out.txt; exit\r",
                     )
                     try:
                         proc.wait(timeout=4)

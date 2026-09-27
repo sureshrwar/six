@@ -175,6 +175,13 @@ static void handle_session(int client_fd)
 
 	if (pid == 0) {
 		/* Child: interactive shell or login */
+		signal(SIGINT, SIG_DFL);
+		signal(SIGQUIT, SIG_DFL);
+		signal(SIGTSTP, SIG_DFL);
+		signal(SIGTERM, SIG_DFL);
+		signal(SIGHUP, SIG_DFL);
+		signal(SIGPIPE, SIG_DFL);
+
 		if (has_pty) {
 			close(master_fd);
 			close(client_fd);

@@ -56,6 +56,7 @@ asmlinkage void sys_sigreturn(unsigned long sc, struct pt_regs *regs)
 	
 	scp = (struct sigcontext *)sc;
 
+	current->blocked = scp->mask & _BLOCKABLE;
 	memcpy(regs, &scp->oldcon, sizeof(struct pt_regs));
 
 #if (__i386__)
