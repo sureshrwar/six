@@ -31,3 +31,6 @@ jobs:
         run: |
           ./six --help
           ./scripts/run_guest_cmd.py "uname -a" "dmsetup status" "df -h"
+
+      - name: Run test suite
+        run: make test
