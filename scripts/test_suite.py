@@ -540,6 +540,9 @@ TESTS = [
         description="Android MediaProvider (/dev/fuse fuse.mediaprovider daemon, Scoped Storage per-UID enforcement, EXIF GPS redaction, content://media CLI)",
         cmd=(
             "content status && "
+            "cd /storage/emulated/0/Documents && pwd && "
+            "cd /storage/emulated/0/DCIM/Camera && pwd && "
+            "cd .. && pwd && cd / && "
             "content query --uri content://media/external/file && "
             "usbctl plug ext2 SAN_DISK_USB XYZ && "
             "sleep 1 && "
@@ -560,6 +563,9 @@ TESTS = [
         ),
         expected_substrings=[
             "volume external_primary : /data/media/0 -> /storage/emulated/0 (fuse.mediaprovider)",
+            "/storage/emulated/0/Documents",
+            "/storage/emulated/0/DCIM/Camera",
+            "/storage/emulated/0/DCIM",
             "volume xyz              : /mnt/media_rw/XYZ -> /storage/XYZ (fuse.mediaprovider)",
             "RAW_USB_DENIED",
             "lat=REDACTED, lon=REDACTED",

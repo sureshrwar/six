@@ -369,6 +369,11 @@ static void unref_node(struct fuse *f, struct node *node)
     node->refctr --;
     if (!node->refctr)
         delete_node(f, node);
+    else if (node->refctr == 1 && !node->nlookup &&
+             node->nodeid != FUSE_ROOT_ID && node->name) {
+        unhash_name(f, node);
+        unref_node(f, node);
+    }
 }
 
 static fuse_ino_t next_id(struct fuse *f)
@@ -569,7 +574,7 @@ static void forget_node(struct fuse *f, fuse_ino_t nodeid, uint64_t nlookup)
     node = get_node(f, nodeid);
     assert(node->nlookup >= nlookup);
     node->nlookup -= nlookup;
-    if (!node->nlookup) {
+    if (!node->nlookup && node->refctr == 1) {
         unhash_name(f, node);
         unref_node(f, node);
     }
@@ -1343,6 +1348,50 @@ static void fuse_lib_lookup(fuse_req_t req, fuse_ino_t parent,
 
     err = -ENOENT;
     pthread_rwlock_rdlock(&f->tree_lock);
+    if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+        fuse_ino_t target_ino = parent;
+        struct node *pnode;
+
+        memset(&e, 0, sizeof(e));
+        pthread_mutex_lock(&f->lock);
+        pnode = get_node_nocheck(f, parent);
+        if (strcmp(name, "..") == 0) {
+            if (pnode && pnode->parent)
+                target_ino = pnode->parent->nodeid;
+            else
+                target_ino = FUSE_ROOT_ID;
+        }
+        pthread_mutex_unlock(&f->lock);
+
+        path = get_path(f, target_ino);
+        if (path != NULL) {
+            struct fuse_intr_data d;
+            fuse_prepare_interrupt(f, req, &d);
+            err = fuse_fs_getattr(f->fs, path, &e.attr);
+            fuse_finish_interrupt(f, req, &d);
+            free(path);
+            if (!err) {
+                struct node *tnode;
+                pthread_mutex_lock(&f->lock);
+                tnode = get_node_nocheck(f, target_ino);
+                if (tnode) {
+                    tnode->nlookup++;
+                    e.ino = tnode->nodeid;
+                    e.generation = tnode->generation;
+                    e.entry_timeout = f->conf.entry_timeout;
+                    e.attr_timeout = f->conf.attr_timeout;
+                } else {
+                    err = -ENOENT;
+                }
+                pthread_mutex_unlock(&f->lock);
+                if (!err)
+                    set_stat(f, e.ino, &e.attr);
+            }
+        }
+        pthread_rwlock_unlock(&f->tree_lock);
+        reply_entry(req, &e, err);
+        return;
+    }
     path = get_path_name(f, parent, name);
     if (path != NULL) {
         struct fuse_intr_data d;

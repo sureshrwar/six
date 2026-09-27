@@ -983,7 +983,26 @@ static void build_lower_path(struct mp_volume *vol, const char *rel_path,
 static void build_child_rel(const char *parent_rel, const char *name,
 			    char *out, int out_max)
 {
-	if (!parent_rel || !parent_rel[0])
+	if (!parent_rel)
+		parent_rel = "";
+	if (!name || !name[0] || strcmp(name, ".") == 0) {
+		snprintf(out, out_max, "%s", parent_rel);
+		return;
+	}
+	if (strcmp(name, "..") == 0) {
+		const char *slash = strrchr(parent_rel, '/');
+		if (!slash) {
+			out[0] = '\0';
+		} else {
+			int plen = (int)(slash - parent_rel);
+			if (plen >= out_max)
+				plen = out_max - 1;
+			memcpy(out, parent_rel, plen);
+			out[plen] = '\0';
+		}
+		return;
+	}
+	if (!parent_rel[0])
 		snprintf(out, out_max, "%s", name);
 	else
 		snprintf(out, out_max, "%s/%s", parent_rel, name);
@@ -1210,15 +1229,17 @@ static void handle_fuse_message(int vol_idx)
 			unsigned int entsize = FUSE_DIRENT_ALIGN(FUSE_NAME_OFFSET + namelen);
 			struct fuse_dirent *fde;
 			char child_rel[128];
+			struct mp_node *cnode;
 
 			cur_idx++;
 			if (cur_idx <= inarg->offset)
 				continue;
 
+			build_child_rel(node->rel_path, de->d_name, child_rel, sizeof(child_rel));
+
 			/* Scoped Storage: hide other users' Android/data/<user> directories */
 			if (strcmp(node->rel_path, "Android/data") == 0 &&
 			    strcmp(de->d_name, ".") != 0 && strcmp(de->d_name, "..") != 0) {
-				build_child_rel(node->rel_path, de->d_name, child_rel, sizeof(child_rel));
 				if (check_scoped_access(vol, child_rel, ih->uid, 0, 1, 0) != 0)
 					continue;
 			}
@@ -1226,9 +1247,10 @@ static void handle_fuse_message(int vol_idx)
 			if (out_pos + entsize > max_bytes)
 				break;
 
+			cnode = vol_find_or_add_node(vol, child_rel, 0, 0);
 			fde = (struct fuse_dirent *)(out_data + out_pos);
 			memset(fde, 0, entsize);
-			fde->ino = de->d_ino ? (fuse_u64)de->d_ino : cur_idx;
+			fde->ino = cnode ? cnode->nodeid : (de->d_ino ? (fuse_u64)de->d_ino : cur_idx);
 			fde->off = cur_idx;
 			fde->namelen = namelen;
 			fde->type = 0;
