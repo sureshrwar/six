@@ -1789,7 +1789,8 @@ static void handle_fuse_message(int vol_idx)
  * Prepare standard Android Scoped Storage directory hierarchy on a lower
  * volume and seed default sample media if missing.
  */
-static void prepare_lower_storage_dirs(const char *lower_path, int is_usb)
+static void prepare_lower_storage_dirs(const char *lower_path, int is_usb,
+				       const char *fstype)
 {
 	char path[256];
 	struct stat st;
@@ -1797,6 +1798,8 @@ static void prepare_lower_storage_dirs(const char *lower_path, int is_usb)
 	/* Lock down raw lower storage mounts so non-root users must go via FUSE */
 	chmod("/data/media", 0700);
 	chmod("/mnt/media_rw", 0700);
+	if (fstype && (strcmp(fstype, "ntfs") == 0 || strcmp(fstype, "erofs") == 0))
+		return;
 	chmod(lower_path, 0700);
 
 	snprintf(path, sizeof(path), "%s/DCIM", lower_path);
@@ -1848,7 +1851,7 @@ static void prepare_lower_storage_dirs(const char *lower_path, int is_usb)
 }
 
 static int mp_mount_volume(const char *vol_id, const char *lower_path,
-			   const char *upper_path, int is_usb)
+			   const char *upper_path, int is_usb, const char *fstype)
 {
 	int slot = -1, i, ffd;
 	char opts[128];
@@ -1857,7 +1860,8 @@ static int mp_mount_volume(const char *vol_id, const char *lower_path,
 	/* Check if already mounted at this upper_path */
 	for (i = 0; i < MAX_VOLUMES; i++) {
 		if (vols[i].active && strcmp(vols[i].upper_path, upper_path) == 0) {
-			scan_volume(&vols[i]);
+			if (!fstype || strcmp(fstype, "ntfs") != 0)
+				scan_volume(&vols[i]);
 			return 0;
 		}
 	}
@@ -1876,7 +1880,7 @@ static int mp_mount_volume(const char *vol_id, const char *lower_path,
 		mkdir("/storage/emulated", 0755);
 	mkdir(upper_path, 0755);
 
-	prepare_lower_storage_dirs(lower_path, is_usb);
+	prepare_lower_storage_dirs(lower_path, is_usb, fstype);
 
 	ffd = open("/dev/fuse", O_RDWR);
 	if (ffd < 0)
@@ -1916,13 +1920,14 @@ static int mp_mount_volume(const char *vol_id, const char *lower_path,
 		symlink(upper_path, "/storage/usb");
 	}
 
-	scan_volume(vol);
+	if (!fstype || strcmp(fstype, "ntfs") != 0)
+		scan_volume(vol);
 	return 0;
 }
 
 static int mp_unmount_volume(const char *vol_id_or_all)
 {
-	int i, count = 0;
+	int i, j, count = 0;
 
 	for (i = 0; i < MAX_VOLUMES; i++) {
 		struct mp_volume *vol = &vols[i];
@@ -1932,6 +1937,14 @@ static int mp_unmount_volume(const char *vol_id_or_all)
 		    !str_icase_eq(vol->vol_id, vol_id_or_all) &&
 		    strcmp(vol->upper_path, vol_id_or_all) != 0)
 			continue;
+
+		for (j = 0; j < MAX_OPEN_FH; j++) {
+			if (open_fhs[j].in_use && open_fhs[j].vol_idx == i) {
+				if (open_fhs[j].lower_fd >= 0)
+					close(open_fhs[j].lower_fd);
+				open_fhs[j].in_use = 0;
+			}
+		}
 
 		/* Close /dev/fuse first so fuse_put_super() does not block on FUSE_DESTROY */
 		if (vol->fuse_fd >= 0) {
@@ -2121,15 +2134,15 @@ static void handle_binder_request(int bfd, struct binder_ipc_msg *msg)
 	}
 
 	case IMP_MOUNT_VOLUME: {
-		char vid[32], lpath[80], upath[80], dummy[16];
-		parse_pipe3(msg->data, vid, sizeof(vid), lpath, sizeof(lpath), dummy, sizeof(dummy));
+		char vid[32], lpath[80], upath[80], fstype[16];
+		parse_pipe3(msg->data, vid, sizeof(vid), lpath, sizeof(lpath), fstype, sizeof(fstype));
 		if (!vid[0])
 			strcpy(vid, "4A8F-9C21");
 		if (!lpath[0])
 			snprintf(lpath, sizeof(lpath), "/mnt/media_rw/%s", vid);
 		snprintf(upath, sizeof(upath), "/storage/%s", vid);
 
-		reply.status = mp_mount_volume(vid, lpath, upath, 1);
+		reply.status = mp_mount_volume(vid, lpath, upath, 1, fstype);
 		if (reply.status == 0) {
 			snprintf(reply.data, sizeof(reply.data),
 				 "Mounted FUSE volume %s (%s -> %s)", vid, lpath, upath);
@@ -2388,7 +2401,7 @@ int main(int argc, char **argv)
 	mkdir("/var/db", 0755);
 
 	/* 1. Mount internal shared storage (/data/media/0 -> /storage/emulated/0) via FUSE */
-	if (mp_mount_volume("external_primary", "/data/media/0", "/storage/emulated/0", 0) < 0) {
+	if (mp_mount_volume("external_primary", "/data/media/0", "/storage/emulated/0", 0, "ext4") < 0) {
 		printf("mediaproviderd: warning: failed to mount /storage/emulated/0 via /dev/fuse\n");
 	}
 

@@ -92,7 +92,7 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	if (strcmp(cmd, "plug") == 0) {
+	if (strcmp(cmd, "plug") == 0 || strcmp(cmd, "push") == 0) {
 		const char *fstype = "ext2";
 		const char *label  = "SAN_DISK_USB";
 		const char *uuid   = "4A8F-9C21";

@@ -141,9 +141,7 @@ status_t PublicVolume::doMount() {
               << ", uuid=" << mFsUuid << ", label=" << mFsLabel << ") at " << mRawPath;
 
     /* Expose FUSE upper mount at /storage/<uuid> via MediaProvider */
-    if (mFsType != "ntfs") {
-        NotifyMediaProvider(10, StringPrintf("%s|%s|", stableName.c_str(), mRawPath.c_str()));
-    }
+    NotifyMediaProvider(10, StringPrintf("%s|%s|%s", stableName.c_str(), mRawPath.c_str(), mFsType.c_str()));
     return OK;
 }
 
