@@ -434,5 +434,24 @@ EOF
 	fi
 fi
 
+NVME_IMG="disk/x86/nvme0n1.img"
+if [ "$MODE" = "root" ] || [ ! -s "$NVME_IMG" ]; then
+	NVME_STAGE=$(mktemp -d)
+	mkdir -p "$NVME_STAGE/media/0/Android/data" \
+		"$NVME_STAGE/media/0/DCIM" \
+		"$NVME_STAGE/media/0/Documents" \
+		"$NVME_STAGE/media/0/Download" \
+		"$NVME_STAGE/media/0/Movies" \
+		"$NVME_STAGE/media/0/Music" \
+		"$NVME_STAGE/media/0/Pictures"
+	fakeroot -- mke2fs -q -F -t ext4 -b 1024 -N 2048 -I 256 \
+		-O "none,has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize,ext_attr,resize_inode,dir_index,filetype,sparse_super,large_file" -m 0 \
+		-L "userdata" -U "a1b2c3d4-2026-4000-8000-000000000001" -d "$NVME_STAGE" "$NVME_IMG" 16384 2>/dev/null || true
+	if command -v tune2fs >/dev/null 2>&1; then
+		tune2fs -c 0 -i 0 "$NVME_IMG" >/dev/null 2>&1 || true
+	fi
+	rm -rf "$NVME_STAGE"
+fi
+
 echo "mkimage: wrote $OUT ($MODE) as $FSTYPE ($(stat -c %s "$OUT") bytes, $present file(s), $missing missing)"
 exit 0

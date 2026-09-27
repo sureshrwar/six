@@ -53,7 +53,12 @@ static void device_name(const char *path, long f_type, char *out, int outlen)
 		snprintf(out, outlen, "/dev/sda%d", minor);
 	else if (major == 62)
 		snprintf(out, outlen, "/dev/dm-%d", minor);
-	else if (major == 0 && (unsigned long)f_type == 0x65735546UL)
+	else if (major == 63) {
+		if (minor)
+			snprintf(out, outlen, "/dev/nvme0n1p%d", minor);
+		else
+			snprintf(out, outlen, "/dev/nvme0n1");
+	} else if (major == 0 && (unsigned long)f_type == 0x65735546UL)
 		snprintf(out, outlen, "fuse");
 	else if ((unsigned long)f_type == 0x01021994UL)
 		snprintf(out, outlen, "tmpfs");
@@ -105,6 +110,7 @@ int main(int argc, char **argv)
 	static const char *extra_mounts[] = {
 		"/bin",
 		"/tmp",
+		"/data",
 		"/aux/storage-1",
 		"/aux/linear",
 		"/aux/crypt",

@@ -610,6 +610,44 @@ TESTS = [
             "Created by six(uid=1005) in SIX Files app.",
         ],
     ),
+    TestCase(
+        name="nvme.controller_and_userdata",
+        description="NVMe 1.4 controller (/dev/nvme0) & namespace (/dev/nvme0n1 -> /data userdata ext4, SQ/CQ rings, Identify, SMART log, Flush, DSM/TRIM)",
+        cmd=(
+            "lsblk -f && "
+            "df && "
+            "nvme list && "
+            "nvme id-ctrl /dev/nvme0 && "
+            "nvme id-ns /dev/nvme0n1 && "
+            "echo nvme_userdata_ok > /storage/emulated/0/Documents/nvme_test.txt && "
+            "sync && "
+            "cat /data/media/0/Documents/nvme_test.txt && "
+            "rm /storage/emulated/0/Documents/nvme_test.txt && "
+            "nvme flush /dev/nvme0n1 && "
+            "nvme dsm /dev/nvme0n1 -s 32000 -b 16 && "
+            "nvme smart-log /dev/nvme0 && "
+            "cat /proc/nvme"
+        ),
+        expected_substrings=[
+            "nvme0n1        63:0     0   16M  0 disk    ext4   userdata   /data",
+            "/dev/nvme0n1",
+            "SIX-NVME-2026-0001",
+            "SIX Virtual NVMe SSD Controller",
+            "ver       : 0x00010400 (NVMe 1.4.0)",
+            "sqes      : 0x66 (64 bytes)",
+            "cqes      : 0x44 (16 bytes)",
+            "subnqn    : nqn.2026-09.org.six:nvme:userdata-ssd-0001",
+            "nsze      : 0x8000 (32768 sectors / 16384 KB)",
+            "nguid     : SIXNVME0N1USER01",
+            "lbaf  0   : ms:0   lbads:9 (512 B)  rp:0x0 (in use)",
+            "nvme_userdata_ok",
+            "NVMe Flush: success (NSID 1)",
+            "NVMe DSM (Deallocate/TRIM): success (slba=32000, blocks=16 on /dev/nvme0n1)",
+            "dsm_trim_commands                   : 1 (16 sectors trimmed)",
+            "NVMe Controller:   /dev/nvme0 (char 59:0, PCIe 0000:01:00.0)",
+            "Namespace 1:       /dev/nvme0n1 (block 63:0, host=./disk/x86/nvme0n1.img)",
+        ],
+    ),
 ]
 
 

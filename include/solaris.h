@@ -103,11 +103,13 @@ extern long six_disk_sectors[SIX_MAX_DISKS];	/* derived in check_root() */
 #define AUXDISKFILE	"./disk/x86/aux_storage-1"
 #define AUXDISKFILE2	"./disk/x86/aux_storage-2"
 #define BINDISKFILE	"./disk/x86/bin_storage"
+#define NVMEDISKFILE	"./disk/x86/nvme0n1.img"
 #else
 #define DISKFILE	"./disk/sparc/root"
 #define AUXDISKFILE	"./disk/sparc/aux_storage-1"
 #define AUXDISKFILE2	"./disk/sparc/aux_storage-2"
 #define BINDISKFILE	"./disk/sparc/bin_storage"
+#define NVMEDISKFILE	"./disk/sparc/nvme0n1.img"
 #endif
 
 struct dummy_drive_struct {

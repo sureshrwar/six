@@ -368,6 +368,93 @@ int main(int argc, char *argv[])
 			close(sda_fd);
 	}
 
+	/* NVMe SSD Namespace 1 (/dev/nvme0n1, major 63) */
+	{
+		int nvme_fd = open("/dev/nvme0n1", O_RDONLY);
+		if (nvme_fd >= 0) {
+			unsigned long nvme_sectors = 0;
+			long nvme_ro = 0;
+			if (ioctl(nvme_fd, BLKGETSIZE, &nvme_sectors) == 0 && nvme_sectors > 0) {
+				char sz_str[16], fstype[16], label[16], majmin[16];
+				const char *nvme_mnt;
+				unsigned short nvme_rdev = (unsigned short)((63 << 8) | 0);
+				unsigned short nvme1_rdev = (unsigned short)((63 << 8) | 1);
+				int dm_cnt = 0, dm_idx = 0;
+
+				ioctl(nvme_fd, BLKROGET, &nvme_ro);
+				close(nvme_fd);
+				nvme_fd = -1;
+
+				for (m = 0; m < DM_MAX_DEVICES; m++) {
+					if (dm_valid[m] && dm_list[m].num_targets > 0 &&
+					    (dm_list[m].targets[0].bdev == nvme_rdev ||
+					     dm_list[m].targets[0].bdev == nvme1_rdev)) {
+						dm_cnt++;
+					}
+				}
+
+				format_size(nvme_sectors, sz_str);
+				if (dm_cnt > 0) {
+					strcpy(fstype, "");
+					strcpy(label, "");
+				} else {
+					probe_fs("/dev/nvme0n1", fstype, label);
+				}
+				nvme_mnt = find_mountpoint("/dev/nvme0n1", "/dev/nvme0n1p1", 0);
+				if (show_fs_details) {
+					printf("%-14s %-7s %2d %5s %2ld %-7s %-6s %-10s %s\n",
+					       "nvme0n1", "63:0", 0, sz_str, nvme_ro ? 1L : 0L, "disk",
+					       fstype[0] ? fstype : "-",
+					       label[0] ? label : "-",
+					       nvme_mnt);
+				} else {
+					printf("%-14s %-7s %2d %5s %2ld %-7s %-6s %s\n",
+					       "nvme0n1", "63:0", 0, sz_str, nvme_ro ? 1L : 0L, "disk",
+					       fstype[0] ? fstype : "-",
+					       nvme_mnt);
+				}
+
+				for (m = 0; m < DM_MAX_DEVICES; m++) {
+					char tree_name[32], dm_dev[32], mapper_dev[64];
+					const char *dm_mnt, *t_str;
+
+					if (!dm_valid[m] || dm_list[m].num_targets == 0 ||
+					    (dm_list[m].targets[0].bdev != nvme_rdev &&
+					     dm_list[m].targets[0].bdev != nvme1_rdev))
+						continue;
+
+					dm_idx++;
+					dm_parent_shown[m] = 1;
+					sprintf(tree_name, "%s-%s",
+						(dm_idx == dm_cnt) ? "`" : "|",
+						dm_list[m].name);
+					sprintf(majmin, "%d:%d", DM_MAJOR, m);
+					format_size(dm_list[m].total_sectors, sz_str);
+					sprintf(dm_dev, "/dev/dm-%d", m);
+					sprintf(mapper_dev, "/dev/mapper/%s", dm_list[m].name);
+					probe_fs(dm_dev, fstype, label);
+					dm_mnt = find_mountpoint(mapper_dev, dm_dev, 0);
+					t_str = dm_type_str(dm_list[m].targets[0].type);
+
+					if (show_fs_details) {
+						printf("%-14s %-7s %2d %5s %2d %-7s %-6s %-10s %s\n",
+						       tree_name, majmin, 0, sz_str, dm_list[m].ro, t_str,
+						       fstype[0] ? fstype : "-",
+						       label[0] ? label : "-",
+						       dm_mnt);
+					} else {
+						printf("%-14s %-7s %2d %5s %2d %-7s %-6s %s\n",
+						       tree_name, majmin, 0, sz_str, dm_list[m].ro, t_str,
+						       fstype[0] ? fstype : "-",
+						       dm_mnt);
+					}
+				}
+			}
+			if (nvme_fd >= 0)
+				close(nvme_fd);
+		}
+	}
+
 	/* Also list any standalone DM targets (e.g., zero / error) */
 	for (m = 0; m < DM_MAX_DEVICES; m++) {
 		char majmin[16], sz_str[16], dm_dev[32], mapper_dev[64];

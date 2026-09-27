@@ -390,6 +390,10 @@ void proc_root_init(void)
 		PROC_WAKELOCKS, 9, "wakelocks",
 		S_IFREG | S_IRUGO, 1, 0, 0,
 	});
+	proc_register(&proc_root, &(struct proc_dir_entry) {
+		PROC_NVME, 4, "nvme",
+		S_IFREG | S_IRUGO, 1, 0, 0,
+	});
 
 	proc_register( &proc_root, &(struct proc_dir_entry)
 	   { PROC_MTAB, 6, "mounts", S_IFREG | S_IRUGO, 1, 0, 0, } );

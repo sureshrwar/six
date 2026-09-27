@@ -138,7 +138,8 @@ SUBDIRS	=	start \
 		chown \
 		mediaproviderd \
 		content \
-		files
+		files \
+		nvme
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

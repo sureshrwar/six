@@ -251,6 +251,14 @@ static void floppy_off(unsigned int nr);
 #define DEVICE_ON(device)
 #define DEVICE_OFF(device)
 
+#elif (MAJOR_NR == NVME_MAJOR)
+
+#define DEVICE_NAME "nvme"
+#define DEVICE_REQUEST do_nvme_request
+#define DEVICE_NR(device) (MINOR(device))
+#define DEVICE_ON(device)
+#define DEVICE_OFF(device)
+
 #endif /* MAJOR_NR == whatever */
 
 #if ((MAJOR_NR != SCSI_TAPE_MAJOR) && !defined(IDE_DRIVER))

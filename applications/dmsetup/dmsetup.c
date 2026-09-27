@@ -43,6 +43,10 @@ static unsigned short resolve_bdev(const char *path)
 		return (3 << 8) | 128;
 	if (strcmp(path, "/dev/hdd") == 0)
 		return (3 << 8) | 192;
+	if (strcmp(path, "/dev/nvme0n1") == 0)
+		return (63 << 8) | 0;
+	if (strcmp(path, "/dev/nvme0n1p1") == 0)
+		return (63 << 8) | 1;
 
 	if (strchr(path, ':')) {
 		maj = atoi(path);

@@ -891,8 +891,10 @@ int blk_dev_init(void)
 	{
 		extern int dm_init(void);
 		extern int usb_sd_init(void);
+		extern int nvme_init(void);
 		dm_init();
 		usb_sd_init();
+		nvme_init();
 	}
 #endif
         return 0;

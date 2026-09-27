@@ -77,6 +77,14 @@ char *disk_name (struct gendisk *hd, int minor, char *buf)
         }
 #endif
         part = minor & ((1 << hd->minor_shift) - 1);
+        if (hd->major == NVME_MAJOR) {
+                int ns = (minor >> hd->minor_shift) + 1;
+                if (part)
+                        sprintf(buf, "nvme0n%dp%d", ns, part);
+                else
+                        sprintf(buf, "nvme0n%d", ns);
+                return buf;
+        }
         if (part)
                 sprintf(buf, "%s%c%d", maj, unit, part);
         else

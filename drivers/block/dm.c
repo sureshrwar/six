@@ -329,6 +329,11 @@ static int dm_rw_phys_sector(kdev_t bdev, unsigned long phys_sec,
 					    unsigned char *buf, int cmd);
 		return usb_sd_rw_sector(minor, phys_sec, buf, cmd);
 	}
+	if (major == NVME_MAJOR) {
+		extern int nvme_rw_sector(int minor, unsigned long phys_sec,
+					  unsigned char *buf, int cmd_dir);
+		return nvme_rw_sector(minor, phys_sec, buf, cmd);
+	}
 	return -ENODEV;
 }
 
