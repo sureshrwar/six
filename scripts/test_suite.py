@@ -553,6 +553,7 @@ TESTS = [
             "su six -c 'echo secret_token > /storage/XYZ/Android/data/six/token.txt' && "
             "su guest -c 'cat /storage/XYZ/Android/data/six/token.txt || echo SANDBOX_DENIED' && "
             "su guest -c 'rm /storage/XYZ/Pictures/six_note.txt || echo DELETE_DENIED' && "
+            "su six -c 'files --dump /storage/XYZ' && "
             "su six -c 'rm /storage/XYZ/Pictures/six_note.txt' && "
             "usbctl unplug && "
             "content status"
@@ -567,6 +568,7 @@ TESTS = [
             "GPSLatitude=37.4220N;GPSLongitude=122.0841W;",
             "SANDBOX_DENIED",
             "DELETE_DENIED",
+            "[STORAGE] SAN_DISK_USB (USB) -> /storage/XYZ",
         ],
     ),
 ]

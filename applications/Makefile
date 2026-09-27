@@ -137,7 +137,8 @@ SUBDIRS	=	start \
 		who \
 		chown \
 		mediaproviderd \
-		content
+		content \
+		files
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

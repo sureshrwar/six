@@ -106,11 +106,11 @@ int main(int argc, char **argv)
 			} else if (strcmp(a, "erofs") == 0 || strcmp(a, "--erofs") == 0) {
 				fstype = "erofs";
 				label  = (argc > arg_offset + 1) ? argv[arg_offset + 1] : "SANDISK_EROFS";
-				uuid   = (argc > arg_offset + 2) ? argv[arg_offset + 2] : "7E0F-5E1E";
+				uuid   = (argc > arg_offset + 2) ? argv[arg_offset + 2] : "E0F5-2026";
 			} else if (strcmp(a, "ext4") == 0 || strcmp(a, "--ext4") == 0) {
 				fstype = "ext4";
 				label  = (argc > arg_offset + 1) ? argv[arg_offset + 1] : "SANDISK_EXT4";
-				uuid   = (argc > arg_offset + 2) ? argv[arg_offset + 2] : "5B9E-7D31";
+				uuid   = (argc > arg_offset + 2) ? argv[arg_offset + 2] : "7B9E-3D10";
 			} else if (strcmp(a, "ext2") == 0 || strcmp(a, "--ext2") == 0) {
 				fstype = "ext2";
 				label  = (argc > arg_offset + 1) ? argv[arg_offset + 1] : "SAN_DISK_USB";

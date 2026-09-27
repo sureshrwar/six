@@ -205,6 +205,7 @@ file  /bin/chown            0755  applications/chown/chown
 file  /bin/mediaproviderd   0755  applications/mediaproviderd/mediaproviderd
 file  /bin/content          0755  applications/content/content
 sym   /bin/mediaprovider    -     content
+file  /bin/files            0755  applications/files/files
 file  /bin/mkfs.ext2        0755  applications/mkfs/mkfs.ext2
 sym   /bin/mke2fs           -     mkfs.ext2
 file  /bin/mount_all        0755  port/image/rootfs/bin/mount_all
