@@ -1798,55 +1798,70 @@ static void prepare_lower_storage_dirs(const char *lower_path, int is_usb,
 	/* Lock down raw lower storage mounts so non-root users must go via FUSE */
 	chmod("/data/media", 0700);
 	chmod("/mnt/media_rw", 0700);
-	if (fstype && (strcmp(fstype, "ntfs") == 0 || strcmp(fstype, "erofs") == 0))
+	if (fstype && strcmp(fstype, "erofs") == 0)
 		return;
 	chmod(lower_path, 0700);
 
 	snprintf(path, sizeof(path), "%s/DCIM", lower_path);
-	mkdir(path, 0775);
+	if (lstat(path, &st) < 0) {
+		if (mkdir(path, 0775) < 0 && errno == EROFS)
+			return;
+	}
 	snprintf(path, sizeof(path), "%s/DCIM/Camera", lower_path);
-	mkdir(path, 0775);
+	if (lstat(path, &st) < 0 && mkdir(path, 0775) < 0 && errno == EROFS)
+		return;
 	snprintf(path, sizeof(path), "%s/Pictures", lower_path);
-	mkdir(path, 0775);
+	if (lstat(path, &st) < 0)
+		mkdir(path, 0775);
 	snprintf(path, sizeof(path), "%s/Music", lower_path);
-	mkdir(path, 0775);
+	if (lstat(path, &st) < 0)
+		mkdir(path, 0775);
 	snprintf(path, sizeof(path), "%s/Movies", lower_path);
-	mkdir(path, 0775);
+	if (lstat(path, &st) < 0)
+		mkdir(path, 0775);
 	snprintf(path, sizeof(path), "%s/Download", lower_path);
-	mkdir(path, 0775);
+	if (lstat(path, &st) < 0)
+		mkdir(path, 0775);
 	snprintf(path, sizeof(path), "%s/Documents", lower_path);
-	mkdir(path, 0775);
+	if (lstat(path, &st) < 0)
+		mkdir(path, 0775);
 	snprintf(path, sizeof(path), "%s/Android", lower_path);
-	mkdir(path, 0775);
+	if (lstat(path, &st) < 0)
+		mkdir(path, 0775);
 	snprintf(path, sizeof(path), "%s/Android/data", lower_path);
-	mkdir(path, 0775);
+	if (lstat(path, &st) < 0)
+		mkdir(path, 0775);
 	snprintf(path, sizeof(path), "%s/Android/data/six", lower_path);
-	mkdir(path, 0775);
-	{
+	if (lstat(path, &st) < 0) {
 		int suid = uid_for_username("six");
+		mkdir(path, 0775);
 		if (suid > 0)
 			chown(path, (uid_t)suid, 10);
 	}
 	snprintf(path, sizeof(path), "%s/Android/data/guest", lower_path);
-	mkdir(path, 0775);
-	{
+	if (lstat(path, &st) < 0) {
 		int guid = uid_for_username("guest");
+		mkdir(path, 0775);
 		if (guid > 0)
 			chown(path, (uid_t)guid, 10);
 	}
 
 	if (!is_usb) {
 		snprintf(path, sizeof(path), "%s/DCIM/Camera/IMG_20260927_GPS.jpg", lower_path);
-		write_sample_geotagged_jpeg(path, 640, 480,
-					    "37.4220N", "122.0841W", 0);
+		if (lstat(path, &st) < 0) {
+			write_sample_geotagged_jpeg(path, 640, 480,
+						    "37.4220N", "122.0841W", 0);
+		}
 		snprintf(path, sizeof(path), "%s/Music/synthwave.mp3", lower_path);
 		if (lstat(path, &st) < 0) {
 			write_sample_mp3(path, "Neon SIX", "Kernel 2.0", "Early 2000s", 0);
 		}
 	} else {
 		snprintf(path, sizeof(path), "%s/DCIM/USB_Photo_GPS.jpg", lower_path);
-		write_sample_geotagged_jpeg(path, 800, 600,
-					    "37.4220N", "122.0841W", 0);
+		if (lstat(path, &st) < 0) {
+			write_sample_geotagged_jpeg(path, 800, 600,
+						    "37.4220N", "122.0841W", 0);
+		}
 	}
 }
 
@@ -1860,8 +1875,7 @@ static int mp_mount_volume(const char *vol_id, const char *lower_path,
 	/* Check if already mounted at this upper_path */
 	for (i = 0; i < MAX_VOLUMES; i++) {
 		if (vols[i].active && strcmp(vols[i].upper_path, upper_path) == 0) {
-			if (!fstype || strcmp(fstype, "ntfs") != 0)
-				scan_volume(&vols[i]);
+			scan_volume(&vols[i]);
 			return 0;
 		}
 	}
@@ -1920,8 +1934,7 @@ static int mp_mount_volume(const char *vol_id, const char *lower_path,
 		symlink(upper_path, "/storage/usb");
 	}
 
-	if (!fstype || strcmp(fstype, "ntfs") != 0)
-		scan_volume(vol);
+	scan_volume(vol);
 	return 0;
 }
 

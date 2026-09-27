@@ -355,15 +355,16 @@ if [ "$MODE" = "bin" ]; then
 fi
 
 USB_EXT2_IMG="disk/x86/usb_ext2.img"
-if [ ! -s "$USB_EXT2_IMG" ] || ! file "$USB_EXT2_IMG" 2>/dev/null | grep -q "ext2 filesystem"; then
+if [ "$MODE" = "root" ] || [ ! -s "$USB_EXT2_IMG" ] || ! file "$USB_EXT2_IMG" 2>/dev/null | grep -q "ext2 filesystem"; then
 	USB_STAGE=$(mktemp -d)
-	mkdir -p "$USB_STAGE/DCIM"
+	mkdir -p "$USB_STAGE/Android/data" "$USB_STAGE/DCIM" "$USB_STAGE/Documents" \
+		"$USB_STAGE/Download" "$USB_STAGE/Movies" "$USB_STAGE/Music" "$USB_STAGE/Pictures"
 	cat > "$USB_STAGE/README_USB.txt" <<'EOF'
 === SanDisk Ultra USB 3.0 Flash Drive (ext2) ===
 Label:      SAN_DISK_USB
 UUID:       4A8F-9C21
 Device:     /dev/sda1 (8:1, 2048 KB ext2, host image disk/x86/usb_ext2.img)
-Mounted by: Android vold -> kernel ext2 -> /mnt/media_rw/usb
+Mounted by: Android vold -> kernel ext2 -> /mnt/media_rw/4A8F-9C21 -> /storage/4A8F-9C21
 EOF
 	echo "Camera DCIM sample photo metadata (SanDisk ext2 USB)" > "$USB_STAGE/DCIM/IMG_0001.TXT"
 	fakeroot -- mke2fs -q -F -b 1024 -N 256 -I 128 -O none -m 0 \
@@ -373,33 +374,35 @@ EOF
 fi
 
 USB_EXT4_IMG="disk/x86/usb_ext4.img"
-if [ ! -s "$USB_EXT4_IMG" ]; then
+if [ "$MODE" = "root" ] || [ ! -s "$USB_EXT4_IMG" ]; then
 	USB_STAGE=$(mktemp -d)
-	mkdir -p "$USB_STAGE/DCIM"
+	mkdir -p "$USB_STAGE/Android/data" "$USB_STAGE/DCIM" "$USB_STAGE/Documents" \
+		"$USB_STAGE/Download" "$USB_STAGE/Movies" "$USB_STAGE/Music" "$USB_STAGE/Pictures"
 	cat > "$USB_STAGE/README_USB.txt" <<'EOF'
 === SanDisk Extreme PRO USB 3.1 Flash Drive (ext4) ===
 Label:      SANDISK_EXT4
 UUID:       5B9E-7D31
 Device:     /dev/sda1 (8:1, 2048 KB ext4 with extents, host image disk/x86/usb_ext4.img)
-Mounted by: Android vold -> kernel ext4 -> /mnt/media_rw/usb
+Mounted by: Android vold -> kernel ext4 -> /mnt/media_rw/7B9E-3D10 -> /storage/7B9E-3D10
 EOF
 	echo "Camera DCIM sample photo metadata (SanDisk ext4 USB)" > "$USB_STAGE/DCIM/IMG_0001.TXT"
 	fakeroot -- mke2fs -q -F -t ext4 -b 1024 -N 256 -I 256 \
 		-O "none,has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize,ext_attr,resize_inode,dir_index,filetype,sparse_super,large_file" -m 0 \
-		-L "SANDISK_EXT4" -d "$USB_STAGE" "$USB_EXT4_IMG" 2048 2>/dev/null || true
+		-L "SANDISK_EXT4" -U "7b9e3d10-0000-4000-8000-000000000001" -d "$USB_STAGE" "$USB_EXT4_IMG" 2048 2>/dev/null || true
 	rm -rf "$USB_STAGE"
 fi
 
 USB_EROFS_IMG="disk/x86/usb_erofs.img"
-if [ ! -s "$USB_EROFS_IMG" ]; then
+if [ "$MODE" = "root" ] || [ ! -s "$USB_EROFS_IMG" ]; then
 	USB_STAGE=$(mktemp -d)
-	mkdir -p "$USB_STAGE/DCIM"
+	mkdir -p "$USB_STAGE/Android/data" "$USB_STAGE/DCIM" "$USB_STAGE/Documents" \
+		"$USB_STAGE/Download" "$USB_STAGE/Movies" "$USB_STAGE/Music" "$USB_STAGE/Pictures"
 	cat > "$USB_STAGE/README_USB.txt" <<'EOF'
 === SanDisk Extreme EROFS Read-Only Flash Drive ===
 Label:      SANDISK_EROFS
-UUID:       7E0F-5E1E
+UUID:       E0F5-2026
 Device:     /dev/sda1 (8:1, 2048 KB EROFS v1, host image disk/x86/usb_erofs.img)
-Mounted by: Android vold -> kernel erofs (ro) -> /mnt/media_rw/usb
+Mounted by: Android vold -> kernel erofs (ro) -> /mnt/media_rw/E0F5-2026 -> /storage/E0F5-2026
 EOF
 	echo "Camera DCIM sample photo metadata (SanDisk EROFS USB)" > "$USB_STAGE/DCIM/IMG_0001.TXT"
 	python3 port/image/mkerofs.py \
@@ -412,7 +415,7 @@ EOF
 fi
 
 USB_NTFS_IMG="disk/x86/usb_ntfs.img"
-if [ ! -s "$USB_NTFS_IMG" ]; then
+if [ "$MODE" = "root" ] || [ ! -s "$USB_NTFS_IMG" ]; then
 	MKNTFS=$(command -v mkntfs || command -v /usr/sbin/mkntfs || command -v /sbin/mkntfs || true)
 	NTFSCP=$(command -v ntfscp || command -v /usr/sbin/ntfscp || command -v /sbin/ntfscp || true)
 	if [ -n "$MKNTFS" ] && [ -n "$NTFSCP" ]; then
@@ -422,7 +425,7 @@ if [ ! -s "$USB_NTFS_IMG" ]; then
 Label:      SANDISK_NTFS
 UUID:       6A1B-8E42
 Device:     /dev/sda1 (8:1, 2048 KB NTFS, host image disk/x86/usb_ntfs.img)
-Mounted by: Android vold -> /bin/ntfs-3g (FUSE /dev/fuse) -> /mnt/media_rw/usb
+Mounted by: Android vold -> /bin/ntfs-3g (FUSE /dev/fuse) -> /mnt/media_rw/6A1B-8E42 -> /storage/6A1B-8E42
 EOF
 		dd if=/dev/zero of="$USB_NTFS_IMG" bs=1024 count=2048 status=none
 		"$MKNTFS" -q -F -f -s 512 -c 4096 -p 0 -H 16 -S 63 -L "SANDISK_NTFS" "$USB_NTFS_IMG" >/dev/null 2>&1 || true

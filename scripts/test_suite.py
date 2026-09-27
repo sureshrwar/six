@@ -930,7 +930,7 @@ def main():
             shard_tests=selected,
             repo_root=repo_root,
             timeout=args.timeout,
-            use_temp_workspace=False,
+            use_temp_workspace=True,
             idx_map=idx_map,
             total_tests=len(selected),
         )
