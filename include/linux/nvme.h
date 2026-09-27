@@ -40,6 +40,8 @@ enum nvme_admin_opcode {
 	nvme_admin_abort_cmd		= 0x08,
 	nvme_admin_set_features		= 0x09,
 	nvme_admin_get_features		= 0x0a,
+	nvme_admin_activate_fw		= 0x10,
+	nvme_admin_download_fw		= 0x11,
 	nvme_admin_format_nvm		= 0x80,
 };
 
@@ -81,6 +83,8 @@ enum {
 	NVME_SC_INVALID_NS		= 0x0b,
 	NVME_SC_LBA_RANGE		= 0x80,
 	NVME_SC_READ_ONLY		= 0x82,
+	NVME_SC_FW_SLOT_INVALID		= 0x106,
+	NVME_SC_FW_IMAGE_ERROR		= 0x107,
 };
 
 /*
@@ -256,6 +260,19 @@ struct nvme_smart_log {
 	unsigned int	sectors_read_total;
 	unsigned int	sectors_written_total;
 	unsigned char	rsvd236[276];
+};
+
+/*
+ * Firmware Slot Information Log Page (LID 0x03, 512 bytes)
+ */
+struct nvme_fw_slot_info_log {
+	unsigned char	afi;		/* Bits 2:0: Active FW Slot, Bits 6:4: Next Reset Slot */
+	unsigned char	rsvd1[7];
+	char		frs[7][8];	/* Firmware Revision for Slot 1..7 (8-byte ASCII) */
+	/* SIX extended telemetry: SHA-256 digest of firmware in Slot 1..2 */
+	unsigned char	slot_sha256[2][32];
+	unsigned int	fw_commit_count;
+	unsigned char	rsvd132[380];
 };
 
 /*

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<components origin="lvfs" version="0.9">
+  <component type="firmware">
+    <id>org.six.nvme.firmware</id>
+    <name>SIX Virtual NVMe SSD Controller</name>
+    <summary>NVM Express 1.4 Controller Firmware for SIX (/dev/nvme0)</summary>
+    <developer_name>SIX Storage Engineering</developer_name>
+    <provides>
+      <firmware type="flashed">b585990a-003e-5270-89d5-3705a17f9a43</firmware>
+    </provides>
+    <custom>
+      <value key="LVFS::UpdateProtocol">org.nvmexpress</value>
+      <value key="LVFS::Plugin">nvme</value>
+    </custom>
+    <releases>
+      <release version="1.4.2" timestamp="1790517600" urgency="high">
+        <location>file:///etc/fwupd/remotes.d/lvfs/packages/six-nvme-ssd-1.4.2.fw</location>
+        <description>
+          <p>Optimize Admin/IO Queue doorbell latency and DSM/TRIM wear leveling</p>
+        </description>
+      </release>
+    </releases>
+  </component>
+  <component type="firmware">
+    <id>org.six.ufs.firmware</id>
+    <name>SIX JEDEC UFS 4.0 Flash Controller</name>
+    <summary>JEDEC UFS 4.0 / SPC-4 Controller Firmware for SIX (/dev/ufs-bsg0)</summary>
+    <developer_name>SIX-JEDEC Semiconductor</developer_name>
+    <provides>
+      <firmware type="flashed">e4a761c2-891b-5c34-a120-9f8e7d6c5b4a</firmware>
+    </provides>
+    <custom>
+      <value key="LVFS::UpdateProtocol">org.t10.scsi.write_buffer</value>
+      <value key="LVFS::Plugin">scsi</value>
+    </custom>
+    <releases>
+      <release version="4.10" timestamp="1790517600" urgency="medium">
+        <location>file:///etc/fwupd/remotes.d/lvfs/packages/six-ufs-flash-4.10.fw</location>
+        <description>
+          <p>Improve HS-Gear5 UniPro link stability and SLC WriteBooster flush policy</p>
+        </description>
+      </release>
+    </releases>
+  </component>
+  <component type="firmware">
+    <id>org.six.usb_scsi.firmware</id>
+    <name>SIX USB Mass Storage SCSI Disk</name>
+    <summary>SPC-4 USB Mass Storage BOT Disk Firmware for SIX (/dev/sda)</summary>
+    <developer_name>SAN_DISK Storage</developer_name>
+    <provides>
+      <firmware type="flashed">7c3d2e1f-4b5a-5890-9123-456789abcdef</firmware>
+    </provides>
+    <custom>
+      <value key="LVFS::UpdateProtocol">org.t10.scsi.write_buffer</value>
+      <value key="LVFS::Plugin">scsi</value>
+    </custom>
+    <releases>
+      <release version="1.10" timestamp="1790517600" urgency="medium">
+        <location>file:///etc/fwupd/remotes.d/lvfs/packages/six-usb-scsi-1.10.fw</location>
+        <description>
+          <p>Fix USB Mass Storage BOT SCSI sense reporting on hotplug transitions</p>
+        </description>
+      </release>
+    </releases>
+  </component>
+</components>

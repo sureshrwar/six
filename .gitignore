@@ -178,6 +178,7 @@ applications/*/content
 applications/*/files
 applications/*/nvme
 applications/*/ufs
+applications/*/fwupdmgr
 applications/ntfs-3g/ntfs-3g
 applications/ntfs-3g/ntfs-3g.probe
 applications/ntfs-3g/mkntfs

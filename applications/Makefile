@@ -140,7 +140,8 @@ SUBDIRS	=	start \
 		content \
 		files \
 		nvme \
-		ufs
+		ufs \
+		fwupd
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

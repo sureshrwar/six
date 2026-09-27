@@ -30,6 +30,7 @@
 #include <linux/string.h>
 #include <linux/blk.h>
 #include <linux/ufs.h>
+#include <linux/fwupd.h>
 #include <asm/segment.h>
 #include <asm/system.h>
 
@@ -100,6 +101,14 @@ static unsigned long ufs_unmap_sectors = 0;
 static unsigned long ufs_rpmb_writes = 0;
 static unsigned long ufs_rpmb_reads = 0;
 static unsigned long ufs_rpmb_auth_fails = 0;
+
+/* UFS Field Firmware Update (FFU via SCSI WRITE_BUFFER 0x3B) state */
+static unsigned char ufs_fw_staging[8192];
+static unsigned int ufs_fw_staged_len = 0;
+static char ufs_fw_rev[8] = "4.00";
+static unsigned short ufs_device_version = 0x0400;
+static unsigned char ufs_fw_sha256[32];
+static unsigned int ufs_ffu_count = 0;
 
 static int ufs_sizes[UFS_MAX_MINORS];
 static int ufs_blocksizes[UFS_MAX_MINORS];
@@ -290,7 +299,7 @@ static void ufs_fill_device_desc(struct ufs_device_desc *d)
 	d->bDeviceRTTCap = 2;
 	d->bUFSFeaturesSupport = 0x81; /* WriteBooster + HS-G5 */
 	d->bQueueDepth = UFS_UTRL_DEPTH;
-	d->wDeviceVersion = 0x0400;
+	d->wDeviceVersion = ufs_device_version;
 	d->bNumSecureWPArea = 4;
 	d->dExtendedUFSFeaturesSupport = 0x00000100U; /* WriteBooster */
 	d->bWriteBoosterBufferPreserveUserSpaceEn = 1;
@@ -543,15 +552,96 @@ static void ufs_exec_scsi_upiu(struct ufs_utrd_entry *e)
 
 	case UFS_SCSI_INQUIRY:
 		if (buf && e->exp_data_len >= 36) {
-			memset(buf, 0, 36);
+			memset(buf, 0, e->exp_data_len);
 			buf[0] = 0x00; /* Direct access block device */
 			buf[2] = 0x06; /* SPC-4 */
 			buf[3] = 0x02;
-			buf[4] = 31;
-			memcpy(buf + 8,  "SIX-UFS4", 8);
-			memcpy(buf + 16, ufs_luns[lun].dev_name, 4);
-			memcpy(buf + 32, "4.00", 4);
+			buf[4] = (e->exp_data_len >= 68) ? 63 : 31;
+			memcpy(buf + 8,  "SIX-JEDC", 8);
+			memcpy(buf + 16, "SIX-UFS-4.0-CHIP", 16);
+			memcpy(buf + 32, ufs_fw_rev, 4);
+			if (e->exp_data_len >= 68)
+				memcpy(buf + 36, ufs_fw_sha256, 32);
 		}
+		return;
+
+	case UFS_SCSI_WRITE_BUFFER: {
+		unsigned char mode = e->cdb[1] & 0x1f;
+		unsigned int buf_off = ((unsigned int)e->cdb[3] << 16) |
+				       ((unsigned int)e->cdb[4] << 8) |
+				       ((unsigned int)e->cdb[5]);
+		unsigned int param_len = ((unsigned int)e->cdb[6] << 16) |
+					 ((unsigned int)e->cdb[7] << 8) |
+					 ((unsigned int)e->cdb[8]);
+
+		if (mode == SCSI_WB_MODE_DOWNLOAD_OFFSET_SAVE ||
+		    mode == SCSI_WB_MODE_DOWNLOAD_SAVE) {
+			if (!buf || param_len == 0 ||
+			    buf_off + param_len > sizeof(ufs_fw_staging)) {
+				e->hdr.status = 0x02;
+				return;
+			}
+			if (buf_off == 0) {
+				memset(ufs_fw_staging, 0, sizeof(ufs_fw_staging));
+				ufs_fw_staged_len = 0;
+			}
+			memcpy(ufs_fw_staging + buf_off, buf, param_len);
+			if (buf_off + param_len > ufs_fw_staged_len)
+				ufs_fw_staged_len = buf_off + param_len;
+			if (mode == SCSI_WB_MODE_DOWNLOAD_OFFSET_SAVE)
+				return;
+		}
+
+		if (mode == SCSI_WB_MODE_ACTIVATE_DEFERRED ||
+		    mode == SCSI_WB_MODE_DOWNLOAD_SAVE) {
+			const struct fwupd_capsule_hdr *hdr;
+			unsigned char calc_sha256[32];
+
+			if (ufs_fw_staged_len < sizeof(struct fwupd_capsule_hdr)) {
+				e->hdr.status = 0x02;
+				return;
+			}
+			hdr = (const struct fwupd_capsule_hdr *)ufs_fw_staging;
+			if (hdr->magic != FWUPD_CAPSULE_MAGIC ||
+			    strcmp(hdr->device_id, FWUPD_DEVID_UFS) != 0 ||
+			    hdr->payload_len == 0 ||
+			    sizeof(*hdr) + hdr->payload_len > ufs_fw_staged_len) {
+				printk("ufshcd0: SCSI WRITE_BUFFER FFU REJECTED (invalid capsule header)\n");
+				e->hdr.status = 0x02;
+				return;
+			}
+			fwupd_sha256(ufs_fw_staging + sizeof(*hdr), hdr->payload_len, calc_sha256);
+			if (memcmp(calc_sha256, hdr->sha256, 32) != 0) {
+				printk("ufshcd0: SCSI WRITE_BUFFER FFU REJECTED (SHA-256 mismatch)\n");
+				e->hdr.status = 0x02;
+				return;
+			}
+			memset(ufs_fw_rev, ' ', 4);
+			ufs_fw_rev[4] = '\0';
+			strncpy(ufs_fw_rev, hdr->fw_version, 4);
+			ufs_fw_rev[4] = '\0';
+			memcpy(ufs_fw_sha256, hdr->sha256, 32);
+			if (hdr->fw_version[0] >= '0' && hdr->fw_version[0] <= '9' &&
+			    hdr->fw_version[2] >= '0' && hdr->fw_version[2] <= '9') {
+				unsigned int maj = (unsigned int)(hdr->fw_version[0] - '0');
+				unsigned int min = (unsigned int)(hdr->fw_version[2] - '0');
+				unsigned int sub = (hdr->fw_version[3] >= '0' && hdr->fw_version[3] <= '9')
+						   ? (unsigned int)(hdr->fw_version[3] - '0') : 0;
+				ufs_device_version = (unsigned short)((maj << 8) | (min << 4) | sub);
+			}
+			ufs_ffu_count++;
+			printk("ufshcd0: SCSI WRITE_BUFFER FFU activated rev=%s (wDeviceVersion=0x%04x)\n",
+			       ufs_fw_rev, ufs_device_version);
+			return;
+		}
+
+		e->hdr.status = 0x02;
+		return;
+	}
+
+	case UFS_SCSI_READ_BUFFER:
+		if (buf && e->exp_data_len >= 32)
+			memcpy(buf, ufs_fw_sha256, 32);
 		return;
 
 	case UFS_SCSI_READ_CAPACITY_10:
@@ -845,7 +935,7 @@ static int ufs_handle_scsi_ioctl(unsigned long arg)
 	struct ufs_bsg_scsi_ioctl sc;
 	struct ufs_utrd_entry utrd;
 	unsigned int xfer_len;
-	int err, rc;
+	int err, rc, is_write;
 
 	if (!arg)
 		return -EINVAL;
@@ -859,7 +949,11 @@ static int ufs_handle_scsi_ioctl(unsigned long arg)
 		xfer_len = sizeof(ufs_bounce_buf);
 	memset(ufs_bounce_buf, 0, sizeof(ufs_bounce_buf));
 
-	if (xfer_len > 0 && sc.data_addr && sc.opcode == UFS_SCSI_WRITE_10) {
+	is_write = (sc.opcode == UFS_SCSI_WRITE_10 ||
+		    sc.opcode == UFS_SCSI_WRITE_BUFFER ||
+		    sc.opcode == UFS_SCSI_SECURITY_PROT_OUT);
+
+	if (xfer_len > 0 && sc.data_addr && is_write) {
 		err = verify_area(VERIFY_READ, (void *)sc.data_addr, xfer_len);
 		if (err)
 			return err;
@@ -872,17 +966,28 @@ static int ufs_handle_scsi_ioctl(unsigned long arg)
 	utrd.exp_data_len = xfer_len;
 	utrd.data_addr = (unsigned long)ufs_bounce_buf;
 	utrd.cdb[0] = sc.opcode;
-	utrd.cdb[2] = (unsigned char)((sc.lba >> 24) & 0xff);
-	utrd.cdb[3] = (unsigned char)((sc.lba >> 16) & 0xff);
-	utrd.cdb[4] = (unsigned char)((sc.lba >> 8) & 0xff);
-	utrd.cdb[5] = (unsigned char)(sc.lba & 0xff);
-	utrd.cdb[7] = (unsigned char)((sc.blocks >> 8) & 0xff);
-	utrd.cdb[8] = (unsigned char)(sc.blocks & 0xff);
+	if (sc.opcode == UFS_SCSI_WRITE_BUFFER || sc.opcode == UFS_SCSI_READ_BUFFER) {
+		utrd.cdb[1] = (unsigned char)(sc.rsvd & 0x1f);
+		utrd.cdb[2] = (unsigned char)((sc.rsvd >> 8) & 0xff);
+		utrd.cdb[3] = (unsigned char)((sc.lba >> 16) & 0xff);
+		utrd.cdb[4] = (unsigned char)((sc.lba >> 8) & 0xff);
+		utrd.cdb[5] = (unsigned char)(sc.lba & 0xff);
+		utrd.cdb[6] = (unsigned char)((xfer_len >> 16) & 0xff);
+		utrd.cdb[7] = (unsigned char)((xfer_len >> 8) & 0xff);
+		utrd.cdb[8] = (unsigned char)(xfer_len & 0xff);
+	} else {
+		utrd.cdb[2] = (unsigned char)((sc.lba >> 24) & 0xff);
+		utrd.cdb[3] = (unsigned char)((sc.lba >> 16) & 0xff);
+		utrd.cdb[4] = (unsigned char)((sc.lba >> 8) & 0xff);
+		utrd.cdb[5] = (unsigned char)(sc.lba & 0xff);
+		utrd.cdb[7] = (unsigned char)((sc.blocks >> 8) & 0xff);
+		utrd.cdb[8] = (unsigned char)(sc.blocks & 0xff);
+	}
 
 	rc = ufs_submit_upiu(&utrd);
 	sc.status = utrd.hdr.status;
 
-	if (rc == 0 && xfer_len > 0 && sc.data_addr && sc.opcode != UFS_SCSI_WRITE_10) {
+	if (rc == 0 && xfer_len > 0 && sc.data_addr && !is_write) {
 		err = verify_area(VERIFY_WRITE, (void *)sc.data_addr, xfer_len);
 		if (err)
 			return err;
@@ -1176,7 +1281,7 @@ int get_ufs_proc_info(char *buf)
 
 	len += sprintf(buf + len,
 		"UFS Host Controller: /dev/ufs-bsg0 (char %d:0, UFSHCI v4.0, MIPI UniPro/M-PHY)\n"
-		"Model / Serial:      SIX-UFS-4.0-5M-CHIP / SIX-UFS4-2026-0001 (JEDEC UFS 4.0)\n"
+		"Model / Serial:      SIX-UFS-4.0-5M-CHIP / SIX-UFS4-2026-0001 (JEDEC UFS 4.0, FW %s)\n"
 		"UniPro Link State:   HS-Gear5 Rate-B (2 Lanes TX/RX, FastMode 0x11)\n"
 		"Controller Regs:     CAP=0x%08x VER=0x%08x HCS=0x%08x HCE=0x%08x\n"
 		"Host Flash Image:    %s (%lu KB / %lu MB unified chip image)\n"
@@ -1201,6 +1306,7 @@ int get_ufs_proc_info(char *buf)
 		"  RPMB Auth Key:        %s (Write Counter: %u)\n"
 		"  RPMB Operations:      %lu writes, %lu reads, %lu auth failures\n",
 		UFS_CHR_MAJOR,
+		ufs_fw_rev,
 		ufs_reg_cap, ufs_reg_ver, ufs_reg_hcs, ufs_reg_hce,
 		ufs_img_path, UFS_IMG_TOTAL_BYTES >> 10, UFS_IMG_TOTAL_BYTES >> 20,
 		ufs_hdr.boot_lun_id, active_slot,
@@ -1232,6 +1338,10 @@ int ufs_init(void)
 
 	memset(&ufs_utrl, 0, sizeof(ufs_utrl));
 	ufs_utrl.depth = UFS_UTRL_DEPTH;
+
+	fwupd_build_microcode(FWUPD_DEVID_UFS, "4.00",
+			      ufs_bounce_buf, FWUPD_DEFAULT_PAYLOAD_SIZE,
+			      ufs_fw_sha256);
 
 	env_path = getenv("UFSDISKFILE");
 	if (env_path && env_path[0]) {

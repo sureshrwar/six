@@ -208,6 +208,8 @@ sym   /bin/mediaprovider    -     content
 file  /bin/files            0755  applications/files/files
 file  /bin/nvme             0755  applications/nvme/nvme
 file  /bin/ufs              0755  applications/ufs/ufs
+file  /bin/fwupdmgr         0755  applications/fwupd/fwupdmgr
+sym   /bin/fwupdtool        -     fwupdmgr
 file  /bin/mkfs.ext2        0755  applications/mkfs/mkfs.ext2
 sym   /bin/mke2fs           -     mkfs.ext2
 file  /bin/mount_all        0755  port/image/rootfs/bin/mount_all
@@ -229,6 +231,11 @@ file  /etc/init             0755  applications/init/init
 file  /etc/fstab            0644  port/image/rootfs/etc/fstab
 file  /etc/hostname         0644  port/image/rootfs/etc/hostname
 file  /etc/hosts                  0644  port/image/rootfs/etc/hosts
+dir   /etc/fwupd                  0755
+file  /etc/fwupd/daemon.conf      0644  port/image/rootfs/etc/fwupd/daemon.conf
+dir   /etc/fwupd/remotes.d        0755
+dir   /etc/fwupd/remotes.d/lvfs   0755
+file  /etc/fwupd/remotes.d/lvfs/metadata.xml 0644 port/image/rootfs/etc/fwupd/remotes.d/lvfs/metadata.xml
 dir   /etc/demos                  0755
 file  /etc/demos/hello.c          0644  applications/tcc/test_hello.c
 file  /etc/demos/pthread_demo.c   0644  applications/tcc/test_pthread.c

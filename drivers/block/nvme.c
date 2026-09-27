@@ -31,6 +31,7 @@
 #include <linux/string.h>
 #include <linux/blk.h>
 #include <linux/nvme.h>
+#include <linux/fwupd.h>
 #include <asm/segment.h>
 #include <asm/system.h>
 
@@ -44,7 +45,7 @@ struct nvme_queue {
 	unsigned short		cq_head;
 	unsigned short		cq_tail;
 	unsigned char		cq_phase;
-	unsigned char		 cq_expected_phase;
+	unsigned char		cq_expected_phase;
 	unsigned short		next_cid;
 	unsigned long		sq_doorbell_writes;
 	unsigned long		cq_doorbell_writes;
@@ -79,6 +80,17 @@ static unsigned long smart_dsm_sectors_trimmed = 0;
 static unsigned long smart_media_errors = 0;
 static unsigned long smart_power_cycles = 1;
 
+/* NVMe Firmware Slot (LID 0x03) & Firmware Image Download (0x11) state */
+static unsigned char nvme_fw_staging[8192];
+static unsigned int nvme_fw_staged_len = 0;
+static unsigned char nvme_active_fw_slot = 1;
+static char nvme_fw_slots[2][8] = {
+	{ '1', '.', '4', '.', '0', ' ', ' ', ' ' },
+	{ ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ' }
+};
+static unsigned char nvme_fw_slot_sha256[2][32];
+static unsigned int nvme_fw_commit_count = 0;
+
 static int nvme_sizes[NVME_MAX_MINORS];
 static int nvme_blocksizes[NVME_MAX_MINORS];
 static struct hd_struct nvme_part[NVME_MAX_MINORS];
@@ -111,8 +123,7 @@ static void nvme_fill_id_ctrl(struct nvme_id_ctrl *ctrl)
 	memset(ctrl->mn, ' ', sizeof(ctrl->mn));
 	memcpy(ctrl->mn, "SIX Virtual NVMe SSD Controller", 31);
 
-	memset(ctrl->fr, ' ', sizeof(ctrl->fr));
-	memcpy(ctrl->fr, "1.4.0", 5);
+	memcpy(ctrl->fr, nvme_fw_slots[(nvme_active_fw_slot == 2) ? 1 : 0], 8);
 
 	ctrl->rab = 6;
 	ctrl->ieee[0] = 0x54;
@@ -121,10 +132,10 @@ static void nvme_fill_id_ctrl(struct nvme_id_ctrl *ctrl)
 	ctrl->mdts = 5;		/* 2^5 * 4KB = 128 KB max transfer */
 	ctrl->cntlid = 1;
 	ctrl->ver = NVME_VS(1, 4, 0);
-	ctrl->oacs = 0x0002;	/* Format NVM supported */
+	ctrl->oacs = 0x0006;	/* Format NVM (0x2) + FW Commit/Download (0x4) */
 	ctrl->acl = 3;
 	ctrl->aerl = 3;
-	ctrl->frmw = 0x12;	/* 1 slot, read-only */
+	ctrl->frmw = 0x15;	/* Slot 1 RO, 2 FW slots, Activate Without Reset */
 	ctrl->lpa = 0x02;	/* SMART / Health log per-NS supported */
 	ctrl->elpe = 63;
 	ctrl->npss = 0;
@@ -217,6 +228,18 @@ static void nvme_fill_smart_log(struct nvme_smart_log *log)
 	log->sectors_written_total = (unsigned int)smart_sectors_written;
 }
 
+static void nvme_fill_fw_slot_log(struct nvme_fw_slot_info_log *log)
+{
+	memset(log, 0, sizeof(*log));
+	log->afi = (unsigned char)((nvme_active_fw_slot & 0x07) |
+				   ((nvme_active_fw_slot & 0x07) << 4));
+	memcpy(log->frs[0], nvme_fw_slots[0], 8);
+	memcpy(log->frs[1], nvme_fw_slots[1], 8);
+	memcpy(log->slot_sha256[0], nvme_fw_slot_sha256[0], 32);
+	memcpy(log->slot_sha256[1], nvme_fw_slot_sha256[1], 32);
+	log->fw_commit_count = nvme_fw_commit_count;
+}
+
 static void nvme_exec_admin_sqe(const struct nvme_command *cmd,
 				unsigned int *out_result,
 				unsigned short *out_status)
@@ -259,11 +282,104 @@ static void nvme_exec_admin_sqe(const struct nvme_command *cmd,
 		}
 		if (lid == NVME_LOG_SMART) {
 			nvme_fill_smart_log((struct nvme_smart_log *)dst);
-		} else if (lid == NVME_LOG_ERROR || lid == NVME_LOG_FW_SLOT) {
+		} else if (lid == NVME_LOG_FW_SLOT) {
+			nvme_fill_fw_slot_log((struct nvme_fw_slot_info_log *)dst);
+		} else if (lid == NVME_LOG_ERROR) {
 			memset(dst, 0, 512);
 		} else {
 			*out_status = NVME_SC_INVALID_FIELD;
 		}
+		return;
+	}
+
+	case nvme_admin_download_fw: {
+		unsigned int numd = cmd->cdw10;
+		unsigned int ofst = cmd->cdw11;
+		unsigned int bytes = (numd + 1U) * 4U;
+		unsigned int offset = ofst * 4U;
+		void *src = (void *)cmd->prp1_lo;
+
+		if (!src || bytes == 0 || offset + bytes > sizeof(nvme_fw_staging)) {
+			*out_status = NVME_SC_INVALID_FIELD;
+			return;
+		}
+		if (offset == 0) {
+			memset(nvme_fw_staging, 0, sizeof(nvme_fw_staging));
+			nvme_fw_staged_len = 0;
+		}
+		memcpy(nvme_fw_staging + offset, src, bytes);
+		if (offset + bytes > nvme_fw_staged_len)
+			nvme_fw_staged_len = offset + bytes;
+		return;
+	}
+
+	case nvme_admin_activate_fw: {
+		unsigned int fs = cmd->cdw10 & 0x07;
+		unsigned int ca = (cmd->cdw10 >> 3) & 0x07;
+		const struct fwupd_capsule_hdr *hdr;
+		unsigned char calc_sha256[32];
+		int i, vlen;
+
+		if (fs == 0)
+			fs = 2; /* Default writable firmware slot is Slot 2 */
+		if (fs < 1 || fs > 2) {
+			*out_status = NVME_SC_FW_SLOT_INVALID;
+			return;
+		}
+
+		/* CA=2: Activate existing firmware image in slot `fs` without downloading */
+		if (ca == 2) {
+			if (nvme_fw_slots[fs - 1][0] == ' ' || nvme_fw_slots[fs - 1][0] == '\0') {
+				*out_status = NVME_SC_FW_IMAGE_ERROR;
+				return;
+			}
+			nvme_active_fw_slot = (unsigned char)fs;
+			nvme_fw_commit_count++;
+			printk("nvme0: Firmware Commit (CA=2): switched active slot to Slot %u (%.8s)\n",
+			       fs, nvme_fw_slots[fs - 1]);
+			return;
+		}
+
+		/* CA=0, 1, 3: Validate staged firmware capsule header & SHA-256 signature */
+		if (fs == 1) {
+			/* Slot 1 is factory read-only per ctrl.frmw bit 0 */
+			*out_status = NVME_SC_READ_ONLY;
+			return;
+		}
+		if (nvme_fw_staged_len < sizeof(struct fwupd_capsule_hdr)) {
+			*out_status = NVME_SC_FW_IMAGE_ERROR;
+			return;
+		}
+		hdr = (const struct fwupd_capsule_hdr *)nvme_fw_staging;
+		if (hdr->magic != FWUPD_CAPSULE_MAGIC ||
+		    strcmp(hdr->device_id, FWUPD_DEVID_NVME) != 0 ||
+		    hdr->payload_len == 0 ||
+		    sizeof(*hdr) + hdr->payload_len > nvme_fw_staged_len) {
+			printk("nvme0: Firmware Commit REJECTED (invalid capsule header or target ID)\n");
+			*out_status = NVME_SC_FW_IMAGE_ERROR;
+			return;
+		}
+
+		fwupd_sha256(nvme_fw_staging + sizeof(*hdr), hdr->payload_len, calc_sha256);
+		if (memcmp(calc_sha256, hdr->sha256, 32) != 0) {
+			printk("nvme0: Firmware Commit REJECTED (SHA-256 signature mismatch)\n");
+			*out_status = NVME_SC_FW_IMAGE_ERROR;
+			return;
+		}
+
+		memset(nvme_fw_slots[fs - 1], ' ', 8);
+		vlen = (int)strlen(hdr->fw_version);
+		if (vlen > 8)
+			vlen = 8;
+		for (i = 0; i < vlen; i++)
+			nvme_fw_slots[fs - 1][i] = hdr->fw_version[i];
+		memcpy(nvme_fw_slot_sha256[fs - 1], hdr->sha256, 32);
+
+		if (ca == 1 || ca == 3)
+			nvme_active_fw_slot = (unsigned char)fs;
+		nvme_fw_commit_count++;
+		printk("nvme0: Firmware Commit (CA=%u): installed rev %s into Slot %u (ACTIVE)\n",
+		       ca, hdr->fw_version, fs);
 		return;
 	}
 
@@ -907,6 +1023,7 @@ int get_nvme_proc_info(char *buf)
 	unsigned long used_sectors = nvme_sectors;
 	unsigned long du_read = (smart_sectors_read + 999UL) / 1000UL;
 	unsigned long du_written = (smart_sectors_written + 999UL) / 1000UL;
+	const char *active_fr = nvme_fw_slots[(nvme_active_fw_slot == 2) ? 1 : 0];
 
 	if (smart_sectors_read > 0 && du_read == 0)
 		du_read = 1;
@@ -918,7 +1035,7 @@ int get_nvme_proc_info(char *buf)
 	len += sprintf(buf + len,
 		"NVMe Controller:   /dev/nvme0 (char %d:0, PCIe 0000:01:00.0)\n"
 		"Model / Serial:    SIX Virtual NVMe SSD Controller / SIX-NVME-2026-0001\n"
-		"Firmware / Spec:   1.4.0 (NVMe 1.4, VS=0x%08x, CAP=0x%08x%08x)\n"
+		"Firmware / Spec:   %.8s (Active Slot %u, Slot1=%.8s [RO], Slot2=%.8s [RW], NVMe 1.4, VS=0x%08x)\n"
 		"Controller Regs:   CC=0x%08x (EN=1, IOSQES=64B, IOCQES=16B) CSTS=0x%08x (RDY=1)\n"
 		"Namespace 1:       /dev/nvme0n1 (block %d:0, host=%s)\n"
 		"Capacity / LBA:    %lu sectors (%lu KB / %lu MB), LBAF0=512B, allocated=%lu\n"
@@ -940,7 +1057,9 @@ int get_nvme_proc_info(char *buf)
 		"  Power Cycles:         %lu\n"
 		"  Media Errors:         %lu\n",
 		NVME_CHR_MAJOR,
-		nvme_reg_vs, nvme_reg_cap_hi, nvme_reg_cap_lo,
+		active_fr, nvme_active_fw_slot, nvme_fw_slots[0],
+		(nvme_fw_slots[1][0] != ' ') ? nvme_fw_slots[1] : "empty   ",
+		nvme_reg_vs,
 		nvme_reg_cc, nvme_reg_csts,
 		NVME_MAJOR, nvme_img_path,
 		nvme_sectors, nvme_sectors >> 1, nvme_sectors >> 11, used_sectors,
@@ -973,6 +1092,12 @@ int nvme_init(void)
 
 	nvme_init_queue(&nvme_admin_q, 0, NVME_AQ_DEPTH);
 	nvme_init_queue(&nvme_io_q, 1, NVME_IOQ_DEPTH);
+
+	/* Initialize Slot 1 factory firmware ("1.4.0") cryptographic SHA-256 digest */
+	memset(nvme_fw_slot_sha256, 0, sizeof(nvme_fw_slot_sha256));
+	fwupd_build_microcode(FWUPD_DEVID_NVME, "1.4.0",
+			      nvme_admin_bounce, FWUPD_DEFAULT_PAYLOAD_SIZE,
+			      nvme_fw_slot_sha256[0]);
 
 	env_path = getenv("NVMEDISKFILE");
 	if (env_path && env_path[0]) {

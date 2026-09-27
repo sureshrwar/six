@@ -24,6 +24,8 @@
 #include <linux/major.h>
 #include <linux/string.h>
 #include <linux/blk.h>
+#include <linux/ufs.h>
+#include <linux/fwupd.h>
 #include <asm/segment.h>
 #include <asm/system.h>
 
@@ -36,6 +38,13 @@ static char usb_sd_label[32] = "SAN_DISK_USB";
 static char usb_sd_uuid[32] = "4A8F-9C21";
 static char usb_sd_fstype[16] = "ext2";
 static char usb_sd_img_path[64] = "./disk/x86/usb_ext2.img";
+
+/* SCSI Field Firmware Update (FFU via WRITE_BUFFER 0x3B) state for /dev/sda */
+static unsigned char usb_sd_fw_staging[8192];
+static unsigned int usb_sd_fw_staged_len = 0;
+static char usb_sd_fw_rev[8] = "1.00";
+static unsigned char usb_sd_fw_sha256[32];
+static unsigned char usb_sd_scsi_bounce[4096];
 
 static int sd_sizes[USB_SD_MAX_MINORS];
 static int sd_blocksizes[USB_SD_MAX_MINORS];
@@ -287,6 +296,133 @@ void do_sd_request(void)
 	}
 }
 
+static int usb_sd_handle_scsi_ioctl(unsigned long arg)
+{
+	struct ufs_bsg_scsi_ioctl sc;
+	unsigned int xfer_len;
+	int err, is_write;
+
+	if (!arg)
+		return -EINVAL;
+	err = verify_area(VERIFY_WRITE, (void *)arg, sizeof(sc));
+	if (err)
+		return err;
+	memcpy_fromfs(&sc, (void *)arg, sizeof(sc));
+
+	xfer_len = sc.data_len;
+	if (xfer_len > sizeof(usb_sd_scsi_bounce))
+		xfer_len = sizeof(usb_sd_scsi_bounce);
+	memset(usb_sd_scsi_bounce, 0, sizeof(usb_sd_scsi_bounce));
+
+	is_write = (sc.opcode == UFS_SCSI_WRITE_10 ||
+		    sc.opcode == UFS_SCSI_WRITE_BUFFER);
+	if (xfer_len > 0 && sc.data_addr && is_write) {
+		err = verify_area(VERIFY_READ, (void *)sc.data_addr, xfer_len);
+		if (err)
+			return err;
+		memcpy_fromfs(usb_sd_scsi_bounce, (void *)sc.data_addr, xfer_len);
+	}
+
+	sc.status = 0x00;
+	switch (sc.opcode) {
+	case UFS_SCSI_TEST_UNIT_READY:
+	case UFS_SCSI_SYNC_CACHE_10:
+		break;
+
+	case UFS_SCSI_INQUIRY:
+		if (xfer_len >= 36) {
+			usb_sd_scsi_bounce[0] = 0x00; /* Direct access block device */
+			usb_sd_scsi_bounce[1] = 0x80; /* RMB=1 (Removable Media) */
+			usb_sd_scsi_bounce[2] = 0x06; /* SPC-4 */
+			usb_sd_scsi_bounce[3] = 0x02;
+			usb_sd_scsi_bounce[4] = (xfer_len >= 68) ? 63 : 31;
+			memcpy(usb_sd_scsi_bounce + 8,  "SAN_DISK", 8);
+			memcpy(usb_sd_scsi_bounce + 16, "SIX USB SCSI DSK", 16);
+			memcpy(usb_sd_scsi_bounce + 32, usb_sd_fw_rev, 4);
+			if (xfer_len >= 68)
+				memcpy(usb_sd_scsi_bounce + 36, usb_sd_fw_sha256, 32);
+		}
+		break;
+
+	case UFS_SCSI_WRITE_BUFFER: {
+		unsigned char mode = (unsigned char)(sc.rsvd & 0x1f);
+		unsigned int buf_off = sc.lba;
+
+		if (mode == SCSI_WB_MODE_DOWNLOAD_OFFSET_SAVE ||
+		    mode == SCSI_WB_MODE_DOWNLOAD_SAVE) {
+			if (xfer_len == 0 || buf_off + xfer_len > sizeof(usb_sd_fw_staging)) {
+				sc.status = 0x02;
+				break;
+			}
+			if (buf_off == 0) {
+				memset(usb_sd_fw_staging, 0, sizeof(usb_sd_fw_staging));
+				usb_sd_fw_staged_len = 0;
+			}
+			memcpy(usb_sd_fw_staging + buf_off, usb_sd_scsi_bounce, xfer_len);
+			if (buf_off + xfer_len > usb_sd_fw_staged_len)
+				usb_sd_fw_staged_len = buf_off + xfer_len;
+			if (mode == SCSI_WB_MODE_DOWNLOAD_OFFSET_SAVE)
+				break;
+		}
+
+		if (mode == SCSI_WB_MODE_ACTIVATE_DEFERRED ||
+		    mode == SCSI_WB_MODE_DOWNLOAD_SAVE) {
+			const struct fwupd_capsule_hdr *hdr;
+			unsigned char calc_sha256[32];
+
+			if (usb_sd_fw_staged_len < sizeof(struct fwupd_capsule_hdr)) {
+				sc.status = 0x02;
+				break;
+			}
+			hdr = (const struct fwupd_capsule_hdr *)usb_sd_fw_staging;
+			if (hdr->magic != FWUPD_CAPSULE_MAGIC ||
+			    strcmp(hdr->device_id, FWUPD_DEVID_USB_SCSI) != 0 ||
+			    hdr->payload_len == 0 ||
+			    sizeof(*hdr) + hdr->payload_len > usb_sd_fw_staged_len) {
+				printk("sd 0:0:0:0: [sda] SCSI WRITE_BUFFER FFU REJECTED (invalid header)\n");
+				sc.status = 0x02;
+				break;
+			}
+			fwupd_sha256(usb_sd_fw_staging + sizeof(*hdr), hdr->payload_len, calc_sha256);
+			if (memcmp(calc_sha256, hdr->sha256, 32) != 0) {
+				printk("sd 0:0:0:0: [sda] SCSI WRITE_BUFFER FFU REJECTED (SHA-256 mismatch)\n");
+				sc.status = 0x02;
+				break;
+			}
+			memset(usb_sd_fw_rev, ' ', 4);
+			usb_sd_fw_rev[4] = '\0';
+			strncpy(usb_sd_fw_rev, hdr->fw_version, 4);
+			usb_sd_fw_rev[4] = '\0';
+			memcpy(usb_sd_fw_sha256, hdr->sha256, 32);
+			printk("sd 0:0:0:0: [sda] SCSI WRITE_BUFFER FFU activated rev=%s\n",
+			       usb_sd_fw_rev);
+			break;
+		}
+		sc.status = 0x02;
+		break;
+	}
+
+	case UFS_SCSI_READ_BUFFER:
+		if (xfer_len >= 32)
+			memcpy(usb_sd_scsi_bounce, usb_sd_fw_sha256, 32);
+		break;
+
+	default:
+		sc.status = 0x02;
+		break;
+	}
+
+	if (sc.status == 0x00 && xfer_len > 0 && sc.data_addr && !is_write) {
+		err = verify_area(VERIFY_WRITE, (void *)sc.data_addr, xfer_len);
+		if (err)
+			return err;
+		memcpy_tofs((void *)sc.data_addr, usb_sd_scsi_bounce, xfer_len);
+	}
+
+	memcpy_tofs((void *)arg, &sc, sizeof(sc));
+	return (sc.status == 0x00) ? 0 : -EIO;
+}
+
 static int usb_sd_ioctl(struct inode *inode, struct file *file,
 			unsigned int cmd, unsigned long arg)
 {
@@ -299,6 +435,8 @@ static int usb_sd_ioctl(struct inode *inode, struct file *file,
 		return -ENODEV;
 
 	switch (cmd) {
+	case UFS_IOCTL_SCSI_CMD:
+		return usb_sd_handle_scsi_ioctl(arg);
 	case BLKGETSIZE:
 		if (!arg)
 			return -EINVAL;
@@ -352,6 +490,10 @@ static struct file_operations usb_sd_fops = {
 int usb_sd_init(void)
 {
 	int i;
+
+	fwupd_build_microcode(FWUPD_DEVID_USB_SCSI, "1.00",
+			      usb_sd_scsi_bounce, FWUPD_DEFAULT_PAYLOAD_SIZE,
+			      usb_sd_fw_sha256);
 
 	if (register_blkdev(SCSI_DISK_MAJOR, "sd", &usb_sd_fops)) {
 		printk("usb_sd: unable to register major %d\n", SCSI_DISK_MAJOR);

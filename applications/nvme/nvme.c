@@ -416,6 +416,44 @@ static int cmd_reset(const char *dev)
 	return 0;
 }
 
+static int cmd_fw_log(const char *dev)
+{
+	struct nvme_fw_slot_info_log log;
+	struct nvme_passthru_cmd cmd;
+	char s1[12], s2[12];
+	int fd = open_nvme_dev(dev);
+
+	if (fd < 0) {
+		fprintf(stderr, "nvme fw-log: cannot open %s\n", dev ? dev : "/dev/nvme0");
+		return 1;
+	}
+
+	memset(&log, 0, sizeof(log));
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.opcode = nvme_admin_get_log_page;
+	cmd.nsid = 0xffffffffU;
+	cmd.addr = (unsigned long)&log;
+	cmd.data_len = sizeof(log);
+	cmd.cdw10 = NVME_LOG_FW_SLOT | (((sizeof(log) / 4) - 1) << 16);
+
+	if (ioctl(fd, NVME_IOCTL_ADMIN_CMD, &cmd) < 0) {
+		fprintf(stderr, "nvme fw-log: NVME_IOCTL_ADMIN_CMD failed\n");
+		close(fd);
+		return 1;
+	}
+	close(fd);
+
+	trim_trailing_spaces(log.frs[0], 8, s1);
+	trim_trailing_spaces(log.frs[1], 8, s2);
+
+	printf("Firmware Log for device:%s\n", dev ? dev : "nvme0");
+	printf("afi  : 0x%02x (Active Slot: %u, Next Reset Slot: %u)\n",
+	       log.afi, log.afi & 0x07, (log.afi >> 4) & 0x07);
+	printf("frs1 : %s [RO Factory]\n", s1[0] ? s1 : "-");
+	printf("frs2 : %s [RW Updatable]\n", s2[0] ? s2 : "-");
+	return 0;
+}
+
 static void usage(void)
 {
 	printf("nvme-cli 1.16 (SIX NVMe 1.4 Management Utility)\n"
@@ -425,6 +463,7 @@ static void usage(void)
 	       "  id-ctrl   [dev]       Send NVMe Identify Controller (CNS 0x01)\n"
 	       "  id-ns     [dev]       Send NVMe Identify Namespace  (CNS 0x00)\n"
 	       "  smart-log [dev]       Retrieve NVMe SMART / Health Log Page (LID 0x02)\n"
+	       "  fw-log    [dev]       Retrieve NVMe Firmware Slot Info Log (LID 0x03)\n"
 	       "  flush     [dev]       Submit NVMe Flush command (opcode 0x00)\n"
 	       "  dsm       [dev]       Submit NVMe Dataset Management / TRIM (opcode 0x09)\n"
 	       "                        Options: -s <slba> -b <blocks> [-d]\n"
@@ -463,6 +502,8 @@ int main(int argc, char **argv)
 		return cmd_id_ns(dev, nsid);
 	if (strcmp(sub, "smart-log") == 0 || strcmp(sub, "smart") == 0)
 		return cmd_smart_log(dev);
+	if (strcmp(sub, "fw-log") == 0)
+		return cmd_fw_log(dev);
 	if (strcmp(sub, "flush") == 0)
 		return cmd_flush(dev);
 	if (strcmp(sub, "dsm") == 0 || strcmp(sub, "trim") == 0)
