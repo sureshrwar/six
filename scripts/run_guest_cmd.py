@@ -93,12 +93,14 @@ def run_guest_commands(
                         set_pty_winsize(master, int(r_str), int(c_str))
                         os.kill(pid, signal.SIGWINCH)
                         time.sleep(0.3)
+                    elif next_cmd.startswith("__SLEEP__:"):
+                        time.sleep(float(next_cmd.split(":")[1]))
                     elif next_cmd.startswith("__KEYS__:"):
                         payload = next_cmd[len("__KEYS__:"):].encode("utf-8").decode("unicode_escape")
                         time.sleep(0.3)
                         os.write(master, payload.encode("utf-8"))
                         time.sleep(0.3)
-                        if ":q" in payload or ":wq" in payload or "ZZ" in payload:
+                        if ":q" in payload or ":wq" in payload or "ZZ" in payload or payload == "q":
                             raw_mode = False
                     start = time.time()
                 elif re.search(r"root@[^\r\n]*# $", buf):
@@ -110,7 +112,7 @@ def run_guest_commands(
                             on_command_sent(next_cmd)
                         time.sleep(0.05)
                         os.write(master, (next_cmd + "\r").encode("utf-8"))
-                        if next_cmd.startswith("vi "):
+                        if next_cmd.startswith("vi ") or "files" in next_cmd and "--dump" not in next_cmd:
                             raw_mode = True
                         start = time.time()
     finally:
