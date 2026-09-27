@@ -500,7 +500,7 @@ TESTS = [
             "Reading symbols from /bin/servicemanager... done",
             "at applications/servicemanager/servicemanager.c:118",
             "Detaching from program: /bin/servicemanager, process 35",
-            "Found 5 services:",
+            "Found 6 services:",
         ],
     ),
     TestCase(
@@ -533,6 +533,40 @@ TESTS = [
             "alice L",
             "alice NP",
             "/tmp/u_file",
+        ],
+    ),
+    TestCase(
+        name="android.mediaprovider_fuse",
+        description="Android MediaProvider (/dev/fuse fuse.mediaprovider daemon, Scoped Storage per-UID enforcement, EXIF GPS redaction, content://media CLI)",
+        cmd=(
+            "content status && "
+            "content query --uri content://media/external/file && "
+            "usbctl plug ext2 SAN_DISK_USB XYZ && "
+            "sleep 1 && "
+            "content status && "
+            "su six -c 'ls /mnt/media_rw/XYZ || echo RAW_USB_DENIED' && "
+            "su six -c 'echo hello_from_six > /storage/XYZ/Pictures/six_note.txt' && "
+            "su six -c 'content query --uri content://media/external/images/media' && "
+            "content query --uri content://media/external/images/media && "
+            "su six -c 'grep EXIF: /sdcard/DCIM/Camera/IMG_20260927_GPS.jpg' && "
+            "grep EXIF: /sdcard/DCIM/Camera/IMG_20260927_GPS.jpg && "
+            "su six -c 'echo secret_token > /storage/XYZ/Android/data/six/token.txt' && "
+            "su guest -c 'cat /storage/XYZ/Android/data/six/token.txt || echo SANDBOX_DENIED' && "
+            "su guest -c 'rm /storage/XYZ/Pictures/six_note.txt || echo DELETE_DENIED' && "
+            "su six -c 'rm /storage/XYZ/Pictures/six_note.txt' && "
+            "usbctl unplug && "
+            "content status"
+        ),
+        expected_substrings=[
+            "volume external_primary : /data/media/0 -> /storage/emulated/0 (fuse.mediaprovider)",
+            "volume xyz              : /mnt/media_rw/XYZ -> /storage/XYZ (fuse.mediaprovider)",
+            "RAW_USB_DENIED",
+            "lat=REDACTED, lon=REDACTED",
+            "lat=37.4220N, lon=122.0841W",
+            "GPSLatitude=REDACTED;GPSLongitude=REDACTED",
+            "GPSLatitude=37.4220N;GPSLongitude=122.0841W;",
+            "SANDBOX_DENIED",
+            "DELETE_DENIED",
         ],
     ),
 ]

@@ -26,6 +26,25 @@ static void usage(void)
 	printf("  usbctl unplug                                  Unplug simulated USB drive & emit remove uevent\n");
 }
 
+static void notify_mediaprovider_unmount(int bfd)
+{
+	struct binder_service_info sinfo;
+	struct binder_ipc_msg msg;
+
+	memset(&sinfo, 0, sizeof(sinfo));
+	strcpy(sinfo.name, "media.provider");
+	if (ioctl(bfd, BINDER_IOC_LOOKUP_SVC, &sinfo) == 0 && sinfo.handle > 0) {
+		memset(&msg, 0, sizeof(msg));
+		msg.target_handle = sinfo.handle;
+		msg.code = 11; /* IMP_UNMOUNT_VOLUME */
+		msg.flags = 0;
+		strcpy(msg.interface_token, "android.content.IMediaProvider");
+		strcpy(msg.data, "ALL");
+		msg.data_size = 4;
+		ioctl(bfd, BINDER_IOC_TRANSACT, &msg);
+	}
+}
+
 int main(int argc, char **argv)
 {
 	int bfd;
@@ -104,6 +123,7 @@ int main(int argc, char **argv)
 		}
 
 		/* Ensure any previous mount is cleanly unmounted before hotplugging */
+		notify_mediaprovider_unmount(bfd);
 		umount("/dev/block/vold/public:8,1");
 		umount("/dev/block/vold/public:8_1");
 		umount("/dev/sda1");
@@ -187,6 +207,7 @@ int main(int argc, char **argv)
 
 	if (strcmp(cmd, "unplug") == 0) {
 		/* Unmount first so buffers flush cleanly before physical detach */
+		notify_mediaprovider_unmount(bfd);
 		umount("/dev/block/vold/public:8,1");
 		umount("/dev/block/vold/public:8_1");
 		umount("/dev/sda1");

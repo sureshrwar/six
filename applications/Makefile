@@ -135,7 +135,9 @@ SUBDIRS	=	start \
 		su \
 		whoami \
 		who \
-		chown
+		chown \
+		mediaproviderd \
+		content
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

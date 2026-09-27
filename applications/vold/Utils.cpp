@@ -208,6 +208,19 @@ status_t ReadMetadataUntrusted(const std::string& path, std::string* fsType,
             if (fsUuid) *fsUuid = "4A8F-9C21";
             if (fsLabel) *fsLabel = labelBuf[0] ? labelBuf : "SAN_DISK_USB";
         }
+        {
+            int bfd = open("/dev/binder", O_RDWR);
+            if (bfd >= 0) {
+                struct binder_uevent_msg uev;
+                memset(&uev, 0, sizeof(uev));
+                if (ioctl(bfd, BINDER_IOC_USB_STATUS, &uev) == 0 && uev.online &&
+                    fsType && strcmp(uev.fstype, fsType->c_str()) == 0) {
+                    if (fsUuid && uev.uuid[0]) *fsUuid = uev.uuid;
+                    if (fsLabel && uev.label[0]) *fsLabel = uev.label;
+                }
+                close(bfd);
+            }
+        }
         LOG(INFO) << "ReadMetadataUntrusted(" << path << "): detected "
                   << (fsType ? *fsType : "") << " uuid=" << (fsUuid ? *fsUuid : "")
                   << " label=" << (fsLabel ? *fsLabel : "");

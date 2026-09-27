@@ -171,6 +171,8 @@ applications/*/su
 applications/*/whoami
 applications/*/who
 applications/*/chown
+applications/*/mediaproviderd
+applications/*/content
 applications/ntfs-3g/ntfs-3g
 applications/ntfs-3g/ntfs-3g.probe
 applications/ntfs-3g/mkntfs

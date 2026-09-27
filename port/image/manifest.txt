@@ -202,6 +202,9 @@ file  /bin/su               4755  applications/su/su
 file  /bin/whoami           0755  applications/whoami/whoami
 file  /bin/who              0755  applications/who/who
 file  /bin/chown            0755  applications/chown/chown
+file  /bin/mediaproviderd   0755  applications/mediaproviderd/mediaproviderd
+file  /bin/content          0755  applications/content/content
+sym   /bin/mediaprovider    -     content
 file  /bin/mkfs.ext2        0755  applications/mkfs/mkfs.ext2
 sym   /bin/mke2fs           -     mkfs.ext2
 file  /bin/mount_all        0755  port/image/rootfs/bin/mount_all
@@ -210,6 +213,7 @@ file  /bin/set_d            0755  port/image/rootfs/bin/set_d
 file  /bin/clear_d          0755  port/image/rootfs/bin/clear_d
 file  /bin/hang_and_panic   0755  port/image/rootfs/bin/hang_and_panic
 dir   /home                 0755
+dir   /storage              0755
 dir   /aux                  0755
 dir   /aux/storage-1        0755
 dir   /aux/linear           0755

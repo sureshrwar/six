@@ -174,9 +174,11 @@ static int fuse_notify_change(struct inode *inode, struct iattr *attr)
 	if (!fc)
 		return -ENOTCONN;
 
-	err = inode_change_ok(inode, attr);
-	if (err)
-		return err;
+	if (fc->default_permissions) {
+		err = inode_change_ok(inode, attr);
+		if (err)
+			return err;
+	}
 
 	fuse_req_init(&req);
 	memset(&outarg, 0, sizeof(outarg));
@@ -464,6 +466,10 @@ static struct file_system_type fuse_ntfs3g_fs_type = {
 	fuse_read_super, "fuse.ntfs-3g", 0, NULL
 };
 
+static struct file_system_type fuse_mediaprovider_fs_type = {
+	fuse_read_super, "fuse.mediaprovider", 0, NULL
+};
+
 /*
  * Block-backed FUSE ("fuseblk", requires_dev = 1) used by filesystems such
  * as ntfs-3g when mounting a block device (/dev/hdb) via FUSE.
@@ -479,6 +485,7 @@ int init_fuse_fs(void)
 		       MISC_MAJOR);
 	register_filesystem(&fuse_fs_type);
 	register_filesystem(&fuse_ntfs3g_fs_type);
+	register_filesystem(&fuse_mediaprovider_fs_type);
 	register_filesystem(&fuseblk_fs_type);
 	return 0;
 }

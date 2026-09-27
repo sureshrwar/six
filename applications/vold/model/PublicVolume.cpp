@@ -12,6 +12,7 @@
 
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
+#include <linux/binder.h>
 
 using android::base::StringPrintf;
 
@@ -19,6 +20,27 @@ namespace android {
 namespace vold {
 
 static const char* kMediaRwPath = "/mnt/media_rw";
+
+static void NotifyMediaProvider(unsigned int code, const std::string& payload) {
+    int bfd = ::open("/dev/binder", O_RDWR);
+    if (bfd < 0) return;
+
+    struct binder_service_info sinfo;
+    memset(&sinfo, 0, sizeof(sinfo));
+    strcpy(sinfo.name, "media.provider");
+    if (::ioctl(bfd, BINDER_IOC_LOOKUP_SVC, &sinfo) == 0 && sinfo.handle > 0) {
+        struct binder_ipc_msg msg;
+        memset(&msg, 0, sizeof(msg));
+        msg.target_handle = sinfo.handle;
+        msg.code = code;
+        msg.flags = 0;
+        strcpy(msg.interface_token, "android.content.IMediaProvider");
+        strncpy(msg.data, payload.c_str(), BINDER_MAX_DATA_SIZE - 1);
+        msg.data_size = strlen(msg.data) + 1;
+        ::ioctl(bfd, BINDER_IOC_TRANSACT, &msg);
+    }
+    ::close(bfd);
+}
 
 PublicVolume::PublicVolume(dev_t device, const std::string& nickname,
                            const std::string& mntopts, const std::string& fstype)
@@ -117,10 +139,17 @@ status_t PublicVolume::doMount() {
 
     LOG(INFO) << getId() << " mounted " << mDevPath << " (" << mFsType
               << ", uuid=" << mFsUuid << ", label=" << mFsLabel << ") at " << mRawPath;
+
+    /* Expose FUSE upper mount at /storage/<uuid> via MediaProvider */
+    if (mFsType != "ntfs") {
+        NotifyMediaProvider(10, StringPrintf("%s|%s|", stableName.c_str(), mRawPath.c_str()));
+    }
     return OK;
 }
 
 status_t PublicVolume::doUnmount() {
+    NotifyMediaProvider(11, mFsUuid.empty() ? "ALL" : mFsUuid);
+
     ForceUnmount(mDevPath);
     ForceUnmount(mRawPath);
 
