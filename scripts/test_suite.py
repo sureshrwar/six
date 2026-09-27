@@ -503,6 +503,38 @@ TESTS = [
             "Found 5 services:",
         ],
     ),
+    TestCase(
+        name="sys.user_and_passwd_mgmt",
+        description="User & password management (useradd/adduser, passwd, su setuid, usermod, chown, whoami, who, userdel)",
+        cmd=(
+            "whoami && who && "
+            "useradd -m -c 'Alice Test' alice && "
+            "grep '^alice:' /etc/passwd && "
+            "echo 's3cr3t' | passwd --stdin alice && "
+            "passwd -S alice && "
+            "su - -c 'id; whoami; pwd' alice && "
+            "su -c 'echo s3cr3t | su -c whoami alice' guest && "
+            "usermod -c 'Alice Updated' alice && "
+            "grep 'Alice Updated' /etc/passwd && "
+            "passwd -l alice && passwd -S alice && "
+            "passwd -u alice && passwd -d alice && passwd -S alice && "
+            "touch /tmp/u_file && chown alice:alice /tmp/u_file && "
+            "ls -lg /tmp/u_file && rm /tmp/u_file && "
+            "userdel -r alice"
+        ),
+        expected_substrings=[
+            "Alice Test:/home/alice:/bin/sh",
+            "passwd: password updated successfully",
+            "alice P",
+            "uid=1000(alice) gid=1000(alice)",
+            "/home/alice",
+            "Password: alice",
+            "Alice Updated:/home/alice:/bin/sh",
+            "alice L",
+            "alice NP",
+            "/tmp/u_file",
+        ],
+    ),
 ]
 
 
@@ -596,7 +628,8 @@ def run_shard(
 
             tmp_dir = tempfile.mkdtemp(prefix=f"six_test_w{shard_id}_")
             work_dir = tmp_dir
-            os.symlink(os.path.join(repo_root, "six"), os.path.join(work_dir, "six"))
+            for entry in ("six", "applications", "library", "include"):
+                os.symlink(os.path.join(repo_root, entry), os.path.join(work_dir, entry))
             os.makedirs(os.path.join(work_dir, "disk"), exist_ok=True)
             subprocess.run(
                 [

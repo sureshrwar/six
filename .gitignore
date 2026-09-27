@@ -163,6 +163,14 @@ applications/*/sm
 applications/*/sadbd
 applications/*/power
 applications/*/gdb
+applications/*/passwd
+applications/*/useradd
+applications/*/usermod
+applications/*/userdel
+applications/*/su
+applications/*/whoami
+applications/*/who
+applications/*/chown
 applications/ntfs-3g/ntfs-3g
 applications/ntfs-3g/ntfs-3g.probe
 applications/ntfs-3g/mkntfs

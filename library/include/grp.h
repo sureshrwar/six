@@ -10,5 +10,12 @@ struct  group {
   char **gr_mem;                /* a vector of pointers to the members */
 };
 
+void endgrent(void);
+int setgrent(void);
+void setgrfile(const char *file);
+struct group *getgrent(void);
+struct group *getgrgid(gid_t gid);
+struct group *getgrnam(const char *name);
+
 #endif /* _GRP_H */
 

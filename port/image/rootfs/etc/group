@@ -1,0 +1,13 @@
+root::0:root
+daemon::1:root,daemon
+bin::2:root,bin,daemon
+sys::3:root,bin,adm
+tty::4:root,adm
+uucp::5:uucp
+lp::8:lp
+nuucp::9:nuucp
+staff::10:six,guest,anonymous
+users::100:
+nobody::60001:
+noaccess::60002:
+nogroup::65534:

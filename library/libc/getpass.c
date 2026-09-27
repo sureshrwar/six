@@ -48,7 +48,7 @@ char *getpass(const char *prompt)
 
 	/* Read the password, 32 characters max. */
 	while (read(fd, password+n, 1) > 0) {
-		if (password[n] == '\n') break;
+		if (password[n] == '\n' || password[n] == '\r') break;
 		if (n < 32) n++;
 	}
 	password[n]= 0;

@@ -1006,6 +1006,9 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	}
 	/* Ok this is a point of no return, too! */
 	flush_old_exec(bprm);
+	current->suid = current->euid = current->fsuid = bprm->e_uid;
+	current->sgid = current->egid = current->fsgid = bprm->e_gid;
+	current->flags &= ~PF_FORKNOEXEC;
 
 	if(!current->is_mapped)
 	{

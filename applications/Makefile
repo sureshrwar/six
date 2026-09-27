@@ -127,7 +127,15 @@ SUBDIRS	=	start \
 		sadbd \
 		power \
 		reversi \
-		gdb
+		gdb \
+		passwd \
+		useradd \
+		usermod \
+		userdel \
+		su \
+		whoami \
+		who \
+		chown
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

@@ -350,7 +350,8 @@ char *argv[];
 	setuid(pwd->pw_uid);
 
 	/* cd $HOME */
-	chdir(pwd->pw_dir);
+	if (chdir(pwd->pw_dir) < 0)
+		chdir("/");
 
 
 	/* Reset signals to default values. */
@@ -360,14 +361,14 @@ char *argv[];
 	/* Execute the user's shell. */
 	execve(sh, argx, env);
 
-	if (pwd->pw_gid == 0) {
-		/* Privileged user gets /bin/sh in times of crisis. */
-		sh= "/bin/sh";
-		argx[0]= "-sh";
-		strcpy(shell, "SHELL=");
-		strcat(shell, sh);
-		execve(sh, argx, env);
-	}
+	/* Fall back to /bin/sh if the configured shell (e.g. /usr/bin/bash) is missing. */
+	sh= "/bin/sh";
+	argx[0]= "-sh";
+	argx[1]= NULL;
+	strcpy(shell, "SHELL=");
+	strcat(shell, sh);
+	execve(sh, argx, env);
+
 	write(1, "exec failure\n", 13);
 	exit(1);
   }

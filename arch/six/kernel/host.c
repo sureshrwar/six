@@ -1172,6 +1172,13 @@ static int six_host_find_or_add_file(const char *path, char (*files_out)[96],
 		if (strncmp(path, cwd, clen) == 0 && path[clen] == '/')
 			rel = path + clen + 1;
 	}
+	if (rel[0] == '/') {
+		const char *sub = strstr(rel, "/applications/");
+		if (!sub)
+			sub = strstr(rel, "/library/");
+		if (sub)
+			rel = sub + 1;
+	}
 	while (rel[0] == '.' && rel[1] == '/')
 		rel += 2;
 

@@ -15,5 +15,12 @@ struct passwd {
   char *pw_gecos;               /* just in case you have a GE 645 around */
 };
 
+void endpwent(void);
+int setpwent(void);
+void setpwfile(const char *file);
+struct passwd *getpwent(void);
+struct passwd *getpwuid(uid_t uid);
+struct passwd *getpwnam(const char *name);
+
 #endif /* _PWD_H */
 
