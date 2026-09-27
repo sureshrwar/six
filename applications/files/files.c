@@ -1157,7 +1157,7 @@ static void draw_ui(void)
 		/* Highlighted selection bar without '*' or '>' */
 		if (focus_pane == PANE_SIDEBAR && i == sb_sel) {
 			attr = A_REVERSE | A_BOLD;
-		} else if (i == sb_active) {
+		} else if (focus_pane != PANE_SIDEBAR && i == sb_active) {
 			attr = A_REVERSE;
 		}
 
