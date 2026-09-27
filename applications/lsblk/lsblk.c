@@ -99,6 +99,14 @@ static void probe_fs(const char *dev_path, char *fstype, char *label)
 		strcpy(fstype, "ntfs");
 		return;
 	}
+	if (n >= 32 && memcmp(buf, "ANDROID!", 8) == 0) {
+		strcpy(fstype, "boot");
+		if (strstr((char *)buf, "slot=b"))
+			strcpy(label, "slot_b");
+		else
+			strcpy(label, "slot_a");
+		return;
+	}
 	if (n >= 1024 + 0x50) {
 		unsigned int erofs_magic = *(unsigned int *)(buf + 1024);
 		if (erofs_magic == 0xE0F5E1E2U) {
@@ -452,6 +460,97 @@ int main(int argc, char *argv[])
 			}
 			if (nvme_fd >= 0)
 				close(nvme_fd);
+		}
+	}
+
+	/* JEDEC UFS 4.0 Multi-LUN Storage (/dev/ufsa, /dev/ufsb, /dev/ufsc, major 58) */
+	{
+		int u;
+		for (u = 0; u < 3; u++) {
+			char dev_path[16], name[8], sz_str[16], majmin[16];
+			char fstype[16], label[16];
+			const char *ufs_mnt;
+			unsigned long ufs_sectors = 0;
+			long ufs_ro = 0;
+			int ufs_fd, dm_cnt = 0, dm_idx = 0;
+			unsigned short ufs_rdev = (unsigned short)((58 << 8) | u);
+
+			sprintf(name, "ufs%c", 'a' + u);
+			sprintf(dev_path, "/dev/%s", name);
+			ufs_fd = open(dev_path, O_RDONLY);
+			if (ufs_fd < 0)
+				continue;
+			if (ioctl(ufs_fd, BLKGETSIZE, &ufs_sectors) < 0 || ufs_sectors == 0) {
+				close(ufs_fd);
+				continue;
+			}
+			ioctl(ufs_fd, BLKROGET, &ufs_ro);
+			close(ufs_fd);
+
+			for (m = 0; m < DM_MAX_DEVICES; m++) {
+				if (dm_valid[m] && dm_list[m].num_targets > 0 &&
+				    dm_list[m].targets[0].bdev == ufs_rdev) {
+					dm_cnt++;
+				}
+			}
+
+			format_size(ufs_sectors, sz_str);
+			sprintf(majmin, "58:%d", u);
+			if (dm_cnt > 0) {
+				strcpy(fstype, "");
+				strcpy(label, "");
+			} else {
+				probe_fs(dev_path, fstype, label);
+			}
+			ufs_mnt = find_mountpoint(dev_path, NULL, 0);
+
+			if (show_fs_details) {
+				printf("%-14s %-7s %2d %5s %2ld %-7s %-6s %-10s %s\n",
+				       name, majmin, 0, sz_str, ufs_ro ? 1L : 0L, "disk",
+				       fstype[0] ? fstype : "-",
+				       label[0] ? label : "-",
+				       ufs_mnt);
+			} else {
+				printf("%-14s %-7s %2d %5s %2ld %-7s %-6s %s\n",
+				       name, majmin, 0, sz_str, ufs_ro ? 1L : 0L, "disk",
+				       fstype[0] ? fstype : "-",
+				       ufs_mnt);
+			}
+
+			for (m = 0; m < DM_MAX_DEVICES; m++) {
+				char tree_name[32], dm_dev[32], mapper_dev[64];
+				const char *dm_mnt, *t_str;
+
+				if (!dm_valid[m] || dm_list[m].num_targets == 0 ||
+				    dm_list[m].targets[0].bdev != ufs_rdev)
+					continue;
+
+				dm_idx++;
+				dm_parent_shown[m] = 1;
+				sprintf(tree_name, "%s-%s",
+					(dm_idx == dm_cnt) ? "`" : "|",
+					dm_list[m].name);
+				sprintf(majmin, "%d:%d", DM_MAJOR, m);
+				format_size(dm_list[m].total_sectors, sz_str);
+				sprintf(dm_dev, "/dev/dm-%d", m);
+				sprintf(mapper_dev, "/dev/mapper/%s", dm_list[m].name);
+				probe_fs(dm_dev, fstype, label);
+				dm_mnt = find_mountpoint(mapper_dev, dm_dev, 0);
+				t_str = dm_type_str(dm_list[m].targets[0].type);
+
+				if (show_fs_details) {
+					printf("%-14s %-7s %2d %5s %2d %-7s %-6s %-10s %s\n",
+					       tree_name, majmin, 0, sz_str, dm_list[m].ro, t_str,
+					       fstype[0] ? fstype : "-",
+					       label[0] ? label : "-",
+					       dm_mnt);
+				} else {
+					printf("%-14s %-7s %2d %5s %2d %-7s %-6s %s\n",
+					       tree_name, majmin, 0, sz_str, dm_list[m].ro, t_str,
+					       fstype[0] ? fstype : "-",
+					       dm_mnt);
+				}
+			}
 		}
 	}
 

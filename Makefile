@@ -530,7 +530,8 @@ aux-image-clean:
 	      disk/x86/aux_storage-2 disk/sparc/aux_storage-2 \
 	      disk/x86/usb_ext2.img disk/x86/usb_ext4.img disk/x86/usb_erofs.img disk/x86/usb_ntfs.img disk/x86/usb_crypt.img \
 	      disk/sparc/usb_ext2.img disk/sparc/usb_ext4.img disk/sparc/usb_erofs.img disk/sparc/usb_ntfs.img disk/sparc/usb_crypt.img \
-	      disk/x86/nvme0n1.img disk/sparc/nvme0n1.img
+	      disk/x86/nvme0n1.img disk/sparc/nvme0n1.img \
+	      disk/x86/ufs0.img disk/sparc/ufs0.img
 
 
 linuxsubdirs: dummy

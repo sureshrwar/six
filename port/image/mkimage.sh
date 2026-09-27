@@ -453,5 +453,32 @@ if [ "$MODE" = "root" ] || [ ! -s "$NVME_IMG" ]; then
 	rm -rf "$NVME_STAGE"
 fi
 
+UFS_IMG="disk/x86/ufs0.img"
+if [ "$MODE" = "root" ] || [ ! -s "$UFS_IMG" ]; then
+	UFS_STAGE=$(mktemp -d)
+	UFS_LUN0_TMP=$(mktemp)
+	mkdir -p "$UFS_STAGE/ota"
+	cat > "$UFS_STAGE/UFS.TXT" <<'EOF'
+=== SIX JEDEC UFS 4.0 Multi-LUN Storage (/dev/ufsa -> /ufs) ===
+Controller: /dev/ufs-bsg0 (UFSHCI 4.0, MIPI UniPro HS-Gear5 2-Lane)
+Host Image: ./disk/x86/ufs0.img (5 MB unified UFS flash package)
+  - LUN 0 (/dev/ufsa, 58:0): 4096 KB ext4 volume mounted at /ufs
+  - LUN 1 (/dev/ufsb, 58:1):  384 KB Boot LUN A (slot_a primary bootloader)
+  - LUN 2 (/dev/ufsc, 58:2):  384 KB Boot LUN B (slot_b secondary OTA slot)
+  - W-LUN (/dev/ufs-rpmb):    128 KB Replay Protected Memory Block (HMAC-SHA256)
+EOF
+	echo "active_slot=a" > "$UFS_STAGE/ota/slot_status.txt"
+	fakeroot -- mke2fs -q -F -t ext4 -b 1024 -N 512 -I 256 \
+		-O "none,has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize,ext_attr,resize_inode,dir_index,filetype,sparse_super,large_file" -m 0 \
+		-L "ufs_data" -U "c0ffee40-2026-4000-8000-000000000001" -d "$UFS_STAGE" "$UFS_LUN0_TMP" 4096 2>/dev/null || true
+	if command -v tune2fs >/dev/null 2>&1; then
+		tune2fs -c 0 -i 0 "$UFS_LUN0_TMP" >/dev/null 2>&1 || true
+	fi
+	rm -f "$UFS_IMG"
+	truncate -s 5242880 "$UFS_IMG"
+	dd if="$UFS_LUN0_TMP" of="$UFS_IMG" bs=1024 seek=1024 conv=notrunc status=none 2>/dev/null || true
+	rm -rf "$UFS_STAGE" "$UFS_LUN0_TMP"
+fi
+
 echo "mkimage: wrote $OUT ($MODE) as $FSTYPE ($(stat -c %s "$OUT") bytes, $present file(s), $missing missing)"
 exit 0

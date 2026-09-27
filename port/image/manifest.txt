@@ -207,6 +207,7 @@ file  /bin/content          0755  applications/content/content
 sym   /bin/mediaprovider    -     content
 file  /bin/files            0755  applications/files/files
 file  /bin/nvme             0755  applications/nvme/nvme
+file  /bin/ufs              0755  applications/ufs/ufs
 file  /bin/mkfs.ext2        0755  applications/mkfs/mkfs.ext2
 sym   /bin/mke2fs           -     mkfs.ext2
 file  /bin/mount_all        0755  port/image/rootfs/bin/mount_all
@@ -216,6 +217,7 @@ file  /bin/clear_d          0755  port/image/rootfs/bin/clear_d
 file  /bin/hang_and_panic   0755  port/image/rootfs/bin/hang_and_panic
 dir   /home                 0755
 dir   /data                 0755
+dir   /ufs                  0755
 dir   /storage              0755
 dir   /aux                  0755
 dir   /aux/storage-1        0755
@@ -329,6 +331,7 @@ file  /usr/include/linux/signal.h      0644  include/linux/signal.h
 file  /usr/include/linux/ptrace.h      0644  include/linux/ptrace.h
 file  /usr/include/linux/dm.h          0644  include/linux/dm.h
 file  /usr/include/linux/nvme.h        0644  include/linux/nvme.h
+file  /usr/include/linux/ufs.h         0644  include/linux/ufs.h
 
 file  /usr/include/asm/types.h         0644  include/asm-six/types.h
 file  /usr/include/asm/posix_types.h   0644  include/asm-six/posix_types.h
@@ -377,19 +380,24 @@ node  /dev/full              0666  c  1  7
 node  /dev/random            0666  c  1  8
 node  /dev/urandom           0666  c  1  9
 
-# --- /dev (char major 10 = MISC_MAJOR, 59 = NVME_CHR_MAJOR, 61 = SADB_MAJOR, 63 = BINDER_MAJOR)
+# --- /dev (char major 10 = MISC_MAJOR, 57 = UFS_CHR_MAJOR, 59 = NVME_CHR_MAJOR, 61 = SADB_MAJOR, 63 = BINDER_MAJOR)
 node  /dev/fuse              0666  c  10 229
+node  /dev/ufs-bsg0          0660  c  57 0
+node  /dev/ufs-rpmb          0660  c  57 1
 node  /dev/nvme0             0660  c  59 0
 node  /dev/sadb              0666  c  61 0
 node  /dev/binder            0666  c  63 0
 
-# --- /dev (block major 3 = HD_MAJOR, 8 = SCSI_DISK_MAJOR, 63 = NVME_MAJOR) -
+# --- /dev (block major 3 = HD_MAJOR, 8 = SCSI_DISK_MAJOR, 58 = UFS_MAJOR, 63 = NVME_MAJOR) -
 node  /dev/hda              0600  b  3  0
 node  /dev/hdb              0600  b  3  64
 node  /dev/hdc              0660  b  3  128
 node  /dev/hdd              0600  b  3  192
 node  /dev/sda              0660  b  8  0
 node  /dev/sda1             0660  b  8  1
+node  /dev/ufsa             0660  b  58 0
+node  /dev/ufsb             0660  b  58 1
+node  /dev/ufsc             0660  b  58 2
 node  /dev/nvme0n1          0660  b  63 0
 node  /dev/nvme0n1p1        0660  b  63 1
 

@@ -52,7 +52,8 @@ enum root_directory_inos {
 	PROC_BINDER,
 	PROC_SADB,
 	PROC_WAKELOCKS,
-	PROC_NVME
+	PROC_NVME,
+	PROC_UFS
 };
 
 enum pid_directory_inos {

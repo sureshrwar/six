@@ -139,7 +139,8 @@ SUBDIRS	=	start \
 		mediaproviderd \
 		content \
 		files \
-		nvme
+		nvme \
+		ufs
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

@@ -51,6 +51,8 @@ static void device_name(const char *path, long f_type, char *out, int outlen)
 		snprintf(out, outlen, "/dev/hd%c", 'a' + (minor >> 6));
 	else if (major == 8)
 		snprintf(out, outlen, "/dev/sda%d", minor);
+	else if (major == 58)
+		snprintf(out, outlen, "/dev/ufs%c", 'a' + minor);
 	else if (major == 62)
 		snprintf(out, outlen, "/dev/dm-%d", minor);
 	else if (major == 63) {
@@ -111,6 +113,7 @@ int main(int argc, char **argv)
 		"/bin",
 		"/tmp",
 		"/data",
+		"/ufs",
 		"/aux/storage-1",
 		"/aux/linear",
 		"/aux/crypt",

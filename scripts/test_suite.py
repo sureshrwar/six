@@ -648,6 +648,56 @@ TESTS = [
             "Namespace 1:       /dev/nvme0n1 (block 63:0, host=./disk/x86/nvme0n1.img)",
         ],
     ),
+    TestCase(
+        name="ufs.controller_multilun_and_rpmb",
+        description="JEDEC UFS 4.0 controller (/dev/ufs-bsg0), Multi-LUNs (/dev/ufsa -> /ufs ext4, /dev/ufsb & /dev/ufsc A/B boot slots), WriteBooster, and HMAC-authenticated RPMB (/dev/ufs-rpmb)",
+        cmd=(
+            "lsblk -f && "
+            "df && "
+            "cat /ufs/UFS.TXT && "
+            "echo ufs_lun0_write_ok > /ufs/test_ufs.txt && "
+            "sync && "
+            "cat /ufs/test_ufs.txt && "
+            "rm /ufs/test_ufs.txt && "
+            "ufs list && "
+            "ufs desc && "
+            "ufs boot-slot b && "
+            "ufs boot-slot a && "
+            "ufs writebooster toggle && "
+            "ufs writebooster on && "
+            "ufs flush /dev/ufsa && "
+            "ufs unmap /dev/ufsa -s 8000 -b 8 && "
+            "ufs rpmb write-key six_avb_rpmb_key_2026 && "
+            "ufs rpmb write 0 avb_rollback_index=42 six_avb_rpmb_key_2026 && "
+            "(ufs rpmb write 0 forged_payload wrong_key || true) && "
+            "ufs rpmb read 0 && "
+            "ufs rpmb counter && "
+            "cat /proc/ufs"
+        ),
+        expected_substrings=[
+            "ufsa           58:0     0    4M  0 disk    ext4   ufs_data   /ufs",
+            "ufsb           58:1     0  384K  0 disk    boot   slot_a",
+            "ufsc           58:2     0  384K  0 disk    boot   slot_b",
+            "/dev/ufsa",
+            "SIX JEDEC UFS 4.0 Multi-LUN Storage (/dev/ufsa -> /ufs)",
+            "ufs_lun0_write_ok",
+            "SIX-UFS-4.0-5M-CHIP",
+            "wSpecVersion                    : 0x0400 (JEDEC UFS 4.0)",
+            "bPreEOLInfo                     : 0x01 (Normal)",
+            "UFS Boot Slot switched: bBootLunID=0x02 -> Slot B (/dev/ufsc)",
+            "UFS Boot Slot switched: bBootLunID=0x01 -> Slot A (/dev/ufsb)",
+            "UFS 4.0 SLC WriteBooster: fWriteBoosterEn=1 (ENABLED), AvailBuffer=100%",
+            "UFS SYNCHRONIZE_CACHE(10): success (LUN 0)",
+            "UFS SCSI UNMAP: success (LUN 0, lba=8000, blocks=8)",
+            "RPMB Program Authentication Key: success (256-bit HMAC-SHA256 key active)",
+            "RPMB Authenticated Write: success (block=0, new_write_counter=1)",
+            "RPMB Authenticated Write REJECTED: result=0x0002 (RPMB_RES_AUTH_FAILURE)",
+            "RPMB Block 0 (write_counter=1): avb_rollback_index=42",
+            "RPMB Status: Key PROGRAMMED, Write Counter = 1 (result=0x0000 OK)",
+            "UFS Host Controller: /dev/ufs-bsg0 (char 57:0, UFSHCI v4.0, MIPI UniPro/M-PHY)",
+            "Host Flash Image:    ./disk/x86/ufs0.img (5120 KB / 5 MB unified chip image)",
+        ],
+    ),
 ]
 
 

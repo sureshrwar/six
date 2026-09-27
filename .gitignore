@@ -45,6 +45,7 @@ port/image/.stage_bin/
 disk/*/aux_storage-*
 disk/*/usb_*.img
 disk/*/nvme*.img
+disk/*/ufs*.img
 
 # Guest userland binaries.  These were checked in as 2005 SPARC big-endian
 # ELF executables, which are useless on x86 and were silently being copied
@@ -176,6 +177,7 @@ applications/*/mediaproviderd
 applications/*/content
 applications/*/files
 applications/*/nvme
+applications/*/ufs
 applications/ntfs-3g/ntfs-3g
 applications/ntfs-3g/ntfs-3g.probe
 applications/ntfs-3g/mkntfs

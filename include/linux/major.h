@@ -67,10 +67,12 @@
 #define Z2RAM_MAJOR	37
 #define RISCOM8_NORMAL_MAJOR 48
 #define RISCOM8_CALLOUT_MAJOR 49
+#define UFS_CHR_MAJOR   57   /* SIX UFS BSG & RPMB char devices (/dev/ufs-bsg0, /dev/ufs-rpmb) */
+#define UFS_MAJOR       58   /* SIX UFS Multi-LUN block devices (/dev/ufsa, /dev/ufsb, /dev/ufsc) */
+#define NVME_CHR_MAJOR  59   /* SIX NVMe Controller character device (/dev/nvme0) */
 #define APBLOCK_MAJOR   60   /* AP1000 Block device */
 #define DDV_MAJOR       61   /* AP1000 DDV block device */
 #define DM_MAJOR        62   /* SIX Device Mapper (dm) block device */
-#define NVME_CHR_MAJOR  59   /* SIX NVMe Controller character device (/dev/nvme0) */
 #define NVME_MAJOR      63   /* SIX NVMe Namespace block device (/dev/nvme0n1) */
 
 /*

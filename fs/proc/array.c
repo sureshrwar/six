@@ -1108,6 +1108,10 @@ static int get_root_array(char * page, int type, char **start, off_t offset, int
 			extern int get_nvme_proc_info(char *buf);
 			return get_nvme_proc_info(page);
 		}
+		case PROC_UFS: {
+			extern int get_ufs_proc_info(char *buf);
+			return get_ufs_proc_info(page);
+		}
 	}
 	return -EBADF;
 }

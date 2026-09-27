@@ -259,6 +259,14 @@ static void floppy_off(unsigned int nr);
 #define DEVICE_ON(device)
 #define DEVICE_OFF(device)
 
+#elif (MAJOR_NR == UFS_MAJOR)
+
+#define DEVICE_NAME "ufs"
+#define DEVICE_REQUEST do_ufs_request
+#define DEVICE_NR(device) (MINOR(device))
+#define DEVICE_ON(device)
+#define DEVICE_OFF(device)
+
 #endif /* MAJOR_NR == whatever */
 
 #if ((MAJOR_NR != SCSI_TAPE_MAJOR) && !defined(IDE_DRIVER))
