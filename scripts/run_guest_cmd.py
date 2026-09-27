@@ -59,7 +59,6 @@ def run_guest_commands(
     cmd_queue = list(commands) + ["halt"]
     last_prompt_pos = -1
     start = time.time()
-    raw_mode = False
 
     try:
         while time.time() - start < timeout:
@@ -83,7 +82,7 @@ def run_guest_commands(
                 continue
 
             if sent_login and cmd_queue:
-                if raw_mode or cmd_queue[0].startswith("__"):
+                if cmd_queue[0].startswith("__"):
                     next_cmd = cmd_queue.pop(0)
                     if on_command_sent:
                         on_command_sent(next_cmd)
@@ -100,8 +99,6 @@ def run_guest_commands(
                         time.sleep(0.3)
                         os.write(master, payload.encode("utf-8"))
                         time.sleep(0.3)
-                        if ":q" in payload or ":wq" in payload or "ZZ" in payload or payload == "q":
-                            raw_mode = False
                     start = time.time()
                 elif re.search(r"root@[^\r\n]*# $", buf):
                     prompt_pos = buf.rfind("# ")
@@ -112,8 +109,6 @@ def run_guest_commands(
                             on_command_sent(next_cmd)
                         time.sleep(0.05)
                         os.write(master, (next_cmd + "\r").encode("utf-8"))
-                        if next_cmd.startswith("vi ") or "files" in next_cmd and "--dump" not in next_cmd:
-                            raw_mode = True
                         start = time.time()
     finally:
         try:

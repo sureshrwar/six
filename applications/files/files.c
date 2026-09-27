@@ -33,6 +33,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/ioctl.h>
+#include <termios.h>
 #include <linux/binder.h>
 
 extern int select(int nfds, fd_set *readfds, fd_set *writefds,
@@ -75,12 +77,12 @@ extern int statfs(const char *path, struct linux_statfs *buf);
 #define SB_DEV_USB      6
 
 #define MAX_SIDEBAR_ITEMS 8
-#define MAX_FILE_ENTRIES  64
+#define MAX_FILE_ENTRIES  128
 
 struct sidebar_item {
 	int id;
-	char label[24];
-	char sublabel[24];
+	char label[32];
+	char sublabel[48];
 	char target_path[128];
 	char media_uri[64];
 	int count_badge;
@@ -108,6 +110,21 @@ static int mp_handle = -1;
 static uid_t my_uid = 0;
 static char my_username[32] = "root";
 
+/* Dynamic terminal dimensions & 3-pane layout geometry */
+static int term_rows = 24;
+static int term_cols = 80;
+static int sb_w = 22;
+static int div1_x = 22;
+static int center_x = 23;
+static int center_w = 35;
+static int div2_x = 58;
+static int insp_x = 59;
+static int insp_w = 21;
+static int body_bottom = 21;
+static int list_rows = 20;
+static int toast_row = 22;
+static int status_row = 23;
+
 static int focus_pane = PANE_FILES;
 static int sb_count = 0;
 static int sb_sel = 0;       /* Highlighted index in sidebar */
@@ -133,7 +150,7 @@ static char last_usb_fstype[16] = "";
 static int last_usb_mp_mounted = -1;
 static unsigned long last_dir_signature = 0;
 
-static char toast_msg[80] = "Ready. Live USB hotplug monitor active.";
+static char toast_msg[256] = "Ready. Live USB hotplug monitor active.";
 static int modal_open = 0;
 
 static char mp_tolower_ch(char c)
@@ -628,8 +645,100 @@ static void load_entries(void)
 		file_sel = 0;
 	if (file_sel < file_scroll)
 		file_scroll = file_sel;
-	if (file_sel >= file_scroll + 17)
-		file_scroll = file_sel - 16;
+	if (list_rows > 0 && file_sel >= file_scroll + list_rows)
+		file_scroll = file_sel - list_rows + 1;
+}
+
+/*
+ * Query terminal dimensions via TIOCGWINSZ (with fallback to LINES/COLS) and
+ * recompute the responsive 3-pane Android Desktop layout geometry.
+ * Returns 1 if terminal dimensions changed since last check, 0 otherwise.
+ */
+static int sync_terminal_size(int force)
+{
+	struct winsize ws;
+	int new_r = LINES > 0 ? LINES : 24;
+	int new_c = COLS > 0 ? COLS : 80;
+	int changed = 0;
+
+	if (ioctl(0, TIOCGWINSZ, &ws) == 0 && ws.ws_row > 0 && ws.ws_col > 0) {
+		new_r = (int)ws.ws_row;
+		new_c = (int)ws.ws_col;
+	} else {
+		char *p = getenv("LINES");
+		if (p && atoi(p) > 0)
+			new_r = atoi(p);
+		p = getenv("COLUMNS");
+		if (p && atoi(p) > 0)
+			new_c = atoi(p);
+	}
+
+	if (new_r < 16)
+		new_r = 16;
+	if (new_r > 120)
+		new_r = 120;
+	if (new_c < 60)
+		new_c = 60;
+	if (new_c > 255)
+		new_c = 255;
+
+	if (force || new_r != term_rows || new_c != term_cols) {
+		changed = (!force && (new_r != term_rows || new_c != term_cols)) ? 1 : 0;
+		term_rows = new_r;
+		term_cols = new_c;
+		LINES = term_rows;
+		COLS = term_cols;
+		if (stdscr) {
+			stdscr->_maxy = term_rows;
+			stdscr->_maxx = term_cols;
+		}
+
+		/* Left Navigation Drawer: ~25% of width, clamped [22, 34] */
+		sb_w = term_cols / 4;
+		if (sb_w < 22)
+			sb_w = 22;
+		if (sb_w > 34)
+			sb_w = 34;
+		div1_x = sb_w;
+
+		/* Right Inspector Pane: ~27% of width, clamped [21, 52] */
+		insp_w = (term_cols * 27) / 100;
+		if (insp_w < 21)
+			insp_w = 21;
+		if (insp_w > 52)
+			insp_w = 52;
+		div2_x = term_cols - insp_w - 1;
+		insp_x = div2_x + 1;
+
+		/* Center File / Media List Pane takes all remaining columns */
+		center_x = div1_x + 1;
+		center_w = div2_x - center_x;
+		if (center_w < 20)
+			center_w = 20;
+
+		/* Vertical rows:
+		 *   Row 0: Top App Bar
+		 *   Row 1: Column / Pane Headers
+		 *   Rows 2..body_bottom: Main 3-pane content (list_rows rows)
+		 *   Row toast_row (term_rows - 2): Live Toast / Hotplug Status Bar
+		 *   Row status_row (term_rows - 1): Keybinding Footer Bar
+		 */
+		toast_row = term_rows - 2;
+		status_row = term_rows - 1;
+		body_bottom = term_rows - 3;
+		list_rows = body_bottom - 1;
+		if (list_rows < 8)
+			list_rows = 8;
+
+		if (file_sel < file_scroll)
+			file_scroll = file_sel;
+		if (file_sel >= file_scroll + list_rows)
+			file_scroll = file_sel - list_rows + 1;
+		if (file_scroll < 0)
+			file_scroll = 0;
+	}
+
+	return changed;
 }
 
 static void activate_sidebar_item(int idx)
@@ -655,7 +764,7 @@ static void activate_sidebar_item(int idx)
 }
 
 /*
- * Poll USB hotplug state and directory changes.
+ * Poll terminal window size, USB hotplug state, and directory changes.
  * Returns 1 if UI needs a redraw, 0 if unchanged.
  */
 static int poll_external_changes(int is_initial)
@@ -663,6 +772,13 @@ static int poll_external_changes(int is_initial)
 	struct binder_uevent_msg uev;
 	int changed = 0;
 	int usb_mp_mounted = 0;
+
+	if (!is_initial && sync_terminal_size(0)) {
+		snprintf(toast_msg, sizeof(toast_msg),
+			 "[RESIZE] Terminal resized to %dx%d (full-window layout active)",
+			 term_cols, term_rows);
+		changed = 1;
+	}
 
 	ensure_binder();
 	if (bfd >= 0 && ioctl(bfd, BINDER_IOC_USB_STATUS, &uev) == 0) {
@@ -753,7 +869,7 @@ static void format_size(unsigned long sz, int is_dir, char *out, int out_max)
  */
 static void draw_padded(int y, int x, int w, int attr, const char *text)
 {
-	char buf[128];
+	char buf[512];
 	int len;
 
 	if (w <= 0)
@@ -775,87 +891,105 @@ static void draw_padded(int y, int x, int w, int attr, const char *text)
 	attrset(A_NORMAL);
 }
 
-static void draw_usage_bar(int y, int x, int pct, const char *fstype)
+static void draw_usage_bar(int y, int x, int w, int pct, const char *fstype)
 {
-	char bar[24];
-	int filled = (pct * 8) / 100;
-	int i;
+	char bar[64];
+	int bar_cells = w - 13;
+	int filled, i;
 
+	if (bar_cells < 6)
+		bar_cells = 6;
+	if (bar_cells > 24)
+		bar_cells = 24;
+
+	filled = (pct * bar_cells) / 100;
 	if (filled < 1 && pct > 0)
 		filled = 1;
-	if (filled > 8)
-		filled = 8;
+	if (filled > bar_cells)
+		filled = bar_cells;
 
 	bar[0] = ' ';
 	bar[1] = '[';
-	for (i = 0; i < 8; i++)
+	for (i = 0; i < bar_cells; i++)
 		bar[2 + i] = (i < filled) ? '#' : '.';
-	bar[10] = ']';
-	snprintf(bar + 11, sizeof(bar) - 11, " %2d%% %.4s", pct, fstype ? fstype : "");
-	draw_padded(y, x, 21, A_NORMAL, bar);
+	bar[2 + bar_cells] = ']';
+	snprintf(bar + 3 + bar_cells, sizeof(bar) - (3 + bar_cells),
+		 " %2d%% %.5s", pct, fstype ? fstype : "");
+	draw_padded(y, x, w, A_NORMAL, bar);
 }
 
 /*
- * Populate and draw the Right Inspector & Preview Pane (cols 59..79, rows 1..20)
+ * Populate and draw the Right Inspector & Preview Pane (cols insp_x..term_cols-1, rows 1..body_bottom)
  */
 static void draw_inspector_pane(void)
 {
 	struct file_entry *fe;
-	char line[32];
-	int r = 2;
+	char line[128];
+	int r;
+	int max_txt = insp_w - 2;
 
-	draw_padded(1, 59, 21, A_BOLD | A_UNDERLINE, " INSPECTOR");
+	if (max_txt < 12)
+		max_txt = 12;
+	if (max_txt > 100)
+		max_txt = 100;
 
-	for (r = 2; r <= 20; r++)
-		draw_padded(r, 59, 21, A_NORMAL, "");
+	draw_padded(1, insp_x, insp_w, A_BOLD | A_UNDERLINE, " INSPECTOR");
+
+	for (r = 2; r <= body_bottom; r++)
+		draw_padded(r, insp_x, insp_w, A_NORMAL, "");
 
 	if (entry_count <= 0 || file_sel < 0 || file_sel >= entry_count) {
-		draw_padded(3, 59, 21, A_NORMAL, " (No item selected)");
+		draw_padded(3, insp_x, insp_w, A_NORMAL, " (No item selected)");
 		return;
 	}
 
 	fe = &entries[file_sel];
-	snprintf(line, sizeof(line), " %.19s", fe->name);
-	draw_padded(2, 59, 21, A_BOLD, line);
+	snprintf(line, sizeof(line), " %.*s", max_txt, fe->name);
+	draw_padded(2, insp_x, insp_w, A_BOLD, line);
 
-	snprintf(line, sizeof(line), " Type: %.13s", fe->mime);
-	draw_padded(3, 59, 21, A_NORMAL, line);
+	snprintf(line, sizeof(line), " Type: %.*s", max_txt - 6, fe->mime);
+	draw_padded(3, insp_x, insp_w, A_NORMAL, line);
 
 	if (fe->is_dir) {
-		draw_padded(4, 59, 21, A_NORMAL, " Size: Directory");
+		draw_padded(4, insp_x, insp_w, A_NORMAL, " Size: Directory");
 	} else {
 		snprintf(line, sizeof(line), " Size: %lu bytes", fe->size);
-		draw_padded(4, 59, 21, A_NORMAL, line);
+		draw_padded(4, insp_x, insp_w, A_NORMAL, line);
 	}
 
 	snprintf(line, sizeof(line), " Owner: %s(%u)", fe->owner_name, (unsigned int)fe->owner_uid);
-	draw_padded(5, 59, 21, A_NORMAL, line);
+	draw_padded(5, insp_x, insp_w, A_NORMAL, line);
 
 	/* Scoped Storage Access Badge */
 	if (my_uid == 0) {
-		draw_padded(6, 59, 21, A_BOLD, " Scope: FULL (ROOT)");
+		draw_padded(6, insp_x, insp_w, A_BOLD, " Scope: FULL (ROOT)");
 	} else if (strstr(fe->full_path, "/Android/data/") != NULL) {
 		char my_sbx[64];
 		snprintf(my_sbx, sizeof(my_sbx), "/Android/data/%s", my_username);
 		if (strstr(fe->full_path, my_sbx) != NULL)
-			draw_padded(6, 59, 21, A_BOLD, " Scope: APP SANDBOX");
+			draw_padded(6, insp_x, insp_w, A_BOLD, " Scope: APP SANDBOX");
 		else
-			draw_padded(6, 59, 21, A_BOLD, " Scope: LOCKED (UID)");
+			draw_padded(6, insp_x, insp_w, A_BOLD, " Scope: LOCKED (UID)");
 	} else if (fe->owner_uid == my_uid || fe->is_dir) {
-		draw_padded(6, 59, 21, A_BOLD, " Scope: RW (OWNER)");
+		draw_padded(6, insp_x, insp_w, A_BOLD, " Scope: RW (OWNER)");
 	} else {
-		draw_padded(6, 59, 21, A_NORMAL, " Scope: RO (SCOPED)");
+		draw_padded(6, insp_x, insp_w, A_NORMAL, " Scope: RO (SCOPED)");
+	}
+
+	if (insp_w >= 28 && body_bottom >= 22) {
+		snprintf(line, sizeof(line), " Path: %.*s", max_txt - 6, fe->full_path);
+		draw_padded(7, insp_x, insp_w, A_NORMAL, line);
 	}
 
 	/* Read file header via FUSE to show EXIF / ID3 / text preview */
 	if (!fe->is_dir) {
 		int fd = open(fe->full_path, O_RDONLY);
 		if (fd < 0) {
-			draw_padded(8, 59, 21, A_REVERSE, " ACCESS DENIED ");
-			draw_padded(9, 59, 21, A_NORMAL, " Blocked by Scoped");
-			draw_padded(10, 59, 21, A_NORMAL, " Storage FUSE policy");
+			draw_padded(8, insp_x, insp_w, A_REVERSE, " ACCESS DENIED ");
+			draw_padded(9, insp_x, insp_w, A_NORMAL, " Blocked by Scoped");
+			draw_padded(10, insp_x, insp_w, A_NORMAL, " Storage FUSE policy");
 		} else {
-			unsigned char buf[512];
+			unsigned char buf[1024];
 			int n = read(fd, buf, sizeof(buf) - 1);
 			close(fd);
 			if (n < 0)
@@ -865,7 +999,7 @@ static void draw_inspector_pane(void)
 			if (strcmp(fe->mime, "image/jpeg") == 0) {
 				char *exif_p = NULL;
 				int i;
-				draw_padded(8, 59, 21, A_UNDERLINE, " EXIF Metadata:");
+				draw_padded(8, insp_x, insp_w, A_UNDERLINE, " EXIF Metadata:");
 				for (i = 0; i + 5 < n; i++) {
 					if (memcmp(buf + i, "EXIF:", 5) == 0) {
 						exif_p = (char *)(buf + i + 5);
@@ -875,54 +1009,53 @@ static void draw_inspector_pane(void)
 				if (exif_p) {
 					char *lat = strstr(exif_p, "GPSLatitude=");
 					char *lon = strstr(exif_p, "GPSLongitude=");
-					draw_padded(9, 59, 21, A_NORMAL, " Model: Pixel-SIX");
+					draw_padded(9, insp_x, insp_w, A_NORMAL, " Model: Pixel-SIX");
 					if (lat) {
-						char v[16];
+						char v[32];
 						int k = 0;
 						lat += 12;
-						while (lat[k] && lat[k] != ';' && k < 14) {
+						while (lat[k] && lat[k] != ';' && k < (int)sizeof(v) - 1) {
 							v[k] = lat[k];
 							k++;
 						}
 						v[k] = '\0';
-						snprintf(line, sizeof(line), " Lat: %.14s", v);
-						draw_padded(10, 59, 21, A_BOLD, line);
+						snprintf(line, sizeof(line), " Lat: %.*s", max_txt - 5, v);
+						draw_padded(10, insp_x, insp_w, A_BOLD, line);
 					}
 					if (lon) {
-						char v[16];
+						char v[32];
 						int k = 0;
 						lon += 13;
-						while (lon[k] && lon[k] != ';' && k < 14) {
+						while (lon[k] && lon[k] != ';' && k < (int)sizeof(v) - 1) {
 							v[k] = lon[k];
 							k++;
 						}
 						v[k] = '\0';
-						snprintf(line, sizeof(line), " Lon: %.14s", v);
-						draw_padded(11, 59, 21, A_BOLD, line);
+						snprintf(line, sizeof(line), " Lon: %.*s", max_txt - 5, v);
+						draw_padded(11, insp_x, insp_w, A_BOLD, line);
 					}
 					if (my_uid != 0 && my_uid != fe->owner_uid) {
-						draw_padded(13, 59, 21, A_REVERSE, " EXIF GPS REDACTED ");
+						draw_padded(13, insp_x, insp_w, A_REVERSE, " EXIF GPS REDACTED ");
 					} else {
-						draw_padded(13, 59, 21, A_NORMAL, " GPS: Unredacted");
+						draw_padded(13, insp_x, insp_w, A_NORMAL, " GPS: Unredacted");
 					}
 				}
 			} else if (strcmp(fe->mime, "audio/mpeg") == 0 && n >= 160 &&
 				   memcmp(buf + 32, "TAG", 3) == 0) {
-				draw_padded(8, 59, 21, A_UNDERLINE, " ID3v1 Audio Tags:");
-				snprintf(line, sizeof(line), " Title: %.12s", (char *)(buf + 35));
-				draw_padded(9, 59, 21, A_NORMAL, line);
-				snprintf(line, sizeof(line), " Artist:%.12s", (char *)(buf + 65));
-				draw_padded(10, 59, 21, A_NORMAL, line);
-				snprintf(line, sizeof(line), " Album: %.12s", (char *)(buf + 95));
-				draw_padded(11, 59, 21, A_NORMAL, line);
+				draw_padded(8, insp_x, insp_w, A_UNDERLINE, " ID3v1 Audio Tags:");
+				snprintf(line, sizeof(line), " Title: %.30s", (char *)(buf + 35));
+				draw_padded(9, insp_x, insp_w, A_NORMAL, line);
+				snprintf(line, sizeof(line), " Artist:%.30s", (char *)(buf + 65));
+				draw_padded(10, insp_x, insp_w, A_NORMAL, line);
+				snprintf(line, sizeof(line), " Album: %.30s", (char *)(buf + 95));
+				draw_padded(11, insp_x, insp_w, A_NORMAL, line);
 			} else {
 				int pr = 9, i = 0;
-				draw_padded(8, 59, 21, A_UNDERLINE, " Content Preview:");
-				while (i < n && pr <= 18) {
-					char pline[22];
+				draw_padded(8, insp_x, insp_w, A_UNDERLINE, " Content Preview:");
+				while (i < n && pr <= body_bottom - 1) {
+					char pline[128];
 					int col = 0;
-					plink:
-					while (i < n && buf[i] != '\n' && col < 19) {
+					while (i < n && buf[i] != '\n' && col < max_txt) {
 						unsigned char c = buf[i++];
 						if (c >= 32 && c < 127)
 							pline[col++] = (char)c;
@@ -933,17 +1066,16 @@ static void draw_inspector_pane(void)
 						i++;
 					pline[col] = '\0';
 					snprintf(line, sizeof(line), " %s", pline);
-					draw_padded(pr++, 59, 21, A_NORMAL, line);
-					(void)&&plink;
+					draw_padded(pr++, insp_x, insp_w, A_NORMAL, line);
 				}
 			}
 		}
 	} else {
 		DIR *dp = opendir(fe->full_path);
 		if (!dp && errno == EACCES) {
-			draw_padded(8, 59, 21, A_REVERSE, " SANDBOX LOCKED ");
-			draw_padded(9, 59, 21, A_NORMAL, " Other user's private");
-			draw_padded(10, 59, 21, A_NORMAL, " Android/data folder");
+			draw_padded(8, insp_x, insp_w, A_REVERSE, " SANDBOX LOCKED ");
+			draw_padded(9, insp_x, insp_w, A_NORMAL, " Other user's private");
+			draw_padded(10, insp_x, insp_w, A_NORMAL, " Android/data folder");
 		} else if (dp) {
 			int sub_cnt = 0;
 			struct dirent *de;
@@ -952,54 +1084,74 @@ static void draw_inspector_pane(void)
 					sub_cnt++;
 			}
 			closedir(dp);
-			draw_padded(8, 59, 21, A_UNDERLINE, " Folder Summary:");
+			draw_padded(8, insp_x, insp_w, A_UNDERLINE, " Folder Summary:");
 			snprintf(line, sizeof(line), " Items: %d", sub_cnt);
-			draw_padded(9, 59, 21, A_NORMAL, line);
-			draw_padded(11, 59, 21, A_NORMAL, " Press Enter to open");
+			draw_padded(9, insp_x, insp_w, A_NORMAL, line);
+			draw_padded(11, insp_x, insp_w, A_NORMAL, " Press Enter to open");
 		}
 	}
 }
 
 /*
- * Render the entire 3-pane Android Desktop Files UI.
+ * Render the entire 3-pane Android Desktop Files UI across the full terminal
+ * dimensions (term_rows x term_cols).
  * Uses full-width reverse-video highlight bars for selection (no '*' or '>').
  */
 static void draw_ui(void)
 {
-	char hdr[128];
+	char hdr[300];
+	char col_hdr[300];
 	int i, r;
+	int path_w;
+	int show_mime_col;
+	int name_col_w;
 
-	/* Row 0: Top App Bar (Reverse Video) */
+	sync_terminal_size(0);
+
+	/* Row 0: Top App Bar (Reverse Video across full term_cols) */
+	path_w = term_cols - 52;
+	if (path_w < 24)
+		path_w = 24;
+	if (path_w > 140)
+		path_w = 140;
 	snprintf(hdr, sizeof(hdr),
-		 " Files (Android Desktop)  |  %-32.32s  |  %s(%u)",
+		 " Files (Android Desktop)  |  %-*.*s  |  %s(%u) [%dx%d]",
+		 path_w, path_w,
 		 browse_is_virtual ? current_title : current_dir,
-		 my_username, (unsigned int)my_uid);
-	draw_padded(0, 0, 80, A_REVERSE | A_BOLD, hdr);
+		 my_username, (unsigned int)my_uid, term_cols, term_rows);
+	draw_padded(0, 0, term_cols, A_REVERSE | A_BOLD, hdr);
 
-	/* Left Navigation Drawer (Cols 0..21) */
-	draw_padded(1, 0, 22, (focus_pane == PANE_SIDEBAR) ? (A_BOLD | A_UNDERLINE) : A_UNDERLINE,
+	/* Left Navigation Drawer (Cols 0 .. sb_w - 1) */
+	draw_padded(1, 0, sb_w, (focus_pane == PANE_SIDEBAR) ? (A_BOLD | A_UNDERLINE) : A_UNDERLINE,
 		    " LIBRARIES");
 
-	for (r = 2; r <= 20; r++)
-		draw_padded(r, 0, 22, A_NORMAL, "");
+	for (r = 2; r <= body_bottom; r++)
+		draw_padded(r, 0, sb_w, A_NORMAL, "");
 
 	r = 2;
-	for (i = 0; i < sb_count; i++) {
+	for (i = 0; i < sb_count && r <= body_bottom; i++) {
 		struct sidebar_item *it = &sb_items[i];
-		char row_txt[32];
+		char row_txt[64];
 		int attr = A_NORMAL;
+		int item_w = sb_w - 1;
 
-		if (it->id == SB_DEV_INTERNAL) {
+		if (it->id == SB_DEV_INTERNAL && r + 2 <= body_bottom) {
 			r++;
-			draw_padded(r++, 0, 22,
+			draw_padded(r++, 0, sb_w,
 				    (focus_pane == PANE_SIDEBAR) ? (A_BOLD | A_UNDERLINE) : A_UNDERLINE,
 				    " STORAGE DEVICES");
 		}
 
 		if (it->is_storage) {
-			snprintf(row_txt, sizeof(row_txt), "  %-19.19s", it->label);
+			int lbl_w = item_w - 2;
+			if (lbl_w < 10)
+				lbl_w = 10;
+			snprintf(row_txt, sizeof(row_txt), "  %-*.*s", lbl_w, lbl_w, it->label);
 		} else {
-			snprintf(row_txt, sizeof(row_txt), "  %-14.14s %3d ", it->label, it->count_badge);
+			int lbl_w = item_w - 7;
+			if (lbl_w < 8)
+				lbl_w = 8;
+			snprintf(row_txt, sizeof(row_txt), "  %-*.*s %3d ", lbl_w, lbl_w, it->label, it->count_badge);
 		}
 
 		/* Highlighted selection bar without '*' or '>' */
@@ -1009,30 +1161,51 @@ static void draw_ui(void)
 			attr = A_REVERSE;
 		}
 
-		draw_padded(r++, 0, 21, attr, row_txt);
-		if (it->is_storage && r <= 20) {
-			draw_usage_bar(r++, 0, it->used_pct, it->fstype);
+		draw_padded(r++, 0, item_w, attr, row_txt);
+		if (it->is_storage && r <= body_bottom) {
+			draw_usage_bar(r++, 0, item_w, it->used_pct, it->fstype);
 		}
 	}
 
-	/* Vertical dividers at col 22 and col 58 */
-	for (r = 1; r <= 20; r++) {
-		mvaddch(r, 22, '|');
-		mvaddch(r, 58, '|');
+	/* Vertical dividers at div1_x and div2_x across all body rows */
+	for (r = 1; r <= body_bottom; r++) {
+		mvaddch(r, div1_x, '|');
+		mvaddch(r, div2_x, '|');
 	}
 
-	/* Center File / Media List Pane (Cols 23..57) */
-	draw_padded(1, 23, 35,
-		    (focus_pane == PANE_FILES) ? (A_BOLD | A_UNDERLINE) : A_UNDERLINE,
-		    " NAME                 SIZE  OWNER");
+	/* Center File / Media List Pane (Cols center_x .. div2_x - 1) */
+	show_mime_col = (center_w >= 54) ? 1 : 0;
+	if (show_mime_col) {
+		/* Wide layout: NAME + TYPE/META (16) + SIZE (6) + OWNER (8) */
+		name_col_w = center_w - 35;
+		if (name_col_w < 18)
+			name_col_w = 18;
+		snprintf(col_hdr, sizeof(col_hdr),
+			 " %-*.*s %-16.16s %6.6s  %-8.8s",
+			 name_col_w, name_col_w, "NAME",
+			 browse_is_virtual ? "MEDIA METADATA" : "MIME TYPE",
+			 "SIZE", "OWNER");
+	} else {
+		/* Compact layout: NAME + SIZE (5) + OWNER (6) */
+		name_col_w = center_w - 16;
+		if (name_col_w < 12)
+			name_col_w = 12;
+		snprintf(col_hdr, sizeof(col_hdr),
+			 " %-*.*s %5.5s  %-6.6s",
+			 name_col_w, name_col_w, "NAME", "SIZE", "OWNER");
+	}
 
-	for (i = 0; i < 19; i++) {
+	draw_padded(1, center_x, center_w,
+		    (focus_pane == PANE_FILES) ? (A_BOLD | A_UNDERLINE) : A_UNDERLINE,
+		    col_hdr);
+
+	for (i = 0; i < list_rows; i++) {
 		int idx = file_scroll + i;
 		int row_y = 2 + i;
 
 		if (idx < entry_count) {
 			struct file_entry *fe = &entries[idx];
-			char sz_str[12], disp_name[24], row_txt[48];
+			char sz_str[16], disp_name[128], row_txt[300];
 			int attr = A_NORMAL;
 
 			format_size(fe->size, fe->is_dir, sz_str, sizeof(sz_str));
@@ -1041,8 +1214,19 @@ static void draw_ui(void)
 			else
 				snprintf(disp_name, sizeof(disp_name), "%s", fe->name);
 
-			snprintf(row_txt, sizeof(row_txt), " %-19.19s %5.5s  %-6.6s",
-				 disp_name, sz_str, fe->owner_name);
+			if (show_mime_col) {
+				const char *meta_col = (browse_is_virtual && fe->meta_extra[0])
+						       ? fe->meta_extra : fe->mime;
+				snprintf(row_txt, sizeof(row_txt),
+					 " %-*.*s %-16.16s %6.6s  %-8.8s",
+					 name_col_w, name_col_w, disp_name,
+					 meta_col, sz_str, fe->owner_name);
+			} else {
+				snprintf(row_txt, sizeof(row_txt),
+					 " %-*.*s %5.5s  %-6.6s",
+					 name_col_w, name_col_w, disp_name,
+					 sz_str, fe->owner_name);
+			}
 
 			if (focus_pane == PANE_FILES && idx == file_sel) {
 				attr = A_REVERSE | A_BOLD;
@@ -1051,36 +1235,49 @@ static void draw_ui(void)
 			} else if (fe->is_dir) {
 				attr = A_BOLD;
 			}
-			draw_padded(row_y, 23, 35, attr, row_txt);
+			draw_padded(row_y, center_x, center_w, attr, row_txt);
 		} else {
-			draw_padded(row_y, 23, 35, A_NORMAL, "");
+			draw_padded(row_y, center_x, center_w, A_NORMAL, "");
 		}
 	}
 
-	/* Right Inspector & Preview Pane (Cols 59..79) */
+	/* Right Inspector & Preview Pane (Cols insp_x .. term_cols - 1) */
 	draw_inspector_pane();
 
-	/* Row 21: Live Toast / Hotplug Status Banner */
-	draw_padded(21, 0, 79, A_BOLD, toast_msg);
+	/* Row toast_row: Live Toast / Hotplug Status Banner */
+	draw_padded(toast_row, 0, term_cols - 1, A_BOLD, toast_msg);
 
-	/* Row 22: Bottom Keybinding Bar */
-	draw_padded(22, 0, 79, A_REVERSE,
+	/* Row status_row: Bottom Keybinding Bar */
+	draw_padded(status_row, 0, term_cols - 1, A_REVERSE,
 		    " Tab:Pane Arrows:Select Enter:Open Bksp:Up n:New m:Dir d:Del e:Eject q:Quit");
 
 	/* Park cursor at bottom right and hide it */
-	move(22, 78);
+	move(status_row, term_cols - 2);
 	printf("\033[?25l");
 	refresh();
 }
 
 /*
  * Modal overlay to view full file contents & metadata when Enter is pressed on a file.
+ * Scales dynamically with terminal dimensions.
  */
 static void show_file_modal(struct file_entry *fe)
 {
 	int fd, n, i, r;
-	unsigned char buf[1024];
-	char title[64];
+	unsigned char buf[2048];
+	char title[160];
+	int mw = term_cols - 12;
+	int mx, my_top, my_bot;
+
+	if (mw < 48)
+		mw = term_cols - 4;
+	if (mw > 180)
+		mw = 180;
+	mx = (term_cols - mw) / 2;
+	my_top = 2;
+	my_bot = term_rows - 4;
+	if (my_bot < my_top + 6)
+		my_bot = my_top + 6;
 
 	modal_open = 1;
 	fd = open(fe->full_path, O_RDONLY);
@@ -1098,17 +1295,20 @@ static void show_file_modal(struct file_entry *fe)
 
 	snprintf(title, sizeof(title), " FILE VIEWER: %s (%lu bytes, owner=%s) ",
 		 fe->name, fe->size, fe->owner_name);
-	draw_padded(3, 8, 64, A_REVERSE | A_BOLD, title);
-	for (r = 4; r <= 18; r++) {
-		draw_padded(r, 8, 64, A_REVERSE, "");
+	draw_padded(my_top, mx, mw, A_REVERSE | A_BOLD, title);
+	for (r = my_top + 1; r <= my_bot; r++) {
+		draw_padded(r, mx, mw, A_REVERSE, "");
 	}
 
-	r = 5;
+	r = my_top + 2;
 	i = 0;
-	while (i < n && r <= 16) {
-		char line[62];
+	while (i < n && r <= my_bot - 2) {
+		char line[200];
 		int col = 0;
-		while (i < n && buf[i] != '\n' && col < 58) {
+		int max_col = mw - 4;
+		if (max_col > (int)sizeof(line) - 1)
+			max_col = (int)sizeof(line) - 1;
+		while (i < n && buf[i] != '\n' && col < max_col) {
 			unsigned char c = buf[i++];
 			if (c >= 32 && c < 127)
 				line[col++] = (char)c;
@@ -1119,12 +1319,12 @@ static void show_file_modal(struct file_entry *fe)
 			i++;
 		line[col] = '\0';
 		if (col > 0) {
-			char padded[66];
+			char padded[220];
 			snprintf(padded, sizeof(padded), "  %s", line);
-			draw_padded(r++, 8, 64, A_REVERSE, padded);
+			draw_padded(r++, mx, mw, A_REVERSE, padded);
 		}
 	}
-	draw_padded(18, 8, 64, A_REVERSE | A_BOLD,
+	draw_padded(my_bot, mx, mw, A_REVERSE | A_BOLD,
 		    " Press Enter, Space, or Esc to close viewer ");
 	refresh();
 
@@ -1147,20 +1347,20 @@ static void show_file_modal(struct file_entry *fe)
 }
 
 /*
- * Prompt for a short string on row 21 (for 'n' New File or 'm' Mkdir).
+ * Prompt for a short string on toast_row (for 'n' New File or 'm' Mkdir).
  */
 static int prompt_input(const char *prompt_str, char *out, int out_max)
 {
 	int len = 0;
-	char line[80];
+	char line[256];
 
 	out[0] = '\0';
 	printf("\033[?25h");
 	for (;;) {
 		unsigned char ch;
 		snprintf(line, sizeof(line), " %s%s", prompt_str, out);
-		draw_padded(21, 0, 80, A_REVERSE | A_BOLD, line);
-		move(21, 1 + (int)strlen(prompt_str) + len);
+		draw_padded(toast_row, 0, term_cols - 1, A_REVERSE | A_BOLD, line);
+		move(toast_row, 1 + (int)strlen(prompt_str) + len);
 		refresh();
 
 		if (read(0, &ch, 1) <= 0)
@@ -1329,8 +1529,9 @@ static int read_key(void)
 static void dump_text_snapshot(void)
 {
 	int i;
-	printf("=== Android Desktop Files (DocumentsUI) Snapshot [user=%s(%u)] ===\n",
-	       my_username, (unsigned int)my_uid);
+	sync_terminal_size(1);
+	printf("=== Android Desktop Files (DocumentsUI) Snapshot [user=%s(%u), term=%dx%d] ===\n",
+	       my_username, (unsigned int)my_uid, term_cols, term_rows);
 	printf("Sidebar Roots & Libraries:\n");
 	for (i = 0; i < sb_count; i++) {
 		struct sidebar_item *it = &sb_items[i];
@@ -1390,6 +1591,7 @@ int main(int argc, char **argv)
 	}
 
 	initscr();
+	sync_terminal_size(1);
 	cbreak();
 	noecho();
 	keypad(stdscr, TRUE);
@@ -1404,96 +1606,115 @@ int main(int argc, char **argv)
 		FD_ZERO(&rfds);
 		FD_SET(0, &rfds);
 		tv.tv_sec = 0;
-		tv.tv_usec = 250000; /* 250ms reactive hotplug & directory poll */
+		tv.tv_usec = 250000; /* 250ms reactive hotplug, resize & directory poll */
 
 		rc = select(1, &rfds, NULL, NULL, &tv);
 		if (rc > 0 && FD_ISSET(0, &rfds)) {
-			int k = read_key();
-			if (k < 0)
-				continue;
+			int should_quit = 0;
 
-			if (k == 'q' || k == 'Q')
-				break;
+			for (;;) {
+				fd_set more_rfds;
+				struct timeval zero_tv;
+				int k = read_key();
+				if (k < 0)
+					break;
 
-			if (k == '\t') {
-				focus_pane = (focus_pane == PANE_SIDEBAR) ? PANE_FILES : PANE_SIDEBAR;
-			} else if (k == KEY_LEFT || k == 'h') {
-				focus_pane = PANE_SIDEBAR;
-			} else if (k == KEY_RIGHT || k == 'l') {
-				if (focus_pane == PANE_SIDEBAR) {
-					activate_sidebar_item(sb_sel);
-					focus_pane = PANE_FILES;
-				} else if (entry_count > 0 && entries[file_sel].is_dir) {
-					strcpy(current_dir, entries[file_sel].full_path);
-					file_sel = 0;
-					file_scroll = 0;
-					load_entries();
+				if (k == 'q' || k == 'Q') {
+					should_quit = 1;
+					break;
 				}
-			} else if (k == KEY_UP || k == 'k') {
-				if (focus_pane == PANE_SIDEBAR) {
-					if (sb_sel > 0)
-						sb_sel--;
-				} else {
-					if (file_sel > 0)
-						file_sel--;
-					if (file_sel < file_scroll)
-						file_scroll = file_sel;
-				}
-			} else if (k == KEY_DOWN || k == 'j') {
-				if (focus_pane == PANE_SIDEBAR) {
-					if (sb_sel + 1 < sb_count)
-						sb_sel++;
-				} else {
-					if (file_sel + 1 < entry_count)
-						file_sel++;
-					if (file_sel >= file_scroll + 17)
-						file_scroll = file_sel - 16;
-				}
-			} else if (k == '\r' || k == '\n') {
-				if (focus_pane == PANE_SIDEBAR) {
-					activate_sidebar_item(sb_sel);
-					focus_pane = PANE_FILES;
-				} else if (entry_count > 0) {
-					struct file_entry *fe = &entries[file_sel];
-					if (fe->is_dir) {
-						char next_dir[192];
-						strncpy(next_dir, fe->full_path, sizeof(next_dir) - 1);
-						next_dir[sizeof(next_dir) - 1] = '\0';
-						strcpy(current_dir, next_dir);
-						browse_is_virtual = 0;
+
+				if (k == '\t') {
+					focus_pane = (focus_pane == PANE_SIDEBAR) ? PANE_FILES : PANE_SIDEBAR;
+				} else if (k == KEY_LEFT || k == 'h') {
+					focus_pane = PANE_SIDEBAR;
+				} else if (k == KEY_RIGHT || k == 'l') {
+					if (focus_pane == PANE_SIDEBAR) {
+						activate_sidebar_item(sb_sel);
+						focus_pane = PANE_FILES;
+					} else if (entry_count > 0 && entries[file_sel].is_dir) {
+						strcpy(current_dir, entries[file_sel].full_path);
 						file_sel = 0;
 						file_scroll = 0;
 						load_entries();
-					} else {
-						show_file_modal(fe);
 					}
-				}
-			} else if (k == 127 || k == '\b' || k == 'u') {
-				if (!browse_is_virtual && !is_root_storage_dir(current_dir)) {
-					char *slash = strrchr(current_dir, '/');
-					if (slash && slash != current_dir)
-						*slash = '\0';
-					file_sel = 0;
-					file_scroll = 0;
+				} else if (k == KEY_UP || k == 'k') {
+					if (focus_pane == PANE_SIDEBAR) {
+						if (sb_sel > 0)
+							sb_sel--;
+					} else {
+						if (file_sel > 0)
+							file_sel--;
+						if (file_sel < file_scroll)
+							file_scroll = file_sel;
+					}
+				} else if (k == KEY_DOWN || k == 'j') {
+					if (focus_pane == PANE_SIDEBAR) {
+						if (sb_sel + 1 < sb_count)
+							sb_sel++;
+					} else {
+						if (file_sel + 1 < entry_count)
+							file_sel++;
+						if (file_sel >= file_scroll + list_rows)
+							file_scroll = file_sel - list_rows + 1;
+					}
+				} else if (k == '\r' || k == '\n') {
+					if (focus_pane == PANE_SIDEBAR) {
+						activate_sidebar_item(sb_sel);
+						focus_pane = PANE_FILES;
+					} else if (entry_count > 0) {
+						struct file_entry *fe = &entries[file_sel];
+						if (fe->is_dir) {
+							char next_dir[192];
+							strncpy(next_dir, fe->full_path, sizeof(next_dir) - 1);
+							next_dir[sizeof(next_dir) - 1] = '\0';
+							strcpy(current_dir, next_dir);
+							browse_is_virtual = 0;
+							file_sel = 0;
+							file_scroll = 0;
+							load_entries();
+						} else {
+							show_file_modal(fe);
+						}
+					}
+				} else if (k == 127 || k == '\b' || k == 'u') {
+					if (!browse_is_virtual && !is_root_storage_dir(current_dir)) {
+						char *slash = strrchr(current_dir, '/');
+						if (slash && slash != current_dir)
+							*slash = '\0';
+						file_sel = 0;
+						file_scroll = 0;
+						load_entries();
+					}
+				} else if (k == 'n' || k == 'N') {
+					handle_create_file();
+				} else if (k == 'm' || k == 'M') {
+					handle_create_dir();
+				} else if (k == 'd' || k == 'D') {
+					handle_delete_selected();
+				} else if (k == 'e' || k == 'E') {
+					handle_eject_usb();
+				} else if (k == 'r' || k == 'R' || k == 12) {
+					char resp[128];
+					mp_transact(IMP_SCAN, "", resp, sizeof(resp));
+					rebuild_sidebar();
 					load_entries();
+					strncpy(toast_msg, resp[0] ? resp : "[FILES] MediaProvider scan completed.",
+						sizeof(toast_msg) - 1);
+					clear();
 				}
-			} else if (k == 'n' || k == 'N') {
-				handle_create_file();
-			} else if (k == 'm' || k == 'M') {
-				handle_create_dir();
-			} else if (k == 'd' || k == 'D') {
-				handle_delete_selected();
-			} else if (k == 'e' || k == 'E') {
-				handle_eject_usb();
-			} else if (k == 'r' || k == 'R' || k == 12) {
-				char resp[128];
-				mp_transact(IMP_SCAN, "", resp, sizeof(resp));
-				rebuild_sidebar();
-				load_entries();
-				strncpy(toast_msg, resp[0] ? resp : "[FILES] MediaProvider scan completed.",
-					sizeof(toast_msg) - 1);
-				clear();
+
+				FD_ZERO(&more_rfds);
+				FD_SET(0, &more_rfds);
+				zero_tv.tv_sec = 0;
+				zero_tv.tv_usec = 0;
+				if (select(1, &more_rfds, NULL, NULL, &zero_tv) <= 0 ||
+				    !FD_ISSET(0, &more_rfds))
+					break;
 			}
+
+			if (should_quit)
+				break;
 
 			draw_ui();
 		} else {

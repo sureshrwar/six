@@ -573,16 +573,19 @@ TESTS = [
     ),
     TestCase(
         name="apps.interactive_files",
-        description="Android Desktop curses Files app (/bin/files) with highlighted selection, Scoped Storage Inspector, and live USB hotplug auto-refresh",
+        description="Android Desktop curses Files app (/bin/files) with highlighted selection, Scoped Storage Inspector, live USB hotplug auto-refresh, and dynamic full-terminal resize",
         cmd=(
             "sh -c 'sleep 1; usbctl plug ext4 >/dev/null 2>&1' & "
             "su six -c 'files /storage/emulated/0/Pictures'"
         ),
         raw_post_cmds=[
             "__SLEEP__:1.5",
+            "__RESIZE__:40:120",
+            "__SLEEP__:0.4",
             r"__KEYS__:nsix_ui_note.txt\r",
             r"__KEYS__:\t\x1b[A\x1b[A\x1b[A\x1b[A\r",
             "__SLEEP__:0.4",
+            "__RESIZE__:24:80",
             r"__KEYS__:q",
             "cat /storage/emulated/0/Pictures/six_ui_note.txt && rm /storage/emulated/0/Pictures/six_ui_note.txt && usbctl unplug",
         ],
@@ -593,6 +596,9 @@ TESTS = [
             "INSPECTOR",
             "SANDISK_EXT4 (USB)",
             "[HOTPLUG] USB Mounted: SANDISK_EXT4 (ext4) -> /storage/7B9E-3D10",
+            "[RESIZE] Terminal resized to 120x40 (full-window layout active)",
+            "[120x40]",
+            "MEDIA METADATA",
             "[FILES] Created six_ui_note.txt (owner=six)",
             "EXIF GPS REDACTED",
             "Created by six(uid=1005) in SIX Files app.",
