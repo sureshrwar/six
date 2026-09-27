@@ -485,7 +485,7 @@ TESTS = [
             "tcc -g /etc/demos/hello.c -o /tmp/hello_dbg && "
             'gdb -q -batch -ex "b main" -ex "r" -ex "bt" -ex "n" -ex "n" -ex "disas main" -ex "c" /tmp/hello_dbg && '
             "rm -f /tmp/hello_dbg && "
-            'gdb -q -batch -p 35 -ex "info proc" -ex "bt" -ex "x/2i \\$eip" -ex "detach" && '
+            'gdb -q -batch -p `ps -e | grep servicemanager | awk \'{print $1}\'` -ex "info proc" -ex "bt" -ex "x/2i \\$eip" -ex "detach" && '
             "service list"
         ),
         expected_substrings=[
@@ -496,10 +496,10 @@ TESTS = [
             "main () at /etc/demos/hello.c:6",
             "TCC Self-Hosting Verification on SIX",
             "Dump of assembler code for function main:",
-            "Attaching to process 35",
+            "Attaching to process ",
             "Reading symbols from /bin/servicemanager... done",
             "at applications/servicemanager/servicemanager.c:118",
-            "Detaching from program: /bin/servicemanager, process 35",
+            "Detaching from program: /bin/servicemanager, process ",
             "Found 6 services:",
         ],
     ),
