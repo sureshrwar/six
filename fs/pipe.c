@@ -426,6 +426,7 @@ int do_pipe(int *fd)
 	inode = get_pipe_inode();
 	if (!inode)
 		goto close_f12;
+	inode->i_sec_sid = current ? current->sec_sid : 0;
 
 	error = get_unused_fd();
 	if (error < 0)

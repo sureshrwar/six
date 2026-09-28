@@ -1047,7 +1047,10 @@ TESTS = [
         cmd=(
             "getenforce && "
             "sestatus && "
+            "usbctl plug ntfs && "
             "ps -efZ && "
+            "(runcon u:r:ntfs_3g:s0 ntfs-3g /dev/sda1 /tmp 2>/dev/null || echo NTFS_3G_DIRECT_MOUNT_BLOCKED_OK) && "
+            "usbctl unplug && "
             "ls -Z /bin/ntfs-3g /vendor/bin/fwupd /dev/ufsa /dev/ufs-bsg0 /dev/nvme0 /dev/binder && "
             "dumpsys fwupd && "
             "load_policy && "
@@ -1076,6 +1079,8 @@ TESTS = [
             "u:r:vold:s0",
             "u:r:storaged:s0",
             "u:r:ntfs_3g:s0",
+            "--ready-fd",
+            "NTFS_3G_DIRECT_MOUNT_BLOCKED_OK",
             "u:r:fwupd:s0",
             "u:object_r:ntfs_3g_exec:s0",
             "u:object_r:fwupd_exec:s0",

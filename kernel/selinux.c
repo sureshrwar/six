@@ -1144,23 +1144,34 @@ static void selinux_seed_baseline_policy(void)
 		allow_sid(d, d, SECCLASS_FIFO_FILE, RW_FILE_PERMS);
 		allow_sid(d, d, SECCLASS_SOCK_FILE, RW_FILE_PERMS);
 
-		/* Inherit FDs from init / su / shell / adbd */
-		allow_sid(d, sid_init, SECCLASS_FD, SEPERM_USE);
-		allow_sid(d, sid_su, SECCLASS_FD, SEPERM_USE);
-		allow_sid(d, sid_shell, SECCLASS_FD, SEPERM_USE);
-		allow_sid(d, sid_adbd, SECCLASS_FD, SEPERM_USE);
-		allow_sid(d, sid_init, SECCLASS_PROCESS, SEPERM_PROC_SIGCHLD);
-		allow_sid(d, sid_su, SECCLASS_PROCESS, SEPERM_PROC_SIGCHLD);
-		allow_sid(d, sid_shell, SECCLASS_PROCESS, SEPERM_PROC_SIGCHLD);
+		/* Inherit FDs and pipes from init / su / shell / adbd (except confined ntfs_3g) */
+		if (d != sid_ntfs_3g) {
+			allow_sid(d, sid_init, SECCLASS_FD, SEPERM_USE);
+			allow_sid(d, sid_su, SECCLASS_FD, SEPERM_USE);
+			allow_sid(d, sid_shell, SECCLASS_FD, SEPERM_USE);
+			allow_sid(d, sid_adbd, SECCLASS_FD, SEPERM_USE);
+			allow_sid(d, sid_init, SECCLASS_FIFO_FILE, RW_FILE_PERMS);
+			allow_sid(d, sid_su, SECCLASS_FIFO_FILE, RW_FILE_PERMS);
+			allow_sid(d, sid_shell, SECCLASS_FIFO_FILE, RW_FILE_PERMS);
+			allow_sid(d, sid_adbd, SECCLASS_FIFO_FILE, RW_FILE_PERMS);
+			allow_sid(d, sid_untrusted_app, SECCLASS_FIFO_FILE, RW_FILE_PERMS);
+			allow_sid(d, sid_init, SECCLASS_PROCESS, SEPERM_PROC_SIGCHLD);
+			allow_sid(d, sid_su, SECCLASS_PROCESS, SEPERM_PROC_SIGCHLD);
+			allow_sid(d, sid_shell, SECCLASS_PROCESS, SEPERM_PROC_SIGCHLD);
+		}
 
 		/* Rootfs, system_file,device directory traversal & symlinks */
 		allow_sid(d, sid_rootfs, SECCLASS_DIR, RO_DIR_PERMS);
 		allow_sid(d, sid_rootfs, SECCLASS_LNK_FILE, RO_FILE_PERMS);
 		allow_sid(d, sid_rootfs, SECCLASS_FILE, RO_FILE_PERMS);
 		allow_sid(d, sid_system_file, SECCLASS_DIR, RO_DIR_PERMS);
-		allow_sid(d, sid_system_file, SECCLASS_FILE, RO_FILE_PERMS | SEPERM_EXECUTE | SEPERM_ENTRYPOINT);
+		if (d != sid_ntfs_3g) {
+			allow_sid(d, sid_system_file, SECCLASS_FILE, RO_FILE_PERMS | SEPERM_EXECUTE | SEPERM_ENTRYPOINT);
+			allow_sid(d, sid_shell_exec, SECCLASS_FILE, RO_FILE_PERMS | SEPERM_EXECUTE | SEPERM_ENTRYPOINT);
+		} else {
+			allow_sid(d, sid_system_file, SECCLASS_FILE, RO_FILE_PERMS);
+		}
 		allow_sid(d, sid_system_file, SECCLASS_LNK_FILE, RO_FILE_PERMS);
-		allow_sid(d, sid_shell_exec, SECCLASS_FILE, RO_FILE_PERMS | SEPERM_EXECUTE | SEPERM_ENTRYPOINT);
 		allow_sid(d, sid_vendor_file, SECCLASS_DIR, RO_DIR_PERMS);
 		allow_sid(d, sid_vendor_file, SECCLASS_LNK_FILE, RO_FILE_PERMS);
 		allow_sid(d, sid_device, SECCLASS_DIR, RO_DIR_PERMS);
@@ -1176,12 +1187,14 @@ static void selinux_seed_baseline_policy(void)
 		allow_sid(d, sid_devpts, SECCLASS_DIR, RO_DIR_PERMS);
 		allow_sid(d, sid_devpts, SECCLASS_CHR_FILE, RW_FILE_PERMS);
 
-		/* /tmp scratch files & anonymous pipes */
-		allow_sid(d, sid_tmpfs, SECCLASS_DIR, RW_DIR_PERMS);
-		allow_sid(d, sid_tmpfs, SECCLASS_FILE, RW_FILE_PERMS);
-		allow_sid(d, sid_tmpfs, SECCLASS_FIFO_FILE, RW_FILE_PERMS);
-		allow_sid(d, sid_tmpfs, SECCLASS_SOCK_FILE, RW_FILE_PERMS);
-		allow_sid(d, sid_system_file, SECCLASS_FIFO_FILE, RW_FILE_PERMS);
+		/* /tmp scratch files & anonymous pipes (denied to strictly confined ntfs_3g) */
+		if (d != sid_ntfs_3g) {
+			allow_sid(d, sid_tmpfs, SECCLASS_DIR, RW_DIR_PERMS);
+			allow_sid(d, sid_tmpfs, SECCLASS_FILE, RW_FILE_PERMS);
+			allow_sid(d, sid_tmpfs, SECCLASS_FIFO_FILE, RW_FILE_PERMS);
+			allow_sid(d, sid_tmpfs, SECCLASS_SOCK_FILE, RW_FILE_PERMS);
+			allow_sid(d, sid_system_file, SECCLASS_FIFO_FILE, RW_FILE_PERMS);
+		}
 
 		/* Basic /proc & /sys/fs/selinux status queries */
 		allow_sid(d, sid_proc, SECCLASS_DIR, RO_DIR_PERMS);
@@ -1220,7 +1233,6 @@ static void selinux_seed_baseline_policy(void)
 	add_domain_auto_trans(sid_kernel, sid_init_exec, sid_init);
 	add_domain_auto_trans(sid_init, sid_servicemanager_exec, sid_servicemanager);
 	add_domain_auto_trans(sid_init, sid_vold_exec, sid_vold);
-	add_domain_auto_trans(sid_init, sid_ntfs_3g_exec, sid_ntfs_3g);
 	add_domain_auto_trans(sid_init, sid_storaged_exec, sid_storaged);
 	add_domain_auto_trans(sid_init, sid_mediaprovider_exec, sid_mediaprovider);
 	add_domain_auto_trans(sid_init, sid_externalstoraged_exec, sid_externalstoraged);
@@ -1229,12 +1241,11 @@ static void selinux_seed_baseline_policy(void)
 	add_domain_auto_trans(sid_init, sid_httpd_exec, sid_httpd);
 	add_domain_auto_trans(sid_init, sid_telnetd_exec, sid_telnetd);
 
-	/* vold -> ntfs_3g domain transition (sepolicy/system/private/ntfs_3g.te) */
+	/* vold -> ntfs_3g domain transition (sepolicy/system/private/vold.te - ag/41792131) */
 	add_domain_auto_trans(sid_vold, sid_ntfs_3g_exec, sid_ntfs_3g);
 
 	/* Also allow su/shell/untrusted_app transitions */
 	add_domain_auto_trans(sid_su, sid_vold_exec, sid_vold);
-	add_domain_auto_trans(sid_su, sid_ntfs_3g_exec, sid_ntfs_3g);
 	add_domain_auto_trans(sid_su, sid_storaged_exec, sid_storaged);
 	add_domain_auto_trans(sid_su, sid_mediaprovider_exec, sid_mediaprovider);
 	add_domain_auto_trans(sid_su, sid_externalstoraged_exec, sid_externalstoraged);
@@ -1315,6 +1326,8 @@ static void selinux_seed_baseline_policy(void)
 		  (1UL << CAP_FOWNER) | (1UL << CAP_FSETID) |
 		  (1UL << CAP_DAC_OVERRIDE) | (1UL << CAP_DAC_READ_SEARCH) |
 		  (1UL << CAP_SETUID) | (1UL << CAP_SETGID) | (1UL << CAP_KILL));
+	allow_sid(sid_vold, sid_ntfs_3g, SECCLASS_PROCESS,
+		  SEPERM_GETATTR | SEPERM_PROC_SIGNAL | SEPERM_PROC_SIGKILL);
 	allow_sid(sid_vold, sid_binder_device, SECCLASS_CHR_FILE, RW_FILE_PERMS);
 	allow_sid(sid_vold, sid_servicemanager, SECCLASS_BINDER,
 		  SEPERM_BINDER_CALL | SEPERM_BINDER_TRANSFER);
@@ -1370,35 +1383,23 @@ static void selinux_seed_baseline_policy(void)
 	 * ===================================================================
 	 * 6. ntfs_3g (sepolicy/system/private/ntfs_3g.te - ag/41792131)
 	 * ===================================================================
-	 * Strictly confined FUSE driver domain spawned by vold:
-	 *   - Can use vold's inherited file descriptors
-	 *   - Can read/write/open/ioctl /dev/fuse (fuse_device)
-	 *   - Can read/write/open/ioctl storage block devices (vold_device, block_device)
-	 *   - Can mount/unmount and read/write /mnt/media_rw/* (mnt_media_rw_file)
-	 *   - Cannot access /data/system, /dev/binder, /dev/ufsa SG_IO, etc.
+	 * Strictly confined FUSE driver domain spawned ONLY by vold:
+	 *   - allow ntfs_3g vold:fd use;
+	 *   - allow ntfs_3g fuse_device:chr_file rw_file_perms;
+	 *   - allow ntfs_3g vold_device:blk_file rw_file_perms;
+	 *   - allow ntfs_3g block_device:dir search;
+	 *   - allow ntfs_3g vold:fifo_file rw_file_perms;
+	 *   - ZERO Linux capabilities, ZERO mount/unmount permissions, ZERO
+	 *     access to /tmp, /data, /dev/ufsa, /dev/hda, or Binder IPC!
 	 */
-	allow_sid(sid_ntfs_3g, sid_ntfs_3g, SECCLASS_CAPABILITY,
-		  (1UL << CAP_SYS_ADMIN) | (1UL << CAP_DAC_OVERRIDE) |
-		  (1UL << CAP_DAC_READ_SEARCH) | (1UL << CAP_SETUID) | (1UL << CAP_SETGID));
 	allow_sid(sid_ntfs_3g, sid_vold, SECCLASS_FD, SEPERM_USE);
 	allow_sid(sid_ntfs_3g, sid_fuse_device, SECCLASS_CHR_FILE, RW_FILE_PERMS);
 	allow_sid(sid_ntfs_3g, sid_vold_device, SECCLASS_BLK_FILE, RW_FILE_PERMS);
-	allow_sid(sid_ntfs_3g, sid_swap_block_device, SECCLASS_BLK_FILE, RW_FILE_PERMS);
-	allow_sid(sid_ntfs_3g, sid_block_device, SECCLASS_BLK_FILE, RW_FILE_PERMS);
-	allow_sid(sid_ntfs_3g, sid_mnt_media_rw_file, SECCLASS_DIR,
-		  RW_DIR_PERMS | SEPERM_MOUNT | SEPERM_UNMOUNT);
-	allow_sid(sid_ntfs_3g, sid_mnt_media_rw_file, SECCLASS_FILE, RW_FILE_PERMS);
-	allow_sid(sid_ntfs_3g, sid_mnt_media_rw_file, SECCLASS_LNK_FILE, RW_FILE_PERMS);
-	allow_sid(sid_ntfs_3g, sid_mnt_media_rw_stub_file, SECCLASS_DIR,
-		  RW_DIR_PERMS | SEPERM_MOUNT | SEPERM_UNMOUNT);
-	allow_sid(sid_ntfs_3g, sid_ntfs, SECCLASS_FILESYSTEM,
-		  SEPERM_MOUNT | SEPERM_UNMOUNT | SEPERM_GETATTR);
-	allow_sid(sid_ntfs_3g, sid_ntfs, SECCLASS_DIR, RW_DIR_PERMS);
-	allow_sid(sid_ntfs_3g, sid_ntfs, SECCLASS_FILE, RW_FILE_PERMS);
+	allow_sid(sid_ntfs_3g, sid_vold_device, SECCLASS_DIR, SEPERM_SEARCH | SEPERM_GETATTR);
+	allow_sid(sid_ntfs_3g, sid_block_device, SECCLASS_DIR, SEPERM_SEARCH | SEPERM_GETATTR);
+	allow_sid(sid_ntfs_3g, sid_vold, SECCLASS_FIFO_FILE, RW_FILE_PERMS);
 	add_xperm(sid_ntfs_3g, sid_vold_device, SECCLASS_BLK_FILE, 0x0300, 0x033f, 0);
 	add_xperm(sid_ntfs_3g, sid_vold_device, SECCLASS_BLK_FILE, 0x125d, 0x127f, 0);
-	add_xperm(sid_ntfs_3g, sid_block_device, SECCLASS_BLK_FILE, 0x0300, 0x033f, 0);
-	add_xperm(sid_ntfs_3g, sid_block_device, SECCLASS_BLK_FILE, 0x125d, 0x127f, 0);
 
 	/*
 	 * ===================================================================

@@ -41,3 +41,4 @@ allow vold fsck_exec:file rx_file_perms;
 
 # Transition to confined ntfs_3g domain when executing /bin/ntfs-3g, /bin/ntfsfix, /bin/mkntfs
 domain_auto_trans(vold, ntfs_3g_exec, ntfs_3g)
+allow vold ntfs_3g:process { getattr signal sigkill };
