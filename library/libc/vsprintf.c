@@ -284,6 +284,9 @@ static int _vformat(char *buf, FILE *fp, const char *fmt, va_list args)
                         if (qualifier == 'l' && *fmt == 'l') {
                                 qualifier = 'q';
                                 ++fmt;
+                        } else if (qualifier == 'h' && *fmt == 'h') {
+                                qualifier = 'H';
+                                ++fmt;
                         }
                 }       
                 
@@ -514,11 +517,16 @@ static int _vformat(char *buf, FILE *fp, const char *fmt, va_list args)
                         num = (unsigned long)qnum;
                 } else if (qualifier == 'l' || qualifier == 'z') 
                         num = va_arg(args, unsigned long);
+                else if (qualifier == 'H')
+                        if (flags & SIGN)
+                                num = (signed char) va_arg(args, int);
+                        else
+                                num = (unsigned char) va_arg(args, unsigned int);
                 else if (qualifier == 'h')
                         if (flags & SIGN)
-                                num = va_arg(args, short);
+                                num = (short) va_arg(args, int);
                         else
-                                num = va_arg(args, unsigned short);
+                                num = (unsigned short) va_arg(args, unsigned int);
                 else if (flags & SIGN)
                         num = va_arg(args, int);
                 else

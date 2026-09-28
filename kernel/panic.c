@@ -46,7 +46,7 @@ unsigned long panic_print = 0UL;
 static char pstore_kmsg_buf[16384];
 static char pstore_ftrace_buf[2048];
 
-static void pstore_dump(void)
+void pstore_dump(void)
 {
         int klen, flen, fd;
         unsigned short old_euid, old_fsuid;

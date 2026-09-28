@@ -816,6 +816,231 @@ TESTS = [
             "status=failed-signature",
         ],
     ),
+    TestCase(
+        name="kernel.blk_stall_and_suspend_d_state",
+        description="Block queue stall watchdog (/sys/fs/hangman) and SystemSuspend freeze abort/retry on D-state tasks",
+        cmd=(
+            "sysctl -w kernel.blk_io_timeout_ms=200 && "
+            "set_d && "
+            "sleep 2 && "
+            "sysctl -w kernel.blk_io_timeout_ms=0 && "
+            "(power sleep 80ms || true) && "
+            "cat /sys/power/suspend_stats && "
+            "clear_d && "
+            "power status"
+        ),
+        expected_substrings=[
+            "hctx=0 op=WRITE sector=",
+            "len=1024 bios=1",
+            "blk: queue stall on hda: 1 inflight, 1 stalled (threshold 200 ms)",
+            "Freezing of tasks failed after 0.01 seconds",
+            "SystemSuspend: autosuspend armed (blocked by D-state task",
+            "failed_freeze: 1",
+            "last_failed_step: freeze(",
+            "SystemSuspend: D-state tasks cleared -> entering suspend (mem)",
+            "syscore_resume: woken by irq:8:rtc_alarm",
+            "PowerState=AWAKE interactive=true",
+        ],
+    ),
+    TestCase(
+        name="kernel.segv_oops_and_pstore",
+        description="Guest user-mode SIGSEGV isolation and /sys/fs/pstore (dmesg-ramoops-0 & ftrace-ramoops-0) crash persistence",
+        cmd=(
+            "echo 'int main(void){ *(volatile int *)0x0 = 42; return 0; }' > /tmp/segv_test.c && "
+            "tcc -o /tmp/segv_test /tmp/segv_test.c && "
+            "(/tmp/segv_test || echo USER_SEGV_ISOLATED_OK) && "
+            "panic -s PSTORE_SNAPSHOT_TEST_OK && "
+            "ls -la /sys/fs/pstore && "
+            "head -n 3 /sys/fs/pstore/dmesg-ramoops-0 && "
+            "grep PSTORE_SNAPSHOT_TEST_OK /sys/fs/pstore/dmesg-ramoops-0 && "
+            "head -n 3 /sys/fs/pstore/ftrace-ramoops-0 && "
+            "rm /tmp/segv_test.c /tmp/segv_test /sys/fs/pstore/dmesg-ramoops-0 /sys/fs/pstore/ftrace-ramoops-0"
+        ),
+        expected_substrings=[
+            "six: segv_test[",
+            "segfault at 00000000 eip",
+            "USER_SEGV_ISOLATED_OK",
+            "Kernel crash snapshot: PSTORE_SNAPSHOT_TEST_OK",
+            "pstore: saved crash dump to /sys/fs/pstore/dmesg-ramoops-0",
+            "dmesg-ramoops-0",
+            "ftrace-ramoops-0",
+            "Panic#1 Part1",
+            "# tracer: syscall",
+        ],
+    ),
+    TestCase(
+        name="fs.overlay_and_mkfs_ext2",
+        description="OverlayFS upperdir creation, copy-up, and whiteouts (/bin over /var/overlay/bin) + in-guest mkfs.ext2",
+        cmd=(
+            "echo '#!/bin/sh' > /bin/ovl_test_cmd && "
+            "echo 'echo OVERLAY_UPPER_EXEC_OK' >> /bin/ovl_test_cmd && "
+            "chmod 755 /bin/ovl_test_cmd && "
+            "ls -la /var/overlay/bin/ovl_test_cmd && "
+            "ovl_test_cmd && "
+            "chmod 755 /bin/set_d && "
+            "ls -la /var/overlay/bin/set_d && "
+            "rm /bin/set_d && "
+            "ls -la /var/overlay/bin/.wh.set_d && "
+            "(ls /bin/set_d 2>/dev/null || echo OVERLAY_WHITEOUT_HIDDEN_OK) && "
+            "rm /var/overlay/bin/.wh.set_d /bin/ovl_test_cmd && "
+            "ls -la /bin/set_d && "
+            "dd if=/dev/zero of=/tmp/ext2_test.img bs=1024 count=512 && "
+            "mkfs.ext2 -L SIX_EXT2_IMG /tmp/ext2_test.img && "
+            "ext4info -t /tmp/ext2_test.img && "
+            "rm /tmp/ext2_test.img"
+        ),
+        expected_substrings=[
+            "/var/overlay/bin/ovl_test_cmd",
+            "OVERLAY_UPPER_EXEC_OK",
+            "/var/overlay/bin/set_d",
+            "/var/overlay/bin/.wh.set_d",
+            "OVERLAY_WHITEOUT_HIDDEN_OK",
+            "/bin/set_d",
+            "mke2fs /tmp/ext2_test.img: 512 blocks (512 KB)",
+            "ext2",
+        ],
+    ),
+    TestCase(
+        name="fs.ntfsprogs_suite",
+        description="NTFS utilities suite (ntfslabel, ntfsinfo, ntfsls, ntfscat, ntfscluster, ntfscp, ntfscmp, ntfsresize, ntfsclone, ntfsundelete)",
+        cmd=(
+            "dd if=/dev/zero of=/tmp/ntfs1.img bs=1024 count=2048 && "
+            "mkntfs -F -f -Q -L NTFS_ONE /tmp/ntfs1.img && "
+            "ntfslabel -f /tmp/ntfs1.img NTFS_LABELED && "
+            "ntfslabel -f /tmp/ntfs1.img && "
+            "echo 'ntfscp_payload_ok' > /tmp/in_ntfs.txt && "
+            "ntfscp -f /tmp/ntfs1.img /tmp/in_ntfs.txt hello.txt && "
+            "ntfsls -f /tmp/ntfs1.img && "
+            "ntfscat -f /tmp/ntfs1.img hello.txt && "
+            "ntfsinfo -m -f /tmp/ntfs1.img | head -n 12 && "
+            "ntfscluster -f /tmp/ntfs1.img | head -n 8 && "
+            "ntfsclone -f -o /tmp/ntfs2.img /tmp/ntfs1.img && "
+            "ntfscmp /tmp/ntfs1.img /tmp/ntfs2.img && "
+            "echo NTFSCMP_IDENTICAL_OK && "
+            "ntfsresize -f -i /tmp/ntfs1.img && "
+            "ntfsundelete -f /tmp/ntfs1.img && "
+            "rm /tmp/ntfs1.img /tmp/ntfs2.img /tmp/in_ntfs.txt"
+        ),
+        expected_substrings=[
+            "mkntfs completed successfully",
+            "NTFS_LABELED",
+            "hello.txt",
+            "ntfscp_payload_ok",
+            "Volume Information",
+            "bytes per cluster",
+            "ntfsclone v2026.7.7",
+            "NTFSCMP_IDENTICAL_OK",
+            "ntfsresize v2026.7.7",
+            "Files with potentially recoverable content:",
+        ],
+    ),
+    TestCase(
+        name="sh.builtins_and_job_control",
+        description="Shell (/bin/sh) built-ins (alias, source, which, test, cd -), bang history (!!), set -o vi editing, and Ctrl+Z job control (jobs/bg/fg)",
+        cmd=(
+            "alias greet_six='echo SH_ALIAS_EXPANDED_OK' && "
+            "greet_six && "
+            "unalias greet_six && "
+            "echo 'SH_SRC_VAR=sourced_ok_42' > /tmp/sh_src.sh && "
+            "source /tmp/sh_src.sh && "
+            "echo $SH_SRC_VAR && "
+            "rm /tmp/sh_src.sh && "
+            "which ls && "
+            "type alias && "
+            "[ 42 -eq 42 ] && "
+            "test -d /bin && "
+            "echo SH_TEST_BRACKET_OK && "
+            "cd /etc && "
+            "cd /tmp && "
+            "cd - && "
+            "cd / && "
+            "set -o vi && "
+            "echo BANG_HISTORY_REPEAT_OK"
+        ),
+        raw_post_cmds=[
+            r"__KEYS__:!!\r",
+            "__SLEEP__:0.2",
+            r"__KEYS__:echo VI_BAD\x1bbcwVI_EDIT_MODE_OK\r",
+            "__SLEEP__:0.2",
+            "sleep 2",
+            "__SLEEP__:0.3",
+            r"__KEYS__:\x1a",
+            "__SLEEP__:0.2",
+            "jobs",
+            "bg",
+            "fg",
+        ],
+        expected_substrings=[
+            "SH_ALIAS_EXPANDED_OK",
+            "sourced_ok_42",
+            "/bin/ls",
+            "alias is a shell builtin",
+            "SH_TEST_BRACKET_OK",
+            "/etc",
+            "BANG_HISTORY_REPEAT_OK",
+            "VI_EDIT_MODE_OK",
+            "Stopped                 sleep 2",
+            "sleep 2 &",
+        ],
+    ),
+    TestCase(
+        name="proc.strace_attach_and_ps_modes",
+        description="Live process attach (strace -p <pid> -n 2), strace -c summary, and SysV/BSD ps modes (-ef, -el, aux, aufx, -H)",
+        cmd=(
+            "sh -c 'sleep 0.4; service check vold >/dev/null' & "
+            "strace -n 2 -p `ps -e | grep servicemanager | awk '{print $1}'` && "
+            "strace -c /bin/echo strace_summary_ok && "
+            "ps -ef | head -n 6 && "
+            "ps -el | head -n 6 && "
+            "ps aux | head -n 6 && "
+            "ps aufx | head -n 8 && "
+            "ps -H | head -n 8"
+        ),
+        expected_substrings=[
+            "strace: Process ",
+            "ioctl(",
+            "detached",
+            "strace_summary_ok",
+            "% calls     calls    errors syscall",
+            "UID        PID  PPID  C STIME TTY          TIME CMD",
+            "F S   UID   PID  PPID  C PRI  NI ADDR   SZ WCHAN",
+            "USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND",
+            "\\_ init",
+        ],
+    ),
+    TestCase(
+        name="net.telnet_nettest_and_mail",
+        description="TCP loopback socket server/client (/bin/nettest), multi-user mbox delivery (/bin/mail), and /bin/telnetd PTY login session",
+        cmd=(
+            "nettest && "
+            "echo 'Hello six via local mbox' > /tmp/mail.in && "
+            "echo '.' >> /tmp/mail.in && "
+            "mail -s 'SIX_MBOX_SUBJECT' six < /tmp/mail.in && "
+            "echo '1' > /tmp/mread.in && "
+            "echo 'd 1' >> /tmp/mread.in && "
+            "echo 'q' >> /tmp/mread.in && "
+            "su six -c 'mail < /tmp/mread.in' && "
+            "rm /tmp/mail.in /tmp/mread.in && "
+            "telnet 127.0.0.1"
+        ),
+        raw_post_cmds=[
+            "__SLEEP__:0.4",
+            r"__KEYS__:root\r",
+            "__SLEEP__:0.4",
+            r"__KEYS__:tty; echo TELNET_LOOPBACK_PTY_OK; exit\r",
+        ],
+        expected_substrings=[
+            "[nettest] TCP LOOPBACK TEST SUCCESSFUL!",
+            "Message delivered to six in /var/mail/six",
+            "Subject: SIX_MBOX_SUBJECT",
+            "Hello six via local mbox",
+            "Message 1 deleted.",
+            "Connected to 127.0.0.1.",
+            "/dev/ttyp",
+            "TELNET_LOOPBACK_PTY_OK",
+            "Connection closed by foreign host.",
+        ],
+    ),
 ]
 
 

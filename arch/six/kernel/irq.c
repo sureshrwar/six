@@ -945,6 +945,22 @@ void six_reboot(struct pt_regs *u)
 			schedule();
 		}
 	}
+	if (magic == 0xfee1deadUL && flag == 0xdead0005UL) {
+		extern void pstore_dump(void);
+		extern void kernel_sys_info_reset(void);
+		extern void kernel_sys_info(unsigned long mask);
+		extern unsigned long panic_print;
+		const char *msg = (magic2 >= 0x03000000UL && magic2 < TASK_SIZE &&
+				   *(const char *)magic2 != '\0')
+				  ? (const char *)magic2
+				  : "SysRq : Trigger a pstore crash snapshot";
+		printk(KERN_EMERG "\nKernel crash snapshot: %s\n", msg);
+		kernel_sys_info_reset();
+		kernel_sys_info(panic_print);
+		pstore_dump();
+		put_ret(u, 0);
+		return;
+	}
 	if (magic == 0xfee1deadUL && (flag & 0xffff0000UL) == 0xdead0000UL) {
 		extern unsigned long panic_print;
 		if (flag & 0x0100UL)
@@ -1987,6 +2003,40 @@ static void SEGV_action(int irq, void *dev_id, struct pt_regs *regs)
 }
 static struct irqaction irqSEGV  = { SEGV_action, 0, 0, "SIGSEGV", NULL, NULL};
 
+static void ILL_action(int irq, void *dev_id, struct pt_regs *regs)
+{
+#if (__i386__)
+	if (current && current->pid > 1 &&
+	    current->user_mode && current->kernel_level == 1 &&
+	    regs && IS_GUEST_USER_PC(regs->pc)) {
+		printk("six: %s[%d]: illegal instruction at eip %08x esp %08x\n",
+		       current->comm, current->pid, regs->pc, regs->kesp);
+		force_sig(SIGILL, current);
+		return;
+	}
+#endif
+	show_regs(regs);
+	panic("Fatal exception in kernel mode (SIGILL)");
+}
+static struct irqaction irqILL   = { ILL_action, 0, 0, "SIGILL", NULL, NULL};
+
+static void FPE_action(int irq, void *dev_id, struct pt_regs *regs)
+{
+#if (__i386__)
+	if (current && current->pid > 1 &&
+	    current->user_mode && current->kernel_level == 1 &&
+	    regs && IS_GUEST_USER_PC(regs->pc)) {
+		printk("six: %s[%d]: divide error at eip %08x esp %08x\n",
+		       current->comm, current->pid, regs->pc, regs->kesp);
+		force_sig(SIGFPE, current);
+		return;
+	}
+#endif
+	show_regs(regs);
+	panic("Fatal exception in kernel mode (SIGFPE)");
+}
+static struct irqaction irqFPE   = { FPE_action, 0, 0, "SIGFPE", NULL, NULL};
+
 extern void six_ptrace_handle_sigtrap(struct task_struct *tsk, struct pt_regs *regs);
 extern asmlinkage int sys_ptrace(long request, long pid, long addr, long data);
 
@@ -2092,7 +2142,9 @@ void init_IRQ(void)
 
         setup_x86_irq(31, &irq2);	// clock!
         setup_x86_irq(2, &irqINT);	// sigint
+        setup_x86_irq(4, &irqILL);	// sigill
         setup_x86_irq(5, &irqTRAP);	// sigtrap (int3 / ptrace)
+        setup_x86_irq(8, &irqFPE);	// sigfpe
         setup_x86_irq(SIX_HOST_WINCHSIG, &irqWINCH);	// window resize
         setup_x86_irq(11, &irqSEGV);	// segv!
         setup_x86_irq(SIX_HOST_TRAPSIG, &irqSYSCALL);	// syscall

@@ -375,6 +375,11 @@ static int local_deliver(const char *to_user, const char *subject, const char *f
 
 	fclose(fp);
 	chmod(dest_file, 0600);
+	{
+		struct passwd *pw = getpwnam(to_user);
+		if (pw)
+			chown(dest_file, pw->pw_uid, pw->pw_gid);
+	}
 	printf("Message delivered to %s in %s\n", to_user, dest_file);
 	return 0;
 }
