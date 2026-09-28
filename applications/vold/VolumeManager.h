@@ -38,6 +38,7 @@ public:
 
     int reset();
     int unmountAll();
+    std::string dump() const;
 
     class DiskSource {
     public:

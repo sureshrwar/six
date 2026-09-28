@@ -233,6 +233,15 @@ void VoldNativeService::handleBinderTransaction(struct binder_ipc_msg* msg) {
             snprintf(msg->data, BINDER_MAX_DATA_SIZE, "vold: VolumeManager reset");
             break;
         }
+        case PING_TRANSACTION: {
+            snprintf(msg->data, BINDER_MAX_DATA_SIZE, "PONG from VoldNativeService");
+            break;
+        }
+        case DUMP_TRANSACTION: {
+            std::string d = VolumeManager::Instance()->dump();
+            snprintf(msg->data, BINDER_MAX_DATA_SIZE, "%s", d.c_str());
+            break;
+        }
         default: {
             snprintf(msg->data, BINDER_MAX_DATA_SIZE, "vold: unknown IVold code %u", msg->code);
             break;

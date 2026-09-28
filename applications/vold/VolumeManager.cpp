@@ -331,5 +331,47 @@ int VolumeManager::reset() {
     return 0;
 }
 
+std::string VolumeManager::dump() const {
+    char buf[512];
+    int pos = 0;
+
+    pos += snprintf(buf + pos, sizeof(buf) - pos,
+                    "VoldNativeService (dumpsys vold)\n"
+                    "  DiskSources: %d  Connected Disks: %d\n",
+                    (int)mDiskSources.size(), (int)mDisks.size());
+
+    for (auto it = mInternalEmulatedVolumes.begin();
+         it != mInternalEmulatedVolumes.end() && pos < (int)sizeof(buf) - 96; ++it) {
+        auto vol = *it;
+        pos += snprintf(buf + pos, sizeof(buf) - pos,
+                        "  Internal Volume: %s (state=%s path=%s)\n",
+                        vol->getId().c_str(),
+                        vol->getState() == VolumeBase::State::kMounted ? "MOUNTED" : "UNMOUNTED",
+                        vol->getPath().c_str());
+    }
+
+    for (auto it = mDisks.begin();
+         it != mDisks.end() && pos < (int)sizeof(buf) - 128; ++it) {
+        auto disk = *it;
+        pos += snprintf(buf + pos, sizeof(buf) - pos,
+                        "  Disk: %s (dev=%s label=\"%s\" flags=0x%x)",
+                        disk->getId().c_str(), disk->getDevPath().c_str(),
+                        disk->getLabel().c_str(), disk->getFlags());
+        auto pubVol = disk->findVolume("public:8,1");
+        auto privVol = disk->findVolume("private:8,1");
+        auto v = privVol ? privVol : pubVol;
+        if (v) {
+            pos += snprintf(buf + pos, sizeof(buf) - pos,
+                            "\n    Volume: %s (state=%s path=%s)",
+                            v->getId().c_str(),
+                            v->getState() == VolumeBase::State::kMounted ? "MOUNTED" : "UNMOUNTED",
+                            v->getPath().c_str());
+        }
+    }
+    if (pos > 0 && buf[pos - 1] == '\n')
+        buf[pos - 1] = '\0';
+    return std::string(buf);
+}
+
 }  // namespace vold
 }  // namespace android

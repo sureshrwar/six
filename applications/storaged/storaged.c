@@ -108,6 +108,7 @@ static int call_vold(int bfd, unsigned int code, const char *arg,
 int main(int argc, char **argv)
 {
 	int bfd;
+	int h_suspend = -1;
 	struct binder_service_info svc;
 	struct binder_ipc_msg msg, reply;
 
@@ -136,7 +137,8 @@ int main(int argc, char **argv)
 		memset(&susp_svc, 0, sizeof(susp_svc));
 		strcpy(susp_svc.name, "suspend");
 		strcpy(susp_svc.descriptor, "android.system.suspend.ISystemSuspend");
-		ioctl(bfd, BINDER_IOC_REGISTER_SVC, &susp_svc);
+		if (ioctl(bfd, BINDER_IOC_REGISTER_SVC, &susp_svc) == 0)
+			h_suspend = susp_svc.handle;
 	}
 
 	printf("storaged: StorageManagerService started (pid=%d, handle=%d [android.os.storage.IStorageManager])\n",
@@ -150,6 +152,45 @@ int main(int argc, char **argv)
 		memset(&reply, 0, sizeof(reply));
 		reply.txn_id = msg.txn_id;
 		reply.status = 0;
+
+		if (h_suspend > 0 && msg.target_handle == h_suspend) {
+			if (msg.code == DUMP_TRANSACTION) {
+				char active_wls[128] = {0};
+				char wakeup_cnt[32] = {0};
+				int fd, n;
+				fd = open("/sys/power/wake_lock", 0);
+				if (fd >= 0) {
+					n = read(fd, active_wls, sizeof(active_wls) - 1);
+					if (n > 0 && active_wls[n - 1] == '\n')
+						active_wls[n - 1] = '\0';
+					close(fd);
+				}
+				fd = open("/sys/power/wakeup_count", 0);
+				if (fd >= 0) {
+					n = read(fd, wakeup_cnt, sizeof(wakeup_cnt) - 1);
+					if (n > 0 && wakeup_cnt[n - 1] == '\n')
+						wakeup_cnt[n - 1] = '\0';
+					close(fd);
+				}
+				snprintf(reply.data, sizeof(reply.data),
+					 "SystemSuspend (dumpsys suspend)\n"
+					 "  Service: android.system.suspend.ISystemSuspend (pid=%d)\n"
+					 "  Autosuspend: enabled (/sys/power/state)\n"
+					 "  Wakeup Count: %s\n"
+					 "  Active WakeLocks: %s",
+					 getpid(),
+					 wakeup_cnt[0] ? wakeup_cnt : "0",
+					 active_wls[0] ? active_wls : "none");
+			} else {
+				snprintf(reply.data, sizeof(reply.data),
+					 "ISystemSuspend[code=%u]: handled by storaged (pid=%d)",
+					 msg.code, getpid());
+			}
+			reply.data_size = strlen(reply.data) + 1;
+			if (!(msg.flags & TF_ONE_WAY))
+				ioctl(bfd, BINDER_IOC_REPLY, &reply);
+			continue;
+		}
 
 		/* Handle IVoldListener oneway callbacks from vold */
 		if (msg.code == IVOLD_LISTENER_ON_DISK_CREATED) {
@@ -202,11 +243,30 @@ int main(int argc, char **argv)
 			continue;
 		}
 
-		/* Handle synchronous IStorageManager RPCs from /bin/sm or /bin/service */
+		/* Handle synchronous IStorageManager RPCs from /bin/sm, /bin/dumpsys, or /bin/service */
 		switch (msg.code) {
 		case PING_TRANSACTION:
 			sprintf(reply.data, "PONG from StorageManagerService (pid=%d, callbacks=%u)",
 				getpid(), sm.callbacks_received);
+			reply.data_size = strlen(reply.data) + 1;
+			break;
+
+		case DUMP_TRANSACTION:
+			snprintf(reply.data, sizeof(reply.data),
+				 "StorageManagerService (dumpsys mount)\n"
+				 "  Primary Volume: emulated;0 (type=EMULATED state=MOUNTED path=/data/media/0)\n"
+				 "  Removable Disk: %s (%s, flags=%s)\n"
+				 "  Removable Vol : %s (type=%s state=%s path=%s uuid=%s)\n"
+				 "  IVoldListener Callbacks: %u",
+				 sm.usb_disk_present ? sm.disk_id : "none",
+				 sm.usb_disk_present ? sm.disk_model : "disconnected",
+				 sm.usb_disk_present ? sm.disk_flags : "-",
+				 sm.usb_disk_present ? sm.vol_id : "none",
+				 sm.usb_disk_present ? sm.vol_type : "-",
+				 sm.usb_disk_present ? sm.vol_state : "REMOVED",
+				 (sm.usb_disk_present && strcmp(sm.vol_state, "MOUNTED") == 0) ? sm.vol_path : "none",
+				 sm.usb_disk_present ? sm.vol_uuid : "-",
+				 sm.callbacks_received);
 			reply.data_size = strlen(reply.data) + 1;
 			break;
 

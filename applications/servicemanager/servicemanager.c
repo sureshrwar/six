@@ -253,6 +253,59 @@ int main(int argc, char **argv)
 					 "IPowerManager::wakeUp completed (Display=ON, interactive=true)");
 				msg.data_size = strlen(msg.data) + 1;
 				msg.status = 0;
+			} else if (msg.code == DUMP_TRANSACTION) {
+				char active_wls[128] = {0};
+				char wakeup_cnt[32] = {0};
+				char pwr_states[64] = {0};
+				int wl_cnt = 0, i, fd, n, is_awake;
+
+				fd = open("/sys/power/wake_lock", 0, 0);
+				if (fd >= 0) {
+					n = read(fd, active_wls, sizeof(active_wls) - 1);
+					if (n > 0 && active_wls[n - 1] == '\n')
+						active_wls[n - 1] = '\0';
+					close(fd);
+				}
+				fd = open("/sys/power/wakeup_count", 0, 0);
+				if (fd >= 0) {
+					n = read(fd, wakeup_cnt, sizeof(wakeup_cnt) - 1);
+					if (n > 0 && wakeup_cnt[n - 1] == '\n')
+						wakeup_cnt[n - 1] = '\0';
+					close(fd);
+				}
+				fd = open("/sys/power/state", 0, 0);
+				if (fd >= 0) {
+					n = read(fd, pwr_states, sizeof(pwr_states) - 1);
+					if (n > 0 && pwr_states[n - 1] == '\n')
+						pwr_states[n - 1] = '\0';
+					close(fd);
+				}
+				if (active_wls[0]) {
+					wl_cnt = 1;
+					for (i = 0; active_wls[i]; i++) {
+						if (active_wls[i] == ' ')
+							wl_cnt++;
+					}
+					if (strstr(active_wls, "PowerManagerService.Display"))
+						wl_cnt--;
+				}
+				is_awake = (strstr(active_wls, "PowerManagerService.Display") != NULL);
+				snprintf(msg.data, sizeof(msg.data),
+					 "POWER MANAGER (dumpsys power)\n"
+					 "  mWakefulness=%s\n"
+					 "  mInteractive=%s\n"
+					 "  mWakeLockSummary=0x%x (user_wakelocks=%d, total_acquired=%d)\n"
+					 "  Kernel WakeLocks (/sys/power/wake_lock): %s\n"
+					 "  Wakeup Count (/sys/power/wakeup_count): %s\n"
+					 "  Supported States (/sys/power/state): %s",
+					 is_awake ? "Awake" : "Doze",
+					 is_awake ? "true" : "false",
+					 wl_cnt > 0 ? 1 : 0, wl_cnt, power_wakelocks,
+					 active_wls[0] ? active_wls : "none",
+					 wakeup_cnt[0] ? wakeup_cnt : "0",
+					 pwr_states[0] ? pwr_states : "freeze standby mem");
+				msg.data_size = strlen(msg.data) + 1;
+				msg.status = 0;
 			} else {
 				snprintf(msg.data, sizeof(msg.data),
 					 "IPowerManager(code=%u)", msg.code);
@@ -265,6 +318,35 @@ int main(int argc, char **argv)
 				snprintf(msg.data, sizeof(msg.data),
 					 "SIX 1.0 (Linux 2.0.11 + ext4 + dm-verity + overlayfs + binder) caller_pid=%d",
 					 msg.sender_pid);
+				msg.data_size = strlen(msg.data) + 1;
+				msg.status = 0;
+			} else if (msg.code == DUMP_TRANSACTION) {
+				char uptime_str[64] = {0};
+				int ufd = open("/proc/uptime", 0, 0);
+				int svc_cnt = 0;
+				struct binder_service_info sinfo;
+
+				if (ufd >= 0) {
+					int n = read(ufd, uptime_str, sizeof(uptime_str) - 1);
+					if (n > 0 && uptime_str[n - 1] == '\n')
+						uptime_str[n - 1] = '\0';
+					close(ufd);
+				}
+				while (1) {
+					memset(&sinfo, 0, sizeof(sinfo));
+					sinfo.handle = svc_cnt;
+					if (ioctl(bfd, BINDER_IOC_LIST_SVCS, &sinfo) < 0)
+						break;
+					svc_cnt++;
+				}
+				snprintf(msg.data, sizeof(msg.data),
+					 "SYSTEM INFO SERVICE (dumpsys sysinfo)\n"
+					 "  OS: SIX 1.0 (Linux 2.0.11 i386)\n"
+					 "  Uptime (/proc/uptime): %s\n"
+					 "  Subsystems: ext4, erofs, dm-verity, dm-crypt, overlayfs, fuse, binder, nvme, ufs\n"
+					 "  Registered Binder Services: %d",
+					 uptime_str[0] ? uptime_str : "0.00 0.00",
+					 svc_cnt);
 				msg.data_size = strlen(msg.data) + 1;
 				msg.status = 0;
 			} else {

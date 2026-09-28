@@ -100,13 +100,19 @@ TESTS = [
     ),
     TestCase(
         name="binder.services",
-        description="Android Binder IPC servicemanager, vold (/etc/fstab DiskSource), and storaged (mount) registration",
+        description="Android Binder IPC servicemanager, vold (/etc/fstab DiskSource), storaged (mount), and dumpsys",
         cmd=(
             "cat /etc/fstab && "
             "grep 'fstab DiskSource registered' /tmp/vold.log && "
             "service list && "
             "service check vold && "
             "service check mount && "
+            "dumpsys -l && "
+            "dumpsys power && "
+            "dumpsys mount && "
+            "dumpsys vold && "
+            "dumpsys media && "
+            "dumpsys && "
             "sm list-disks"
         ),
         expected_substrings=[
@@ -116,6 +122,15 @@ TESTS = [
             "mount",
             "Service vold: found",
             "Service mount: found",
+            "Currently running services:",
+            "DUMP OF SERVICE power ([android.os.IPowerManager]",
+            "POWER MANAGER (dumpsys power)",
+            "mWakefulness=Awake",
+            "StorageManagerService (dumpsys mount)",
+            "VoldNativeService (dumpsys vold)",
+            "MediaProvider (dumpsys media.provider)",
+            "SystemSuspend (dumpsys suspend)",
+            "SYSTEM INFO SERVICE (dumpsys sysinfo)",
         ],
     ),
     TestCase(

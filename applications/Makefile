@@ -120,6 +120,7 @@ SUBDIRS	=	start \
 		lsblk \
 		servicemanager \
 		service \
+		dumpsys \
 		vold \
 		storaged \
 		usbctl \

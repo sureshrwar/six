@@ -2145,6 +2145,33 @@ static void handle_binder_request(int bfd, struct binder_ipc_msg *msg)
 	reply.status = 0;
 
 	switch (msg->code) {
+	case DUMP_TRANSACTION: {
+		int i, vol_cnt = 0, item_cnt = 0, pos = 0;
+		for (i = 0; i < MAX_VOLUMES; i++)
+			if (vols[i].active) vol_cnt++;
+		for (i = 0; i < MAX_MEDIA_ITEMS; i++)
+			if (media_db[i].in_use) item_cnt++;
+
+		pos += snprintf(reply.data + pos, sizeof(reply.data) - pos,
+				"MediaProvider (dumpsys media.provider)\n"
+				"  PID: %d  Database: %s\n"
+				"  Active FUSE Volumes: %d  Indexed Media Items: %d\n"
+				"  Stats: fuse_ops=%lu binder_queries=%lu scoped_denials=%lu exif_redactions=%lu",
+				getpid(), MEDIA_DB_PATH, vol_cnt, item_cnt,
+				stat_fuse_ops, stat_binder_queries,
+				stat_scoped_denials, stat_exif_redactions);
+		for (i = 0; i < MAX_VOLUMES && pos < (int)sizeof(reply.data) - 96; i++) {
+			if (!vols[i].active)
+				continue;
+			pos += snprintf(reply.data + pos, sizeof(reply.data) - pos,
+					"\n  Volume [%d]: %s (%s -> %s, fuse.mediaprovider)",
+					i, vols[i].vol_name, vols[i].lower_path,
+					vols[i].upper_path);
+		}
+		reply.data_size = (unsigned int)strlen(reply.data) + 1;
+		break;
+	}
+
 	case PING_TRANSACTION:
 	case IMP_STATUS: {
 		int i, vol_cnt = 0, item_cnt = 0, pos = 0;
