@@ -702,9 +702,11 @@ TESTS = [
         name="fwupd.lvfs_nvme_and_scsi_ffu",
         description="Firmware Update Manager (/bin/fwupdmgr) with nvme, ufs, and scsi plugins and real-world LVFS .cab & .bin firmware support",
         cmd=(
+            "fwupdmgr refresh && "
+            "fwupdmgr activate SIX-NVME-SSD 1 >/dev/null 2>&1 && "
+            "fwupdmgr install /etc/fwupd/remotes.d/lvfs/packages/six-ufs-flash-4.00.cab --allow-older --allow-reinstall >/dev/null 2>&1 && "
             "fwupdmgr clear-history && "
             "fwupdmgr get-plugins && "
-            "fwupdmgr refresh && "
             "fwupdmgr get-devices && "
             "fwupdmgr get-updates && "
             "fwupdmgr examine /etc/fwupd/remotes.d/lvfs/packages/six-nvme-ssd-1.4.2.cab && "
