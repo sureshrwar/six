@@ -6,18 +6,18 @@
  *
  * Commands:
  *   power status                 Show PowerManagerService, SystemSuspend, & WakeLock state
- *   power sleep [timeout]        Call IPowerManager::goToSleep() (release Display wakelock
- *                                and arm SystemSuspend opportunistic autosuspend)
+ *   power sleep [timeout]        Call IPowerManager::goToSleep() & arm opportunistic autosuspend
  *   power wakeup                 Call IPowerManager::wakeUp() (re-acquire Display wakelock)
  *   power lock <name>            Acquire userspace wakelock via IPowerManager & /sys/power/wake_lock
  *   power unlock <name>          Release userspace wakelock via IPowerManager & /sys/power/wake_unlock
- *                                (automatically suspends if last wakelock while autosuspend armed)
  */
 
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <linux/binder.h>
+#include <android/os/IPowerManager.h>
+#include <android/system/suspend/ISystemSuspend.h>
 
 static int write_sysfs(const char *path, const char *val)
 {
@@ -55,7 +55,7 @@ static int call_power_binder(unsigned int code, const char *arg, char *out, int 
 		return -1;
 
 	memset(&sinfo, 0, sizeof(sinfo));
-	strcpy(sinfo.name, "power");
+	strcpy(sinfo.name, IPOWERMANAGER_SERVICE_NAME);
 	if (ioctl(bfd, BINDER_IOC_LOOKUP_SVC, &sinfo) < 0 || sinfo.handle <= 0) {
 		close(bfd);
 		return -1;
@@ -64,7 +64,7 @@ static int call_power_binder(unsigned int code, const char *arg, char *out, int 
 	memset(&msg, 0, sizeof(msg));
 	msg.target_handle = sinfo.handle;
 	msg.code = code;
-	strcpy(msg.interface_token, "android.os.IPowerManager");
+	strcpy(msg.interface_token, IPOWERMANAGER_DESCRIPTOR);
 	if (arg && arg[0]) {
 		strncpy(msg.data, arg, BINDER_MAX_DATA_SIZE - 1);
 		msg.data_size = strlen(msg.data) + 1;
@@ -98,7 +98,7 @@ int main(int argc, char **argv)
 
 	if (argc < 2 || strcmp(argv[1], "status") == 0) {
 		reply[0] = '\0';
-		if (call_power_binder(1, NULL, reply, sizeof(reply)) == 0 && reply[0])
+		if (call_power_binder(IPM_GET_STATUS, NULL, reply, sizeof(reply)) == 0 && reply[0])
 			printf("[Binder IPowerManager] %s\n", reply);
 		printf("--- /sys/power/suspend_stats ---\n");
 		print_file("/sys/power/suspend_stats");
@@ -122,7 +122,7 @@ int main(int argc, char **argv)
 
 	if (strcmp(argv[1], "wakeup") == 0) {
 		reply[0] = '\0';
-		if (call_power_binder(5, NULL, reply, sizeof(reply)) == 0 && reply[0])
+		if (call_power_binder(IPM_WAKE_UP, NULL, reply, sizeof(reply)) == 0 && reply[0])
 			printf("%s\n", reply);
 		else
 			write_sysfs("/sys/power/wake_lock", "PowerManagerService.Display");
@@ -131,7 +131,7 @@ int main(int argc, char **argv)
 
 	if (strcmp(argv[1], "lock") == 0 && argc >= 3) {
 		reply[0] = '\0';
-		if (call_power_binder(2, argv[2], reply, sizeof(reply)) == 0 && reply[0])
+		if (call_power_binder(IPM_ACQUIRE_WAKE_LOCK, argv[2], reply, sizeof(reply)) == 0 && reply[0])
 			printf("%s\n", reply);
 		else
 			write_sysfs("/sys/power/wake_lock", argv[2]);

@@ -1,10 +1,7 @@
 /*
  * servicemanager.c - Android Binder Context Manager (handle 0) for SIX
- *
- * Opens /dev/binder, claims BINDER_SET_CONTEXT_MGR (handle 0), registers
- * core system services ("power" and "sysinfo"), and enters the Binder
- * looper to serve service registration (SVC_MGR_ADD_SERVICE), lookup
- * (SVC_MGR_CHECK_SERVICE / SVC_MGR_GET_SERVICE), and RPC calls.
+ * Claims BINDER_SET_CONTEXT_MGR (handle 0), registers built-in services,
+ * and serves SVC_MGR_ADD_SERVICE / SVC_MGR_GET_SERVICE and RPC calls.
  */
 
 #include <stdio.h>
@@ -14,6 +11,9 @@
 #include <errno.h>
 #include <linux/unistd.h>
 #include <linux/binder.h>
+#include <android/os/IServiceManager.h>
+#include <android/os/IPowerManager.h>
+#include <android/os/ISystemInfoService.h>
 
 extern int open(const char *pathname, int flags, ...);
 extern int close(int fd);
@@ -102,8 +102,8 @@ int main(int argc, char **argv)
 	}
 
 	/* Register built-in system services hosted by servicemanager */
-	h_power = sm_register_local(bfd, "power", "android.os.IPowerManager");
-	h_sysinfo = sm_register_local(bfd, "sysinfo", "six.os.ISystemInfoService");
+	h_power = sm_register_local(bfd, IPOWERMANAGER_SERVICE_NAME, IPOWERMANAGER_DESCRIPTOR);
+	h_sysinfo = sm_register_local(bfd, ISYSTEMINFO_SERVICE_NAME, ISYSTEMINFO_DESCRIPTOR);
 
 	printf("[servicemanager] Context Manager ready on /dev/binder (pid=%d, handle=0)\n",
 	       getpid());
@@ -174,7 +174,7 @@ int main(int argc, char **argv)
 			}
 		} else if (msg.target_handle == h_power) {
 			/* Built-in IPowerManager service */
-			if (msg.code == 1) {
+			if (msg.code == IPM_GET_STATUS) {
 				char active_wls[128] = {0};
 				int wl_cnt = 0, i;
 				int wfd = open("/sys/power/wake_lock", 0, 0);
@@ -204,7 +204,7 @@ int main(int argc, char **argv)
 					 msg.sender_pid);
 				msg.data_size = strlen(msg.data) + 1;
 				msg.status = 0;
-			} else if (msg.code == 2) {
+			} else if (msg.code == IPM_ACQUIRE_WAKE_LOCK) {
 				const char *wl_name = (msg.data_size > 1 && msg.data[0]) ? msg.data : "PowerManagerService.WakeLocks";
 				int wfd = open("/sys/power/wake_lock", 1, 0);
 				if (wfd >= 0) {
@@ -217,7 +217,7 @@ int main(int argc, char **argv)
 					 wl_name, power_wakelocks, msg.sender_pid);
 				msg.data_size = strlen(msg.data) + 1;
 				msg.status = 0;
-			} else if (msg.code == 3) {
+			} else if (msg.code == IPM_RELEASE_WAKE_LOCK) {
 				const char *wl_name = (msg.data_size > 1 && msg.data[0]) ? msg.data : "PowerManagerService.WakeLocks";
 				int ufd = open("/sys/power/wake_unlock", 1, 0);
 				if (ufd >= 0) {
@@ -231,7 +231,7 @@ int main(int argc, char **argv)
 					 wl_name, power_wakelocks, msg.sender_pid);
 				msg.data_size = strlen(msg.data) + 1;
 				msg.status = 0;
-			} else if (msg.code == 4) {
+			} else if (msg.code == IPM_GO_TO_SLEEP) {
 				/* IPowerManager::goToSleep -> release PowerManagerService.Display */
 				int ufd = open("/sys/power/wake_unlock", 1, 0);
 				if (ufd >= 0) {
@@ -242,7 +242,7 @@ int main(int argc, char **argv)
 					 "IPowerManager::goToSleep completed (Display released -> Autosuspend)");
 				msg.data_size = strlen(msg.data) + 1;
 				msg.status = 0;
-			} else if (msg.code == 5) {
+			} else if (msg.code == IPM_WAKE_UP) {
 				/* IPowerManager::wakeUp -> acquire PowerManagerService.Display */
 				int wfd = open("/sys/power/wake_lock", 1, 0);
 				if (wfd >= 0) {

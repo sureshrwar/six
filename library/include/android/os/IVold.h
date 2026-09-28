@@ -1,22 +1,31 @@
 /*
- * applications/vold/compat/android/os/IVold.h
+ * library/include/android/os/IVold.h
  *
- * AOSP AIDL-generated android::os::IVold & BnVold interface constants and base class.
+ * AOSP AIDL android::os::IVold interface constants and C++ base class
+ * (service "vold" [android.os.IVold]).
+ *
+ * Usable from both C (storaged) and C++ (vold).
  */
 
 #ifndef _ANDROID_OS_IVOLD_H
 #define _ANDROID_OS_IVOLD_H
 
-#include "IVoldListener.h"
+#include <linux/binder.h>
+#include <android/os/IVoldListener.h>
 
-#define IVOLD_GET_STATUS        1
-#define IVOLD_MOUNT             2
-#define IVOLD_UNMOUNT           3
-#define IVOLD_PARTITION         4
-#define IVOLD_FORMAT            5
-#define IVOLD_RESET             6
-#define IVOLD_MONITOR           7
+#define IVOLD_SERVICE_NAME	"vold"
+#define IVOLD_DESCRIPTOR	"android.os.IVold"
 
+/* IVold Binder transaction codes */
+#define IVOLD_GET_STATUS	1
+#define IVOLD_MOUNT		2
+#define IVOLD_UNMOUNT		3
+#define IVOLD_PARTITION		4
+#define IVOLD_FORMAT		5
+#define IVOLD_RESET		6
+#define IVOLD_MONITOR		7
+
+#ifdef __cplusplus
 namespace android {
 namespace os {
 
@@ -59,5 +68,6 @@ public:
 
 } // namespace os
 } // namespace android
+#endif /* __cplusplus */
 
 #endif /* _ANDROID_OS_IVOLD_H */

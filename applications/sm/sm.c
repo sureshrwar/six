@@ -16,14 +16,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <linux/binder.h>
+#include <android/os/storage/IStorageManager.h>
 
 extern int errno;
-
-#define ISM_LIST_DISKS			1
-#define ISM_LIST_VOLUMES		2
-#define ISM_MOUNT			3
-#define ISM_UNMOUNT			4
-#define ISM_PARTITION			5
 
 static void usage(void)
 {

@@ -22,14 +22,8 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <linux/binder.h>
-
-#define IMP_QUERY		1
-#define IMP_INSERT		2
-#define IMP_DELETE		3
-#define IMP_SCAN		4
-#define IMP_STATUS		5
-#define IMP_MOUNT_VOLUME	10
-#define IMP_UNMOUNT_VOLUME	11
+#include <android/content/IMediaProvider.h>
+#include <android/content/IDocumentsProvider.h>
 
 static void usage(void)
 {

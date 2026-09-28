@@ -17,27 +17,12 @@
 #include <string.h>
 #include <unistd.h>
 #include <linux/binder.h>
+#include <android/os/storage/IStorageManager.h>
+#include <android/os/IVold.h>
+#include <android/os/IVoldListener.h>
+#include <android/system/suspend/ISystemSuspend.h>
 
 extern int errno;
-
-/* IStorageManager Binder transaction codes */
-#define ISM_LIST_DISKS			1
-#define ISM_LIST_VOLUMES		2
-#define ISM_MOUNT			3
-#define ISM_UNMOUNT			4
-#define ISM_PARTITION			5
-
-/* IVold Binder transaction codes */
-#define IVOLD_GET_STATUS		1
-#define IVOLD_MOUNT			2
-#define IVOLD_UNMOUNT			3
-#define IVOLD_PARTITION			4
-
-/* IVoldListener oneway callback codes from vold */
-#define IVOLD_LISTENER_ON_DISK_CREATED		101
-#define IVOLD_LISTENER_ON_VOLUME_CREATED	102
-#define IVOLD_LISTENER_ON_VOLUME_STATE_CHANGED	103
-#define IVOLD_LISTENER_ON_DISK_DESTROYED	104
 
 struct sm_state {
 	int usb_disk_present;

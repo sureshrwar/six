@@ -18,6 +18,10 @@
 #include <errno.h>
 #include <linux/unistd.h>
 #include <linux/binder.h>
+#include <android/os/IServiceManager.h>
+#include <android/os/storage/IStorageManager.h>
+#include <android/content/IMediaProvider.h>
+#include <android/content/IDocumentsProvider.h>
 
 extern int open(const char *pathname, int flags, ...);
 extern int close(int fd);
@@ -35,13 +39,13 @@ static void usage(void)
 static const char *resolve_service_alias(const char *name)
 {
 	if (strcmp(name, "media") == 0)
-		return "media.provider";
+		return IMEDIAPROVIDER_SERVICE_NAME;
 	if (strcmp(name, "storage") == 0)
-		return "mount";
+		return ISTORAGEMANAGER_SERVICE_NAME;
 	if (strcmp(name, "documents") == 0 ||
 	    strcmp(name, "externalstorage.documents") == 0 ||
-	    strcmp(name, "com.android.externalstorage.documents") == 0)
-		return "externalstorage";
+	    strcmp(name, EXTERNALSTORAGE_AUTHORITY) == 0)
+		return IDOCUMENTSPROVIDER_SERVICE_NAME;
 	return name;
 }
 

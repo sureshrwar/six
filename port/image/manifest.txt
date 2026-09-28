@@ -38,6 +38,12 @@ dir   /usr/include/netinet  0755
 dir   /usr/include/sys      0755
 dir   /usr/include/linux    0755
 dir   /usr/include/asm      0755
+dir   /usr/include/android  0755
+dir   /usr/include/android/os 0755
+dir   /usr/include/android/os/storage 0755
+dir   /usr/include/android/content 0755
+dir   /usr/include/android/system 0755
+dir   /usr/include/android/system/suspend 0755
 dir   /var                  0755
 dir   /var/overlay          0755
 dir   /var/overlay/bin      0755
@@ -341,6 +347,17 @@ file  /usr/include/linux/ptrace.h      0644  include/linux/ptrace.h
 file  /usr/include/linux/dm.h          0644  include/linux/dm.h
 file  /usr/include/linux/nvme.h        0644  include/linux/nvme.h
 file  /usr/include/linux/ufs.h         0644  include/linux/ufs.h
+file  /usr/include/linux/binder.h      0644  include/linux/binder.h
+
+file  /usr/include/android/os/IServiceManager.h       0644  library/include/android/os/IServiceManager.h
+file  /usr/include/android/os/IPowerManager.h         0644  library/include/android/os/IPowerManager.h
+file  /usr/include/android/os/ISystemInfoService.h    0644  library/include/android/os/ISystemInfoService.h
+file  /usr/include/android/os/IVold.h                 0644  library/include/android/os/IVold.h
+file  /usr/include/android/os/IVoldListener.h         0644  library/include/android/os/IVoldListener.h
+file  /usr/include/android/os/storage/IStorageManager.h 0644 library/include/android/os/storage/IStorageManager.h
+file  /usr/include/android/system/suspend/ISystemSuspend.h 0644 library/include/android/system/suspend/ISystemSuspend.h
+file  /usr/include/android/content/IMediaProvider.h   0644  library/include/android/content/IMediaProvider.h
+file  /usr/include/android/content/IDocumentsProvider.h 0644 library/include/android/content/IDocumentsProvider.h
 
 file  /usr/include/asm/types.h         0644  include/asm-six/types.h
 file  /usr/include/asm/posix_types.h   0644  include/asm-six/posix_types.h

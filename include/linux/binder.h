@@ -45,15 +45,6 @@
 #define SVC_MGR_ADD_SERVICE		3
 #define SVC_MGR_LIST_SERVICES		4
 
-/* Storage Access Framework IDocumentsProvider (ExternalStorageProvider) codes */
-#define IESP_QUERY_ROOTS		1
-#define IESP_QUERY_DOCUMENT		2
-#define IESP_QUERY_CHILD_DOCUMENTS	3
-#define IESP_CREATE_DOCUMENT		4
-#define IESP_DELETE_DOCUMENT		5
-#define IESP_RENAME_DOCUMENT		6
-#define IESP_IS_CHILD_DOCUMENT		7
-
 /* Binder command protocol (BC_*) and return protocol (BR_*) */
 #define BC_TRANSACTION			0x40006300
 #define BC_REPLY			0x40006301

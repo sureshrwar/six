@@ -36,6 +36,8 @@
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <linux/binder.h>
+#include <android/content/IMediaProvider.h>
+#include <android/content/IDocumentsProvider.h>
 
 extern int select(int nfds, fd_set *readfds, fd_set *writefds,
 		  fd_set *exceptfds, struct timeval *timeout);
@@ -53,15 +55,6 @@ struct linux_statfs {
 	long f_spare[6];
 };
 extern int statfs(const char *path, struct linux_statfs *buf);
-
-/* Binder MediaProvider transaction codes */
-#define IMP_QUERY          1
-#define IMP_INSERT         2
-#define IMP_DELETE         3
-#define IMP_SCAN           4
-#define IMP_STATUS         5
-#define IMP_MOUNT_VOLUME   10
-#define IMP_UNMOUNT_VOLUME 11
 
 /* Panes */
 #define PANE_SIDEBAR 0

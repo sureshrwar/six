@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <linux/unistd.h>
 #include <linux/binder.h>
+#include <android/os/IServiceManager.h>
 
 extern int open(const char *pathname, int flags, ...);
 extern int close(int fd);

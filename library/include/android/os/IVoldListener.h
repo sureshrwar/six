@@ -1,20 +1,29 @@
 /*
- * applications/vold/compat/android/os/IVoldListener.h
+ * library/include/android/os/IVoldListener.h
  *
- * AOSP AIDL-generated android::os::IVoldListener interface & Binder proxy
+ * AOSP AIDL android::os::IVoldListener callback interface & Binder proxy
  * to StorageManagerService ("mount" [android.os.storage.IStorageManager]).
+ *
+ * Usable from both C (storaged) and C++ (vold).
  */
 
 #ifndef _ANDROID_OS_IVOLDLISTENER_H
 #define _ANDROID_OS_IVOLDLISTENER_H
 
-#include "../../binder/Status.h"
+#include <linux/binder.h>
+#include <android/os/storage/IStorageManager.h>
 
-#define IVOLD_LISTENER_ON_DISK_CREATED          101
-#define IVOLD_LISTENER_ON_VOLUME_CREATED        102
-#define IVOLD_LISTENER_ON_VOLUME_STATE_CHANGED  103
-#define IVOLD_LISTENER_ON_DISK_DESTROYED        104
-#define IVOLD_LISTENER_ON_VOLUME_DESTROYED      104
+#define IVOLDLISTENER_DESCRIPTOR		"android.os.IVoldListener"
+
+/* IVoldListener oneway callback transaction codes */
+#define IVOLD_LISTENER_ON_DISK_CREATED		101
+#define IVOLD_LISTENER_ON_VOLUME_CREATED	102
+#define IVOLD_LISTENER_ON_VOLUME_STATE_CHANGED	103
+#define IVOLD_LISTENER_ON_DISK_DESTROYED	104
+#define IVOLD_LISTENER_ON_VOLUME_DESTROYED	104
+
+#ifdef __cplusplus
+#include <binder/Status.h>
 
 namespace android {
 namespace os {
@@ -145,7 +154,7 @@ private:
         if (mBinderFd < 0) return;
         struct binder_service_info sinfo;
         memset(&sinfo, 0, sizeof(sinfo));
-        strcpy(sinfo.name, "mount");
+        strcpy(sinfo.name, ISTORAGEMANAGER_SERVICE_NAME);
         if (ioctl(mBinderFd, BINDER_IOC_LOOKUP_SVC, &sinfo) < 0 || sinfo.handle <= 0)
             return;
 
@@ -154,7 +163,7 @@ private:
         msg.target_handle = sinfo.handle;
         msg.code = code;
         msg.flags = TF_ONE_WAY;
-        strcpy(msg.interface_token, "android.os.IVoldListener");
+        strcpy(msg.interface_token, IVOLDLISTENER_DESCRIPTOR);
         strncpy(msg.data, payload, BINDER_MAX_DATA_SIZE - 1);
         msg.data_size = strlen(msg.data) + 1;
         ioctl(mBinderFd, BINDER_IOC_TRANSACT, &msg);
@@ -163,5 +172,6 @@ private:
 
 } // namespace os
 } // namespace android
+#endif /* __cplusplus */
 
 #endif /* _ANDROID_OS_IVOLDLISTENER_H */

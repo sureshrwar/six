@@ -46,27 +46,12 @@
 #include <asm/statfs.h>
 #include <linux/fuse.h>
 #include <linux/binder.h>
+#include <android/content/IMediaProvider.h>
 
 extern int select(int n, fd_set *inp, fd_set *outp, fd_set *exp, struct timeval *tvp);
 extern int lstat(const char *path, struct stat *buf);
 extern int statfs(const char *path, struct statfs *buf);
 extern int truncate(const char *path, off_t length);
-
-/* IMediaProvider Binder transaction codes */
-#define IMP_QUERY		1
-#define IMP_INSERT		2
-#define IMP_DELETE		3
-#define IMP_SCAN		4
-#define IMP_STATUS		5
-#define IMP_MOUNT_VOLUME	10
-#define IMP_UNMOUNT_VOLUME	11
-
-/* MediaStore media_type constants */
-#define MEDIA_TYPE_NONE		0
-#define MEDIA_TYPE_IMAGE	1
-#define MEDIA_TYPE_AUDIO	2
-#define MEDIA_TYPE_VIDEO	3
-#define MEDIA_TYPE_DOCUMENT	4
 
 #define MAX_VOLUMES		4
 #define MAX_NODES_PER_VOL	96

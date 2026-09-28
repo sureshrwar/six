@@ -37,6 +37,7 @@
 #include <sys/stat.h>
 #include <asm/statfs.h>
 #include <linux/binder.h>
+#include <android/content/IDocumentsProvider.h>
 
 extern int lstat(const char *path, struct stat *buf);
 extern int statfs(const char *path, struct statfs *buf);
