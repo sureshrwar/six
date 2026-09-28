@@ -1,6 +1,10 @@
-# SIX (Solaris / Linux 2.0.11 User-Mode Kernel)
+# SIX — Modern Linux & Android Subsystems on a User-Mode Linux 2.0.11 Kernel
 
-**SIX** (*SIX 1.0 Solaris UML*) is a 2003–2005 port of the **Linux 2.0.11** kernel designed to run the entire operating system—along with its own self-contained guest C library (`library/libc`, `library/sys`) and a suite of classic Unix/Minix user-space utilities—as an unprivileged user-space process. Originally developed on Solaris (SPARC and x86), it has been revived on `main` to build from source and run (`gcc -m32`) on modern 64-bit Linux (`x86_64`) systems.
+**SIX** is an active, self-contained operating system environment that runs entirely as an unprivileged user-space process on modern Linux hosts.
+
+While SIX originally began in the early 2000s as a Solaris port of User Mode Linux 2.0.11, it is a legacy preservation project**. Instead, SIX is an evolving hybrid system that grafts **modern Linux kernel subsystems** and **contemporary Android platform architecture** onto a compact, fast-booting Linux 2.0.11 foundation—complete with its own C library, self-hosting compiler toolchain, storage stack, IPC fabric, and interactive userland.
+
+New modern Linux and Android capabilities are continuously being designed, ported, and integrated.
 
 ```text
   #####    #*#   #     #
@@ -11,57 +15,121 @@
  #     #    #     #   #
   #####    ###   #     #
 
-Linux  Release 2.0.11 Version #5 Sat Sep 19 10:27:04 AM UTC 2026
+SIX 1.0 (Linux 2.0.11)
 
-[black] login: root
-
-SIX 1.0
-
-bash#
+black login: root
+root@black:~#
 ```
 
-## How It Works
+---
 
-* **Emulated Physical RAM & Paging**: At startup, `./six` creates a 32 MB temporary file (`tmpfile()`) that acts as the guest machine's physical RAM. Data belonging to different guest processes simply lives in different 4 KB sections of this file. Because all guest programs live inside the single `./six` host process and every program expects to run at virtual address `0x03000000`, `set_proc_mappings()` calls `mmap(..., MAP_SHARED | MAP_FIXED)` on each context switch to point the `0x03000000` address range at the incoming process's pages inside the 32 MB file. When a process is scheduled out, its memory stays untouched in its part of the file until it is mapped back into view.
-* **Context Switching & Preemption**: Each kernel task maintains user and kernel `ucontext_t` states (`getcontext`/`setcontext`/`swapcontext`) with dedicated 8 KB kernel stacks. A virtual interval timer (`ITIMER_VIRTUAL` / `SIGVTALRM`) drives `jiffies` and preemptive scheduling.
-* **System Call Trap**: Because guest programs run as ordinary user-space code with no hardware privilege ring to trap into, a program enters the kernel by sending a signal (`kill(getpid(), SIX_TRAPSIG)`) to the `./six` process itself, passing a pointer to its system call arguments in the `%esi` register. The kernel's signal handler (`sun_handler` in `arch/six/kernel/irq.c`) catches the signal, switches to the task's kernel stack, runs the requested Linux 2.0.11 system call (`sys_call_table[]`), writes the return value back, and resumes the guest program.
-* **Block & Console I/O**:
-  * **Hard Disk (`/dev/hda`)**: The stock Linux 2.0.11 IDE driver (`drivers/block/hd.c`) is backed by a 50 MB rev-0 `ext2` filesystem image (`disk/x86/root`). IDE port reads/writes (`0x1f0–0x1f7`) are intercepted and translated to `lseek`/`read`/`write` on the disk image.
-  * **Console (`/dev/console`)**: Host terminal input is delivered asynchronously via `O_ASYNC`/`SIGIO` (`drivers/char/keyboard.c`), and console writes (`drivers/char/console.c`) stream directly to the host terminal.
+## What SIX Does
 
-## Building and Running
+When you run `./six`, the entire operating system boots in under a second inside a single host process:
 
-### Prerequisites (Debian / Ubuntu / gLinux)
+* **Virtual Physical Memory & Context Switching**: SIX allocates a backing RAM file and manages virtual memory mappings, task switching, and preemptive timer interrupts entirely in user space without requiring root privileges, KVM, or kernel modules on the host.
+* **Multi-Tier Storage Hierarchy**: Bootstraps a multi-disk storage topology spanning `ext4`, `EROFS` over `dm-verity`, `OverlayFS`, `NTFS-3G` over `FUSE`, `Device-Mapper` (`dm-linear` and `dm-crypt`), `NVMe`, `UFS`, and hotpluggable USB mass storage.
+* **Android & Unix Daemons**: Launches a full suite of background services at boot—including Android's `servicemanager`, `vold`, `storaged`, `mediaproviderd`, `externalstoraged`, and `sadbd`, alongside `khungtaskd`, `httpd`, and `telnetd`.
+
+---
+
+## Android Platform Features
+
+SIX implements a growing slice of the modern Android system architecture, allowing Android daemons, Binder services, and desktop-style utilities to run natively on top of the kernel:
+
+* **Binder IPC & Service Management**: Kernel `/dev/binder` driver, context manager (`servicemanager`), standardized AIDL interface definitions, and CLI introspection via `service` and `dumpsys`.
+* **Storage Architecture (`vold` & `storaged`)**:
+  * Native C++ Volume Daemon (`vold`) and `StorageManagerService` (`storaged` + `sm` CLI).
+  * Dynamic `/etc/fstab` `DiskSource` parsing and simulated USB mass-storage hotplug (`usbctl`) supporting `ext2`, `ext4`, `NTFS`, and `EROFS`.
+  * **Public & Adoptable Storage**: Full support for public portable volumes as well as encrypted adoptable private storage (`sm partition <disk> private`) backed by `dm-crypt` and `ext4`.
+* **Scoped Storage, MediaProvider & Storage Access Framework**:
+  * **`MediaProvider` (`mediaproviderd`)**: FUSE-backed (`/dev/fuse`) upper filesystem mounted at `/storage/emulated/0` and `/storage/<UUID>`, enforcing per-UID Scoped Storage sandboxes (`Android/data/<pkg>`), indexed media collections, and automatic on-the-fly **EXIF GPS metadata redaction** for unprivileged readers.
+  * **`ExternalStorageProvider` (`externalstoraged`)**: Standalone Storage Access Framework (`IDocumentsProvider`) Binder daemon serving document roots, directory trees, and document CRUD operations over `content://com.android.externalstorage.documents`.
+  * **`content` CLI & Android Desktop `files` App**: Query and mutate providers from the shell via `content`, or browse volumes interactively in the curses-based Android Desktop **Files** application (`files`) with a live Scoped Storage Inspector, USB hotplug auto-refresh, and dynamic full-terminal resizing.
+* **Android Power Management & Opportunistic Suspend**:
+  * `/sys/power/state`, `/sys/power/wake_lock`, `/sys/power/wake_unlock`, `/sys/power/wakeup_count`, `/sys/power/suspend_stats`, `/sys/power/wakealarm`, and `/proc/wakelocks`.
+  * `IPowerManager` and `ISystemSuspend` Binder services with `/bin/power` CLI, process freezer (`__refrigerator`) with D-state task abort/retry, gated 0%-CPU deep sleep, and monotonic vs. boottime clock tracking.
+* **SIX Android Debug Bridge (`sadb`)**:
+  * Host-to-guest `./sadb` client and in-guest `sadbd` daemon over `/dev/sadb`.
+  * Supports `sadb devices -l`, interactive PTY `sadb shell` (with full terminal size propagation and signal handling), `sadb push`, `sadb pull`, and one-command remote source-level debugging (`sadb gdb`).
+
+---
+
+## Modern Linux Kernel & Userspace Features
+
+Alongside its Android stack, SIX brings modern Linux filesystems, block drivers, hardware management protocols, and kernel observability primitives to the 2.0.11 base:
+
+* **Modern Filesystems**:
+  * **`ext4`**: Extent-based root and userdata filesystems with `ext4info` superblock/extent inspection.
+  * **`EROFS`**: Read-only filesystem driver used for `/bin` and portable USB media.
+  * **`OverlayFS`**: Union filesystem stacking a writable upper layer (`/var/overlay/bin`) over the read-only `dm-verity` `/bin` image with transparent copy-up and whiteouts.
+  * **`FUSE` & `NTFS-3G`**: Kernel FUSE 7.x character/vfs driver running upstream `ntfs-3g` (in both direct block path mode and privileged `vold` file-descriptor-passing mode) plus the full 12-tool `ntfsprogs` suite (`mkntfs`, `ntfsfix`, `ntfsinfo`, `ntfslabel`, `ntfsls`, `ntfscat`, `ntfscluster`, `ntfscmp`, `ntfscp`, `ntfsresize`, `ntfsclone`, `ntfsundelete`).
+  * **`tmpfs` & `procfs`**: In-memory `/tmp` filesystem and comprehensive `/proc` process, mount, device, and kernel telemetry.
+* **Device-Mapper (`dm`)**:
+  * `dm-linear` target for logical volume concatenation/striping.
+  * `dm-crypt` target with 256-bit **ChaCha20** stream cipher encryption.
+  * `dm-verity` target enforcing **SHA-256 Merkle tree** block integrity verification on `/bin`.
+  * Managed via `dmsetup` and visualized in tree format by `lsblk`.
+* **NVMe 1.4 & JEDEC UFS 4.0 Storage Controllers**:
+  * **NVMe 1.4 (`/dev/nvme0`, `/dev/nvme0n1`)**: Admin and I/O Submission/Completion Queue rings, Identify Controller/Namespace, SMART/Health log pages, Flush, Dataset Management (`DSM` / `TRIM`), dual firmware slots, and `/bin/nvme` CLI.
+  * **JEDEC UFS 4.0 (`/dev/ufs-bsg0`, `/dev/ufsa..c`, `/dev/ufs-rpmb`)**: UFSHCI 4.0 controller with multi-LUN storage (`/ufs`), switchable A/B boot LUNs, SLC WriteBooster, SCSI `UNMAP`, **HMAC-SHA256 authenticated RPMB** (Replay Protected Memory Block) for anti-rollback counters, and `/bin/ufs` CLI.
+* **Firmware Update Manager (`fwupdmgr`)**:
+  * LVFS metadata refresh, Microsoft Cabinet (`.cab` with `MSZIP` decompression) and raw `.bin` firmware archive inspection, cryptographic signature verification, and live Field Firmware Updates (FFU) across `nvme`, `ufs`, and `scsi` plugins with persistent state across reboots.
+* **Kernel Watchdogs, Crash Persistence & Diagnostics**:
+  * **`khungtaskd`**: Hung-task detector monitoring `TASK_UNINTERRUPTIBLE` (`D`-state) processes with blocker attribution and configurable `kernel.hung_task_*` sysctls.
+  * **Block Queue Stall Watchdog**: Detects and dumps stalled in-flight block I/O requests (`kernel.blk_io_timeout_ms` and `/sys/fs/hangman`).
+  * **`pstore` (`ramoops`)**: Crash dump persistence writing `dmesg-ramoops-0` and `ftrace-ramoops-0` syscall traces to `/sys/fs/pstore` on kernel panic or snapshot (`panic -s`).
+  * **Configurable `sys_info` Dumps**: Bitmask-controlled task, memory, timer, lock, ftrace, and all-CPU backtrace dumps (`kernel.panic_print`, `kernel.panic_sys_info`, `kernel.hung_task_sys_info`, `kernel.kernel_sys_info`).
+* **Self-Hosting Compiler, Threads & Source-Level Debugger**:
+  * In-guest **TinyCC (`tcc`)** C compiler capable of compiling and linking ELF executables inside the running guest.
+  * Preemptive **POSIX Threads (`pthread`)** built on `clone()`.
+  * Full `ptrace` support powering both **`strace`** (child spawn, `-p <pid>` live attach, and `-c` syscall profiling) and source-level **`gdb`** (DWARF/`.stab` line debugging, breakpoints, single-stepping, backtraces, disassembly, and live PID attach).
+
+---
+
+## Feature Summary: Modern Meets Classic
+
+| Category | Available Features & Utilities |
+| :--- | :--- |
+| **Android Stack** | `servicemanager`, `service`, `dumpsys`, `vold`, `storaged`, `sm`, `usbctl`, `mediaproviderd`, `externalstoraged`, `content`, `files` (Desktop UI), `power` (`IPowerManager` / `ISystemSuspend`), `sadbd` & host `./sadb` |
+| **Modern Storage & Filesystems** | `ext4` (`ext4info`), `erofs`, `overlayfs`, `fuse`, `ntfs-3g` + 12 `ntfsprogs` tools, `tmpfs`, `dm-linear`, `dm-crypt` (ChaCha20-256), `dm-verity` (SHA-256), `dmsetup`, `lsblk`, `mkfs.ext2` (`mke2fs`), `mount` / `umount` (`/etc/fstab`) |
+| **Hardware & Firmware** | `nvme` (NVMe 1.4 controller/namespaces), `ufs` (JEDEC UFS 4.0 multi-LUN, A/B boot slots, WriteBooster, HMAC-SHA256 RPMB), `fwupdmgr` / `fwupdtool` (LVFS `.cab` & `.bin` firmware updates for NVMe, UFS, SCSI) |
+| **Kernel Reliability & Debug** | `gdb` (DWARF source-level & live PID attach), `strace` (`-p` attach, `-c` summary), `tcc` (in-guest C compiler + `pthread`), `khungtaskd`, `blk-mq` stall watchdog (`/sys/fs/hangman`), `pstore` (`/sys/fs/pstore`), `panic`, `sysctl`, `dmesg`, `lsof`, `top` |
+| **Networking & Multi-User** | Loopback & host-bridged TCP/IP, `ifconfig`, `httpd`, `telnetd` + `telnet` (with PTY login), `lynx`, `gopher`, `irc`, `mail` (local mbox & SMTP), `weather` (live Open-Meteo client), `nettest`, `useradd`, `usermod`, `userdel`, `passwd`, `su`, `chown`, `who`, `whoami` |
+| **Classic Unix & Retro Games** | Bourne shell (`sh` with job control `Ctrl+Z`/`jobs`/`fg`/`bg`, `set -o vi`, aliases, history search & `!!` expansion), `vi` (`elvis`), `awk`, `sed`, `grep`, `find`, `tar`, `sort`, `uniq`, `tr`, `cut`, `diff`, `xargs`, `hexdump`, `file`, `nm`, `size`, `strings`, `stat`, `du`, `df`, `ps` (SysV & BSD tree modes), `basic`, `advent`, `zork`, `rogue`, `robots`, `trek`, `tetris`, `reversi`, `gomoku`, `life`, `ttt`, `eliza`, `fortune`, `cowsay`, `matrix`, `starwars`, `telehack`, `sixanim`, `dhrystone` |
+
+---
+
+## Building, Running & Testing
+
+### 1. Prerequisites (Debian / Ubuntu / gLinux)
 ```bash
-sudo apt-get install build-essential gcc-multilib e2fsprogs fakeroot
+sudo apt-get install build-essential gcc-multilib g++-multilib e2fsprogs erofs-utils fakeroot python3
 ```
 
-### Build Everything
-A single `make` builds the `./six` kernel, the 32-bit guest `libc.a`, all 45 guest userland programs under `applications/`, and assembles the root `ext2` disk image (`disk/x86/root` via `port/image/mkimage.sh`):
+### 2. Build Everything
+A single `make` builds the kernel, the guest C/C++ libraries, all guest daemons and applications, the `dm-verity` `EROFS` `/bin` image, the `ext4` root and userdata images, the `UFS` multi-LUN flash image, and the host `./sadb` bridge:
 
 ```bash
-make
+make -j8
 ```
 
-### Boot SIX
+### 3. Boot SIX Interactively
 ```bash
 ./six
 ```
-* Log in at `[black] login:` as **`root`** (no password).
-* Included guest utilities in `/bin`: `advent` (*Colossal Cave Adventure*), `banner`, `basic` (interactive Dartmouth/Tiny BASIC interpreter), `cal`, `cat`, `clear`, `cowsay` (configurable ASCII cow and `cowthink`), `cp` (copy files), `date`, `df` (report filesystem disk space), `dhrystone` (Dhrystone 1.1 benchmark), `echo`, `eliza` (classic 1966 Rogerian psychotherapist chatbot), `fortune`, `getty`, `gomoku` (Five-in-a-Row), `grep`, `halt`, `head` (output first lines of files), `httpd`, `id`, `ifconfig`, `init` (`/etc/init`), `kill`, `last`, `life` (Conway's Game of Life), `login`, `ls`, `lynx` (text-mode web browser), `matrix` (Matrix digital rain screensaver), `mkdir` (make directories), `mv` (move / rename files), `nettest`, `ps`, `pwd`, `rm`, `rmdir` (remove empty directories), `rogue` (classic BSD-style dungeon crawler), `sethostname`, `sh` (Minix Bourne shell with `~/.bash_history` and Up/Down arrow recall), `sl` (animated steam locomotive), `sleep`, `sync`, `telnet` (RFC 854 Telnet client with option negotiation and command prompt), `telehack` (direct launcher for telehack.com), `tetris` (colored ANSI Tetris), `touch` (create empty files / update timestamp), `ttt` (Tic-Tac-Toe), `tty`, `vi` (`elvis`), `wc` (count lines, words, bytes).
-* Run **`halt`** at the shell prompt to flush buffers, mark the `ext2` superblock clean, restore the host terminal, and exit — or press **`Ctrl+\`** at any time for an immediate exit.
+* Log in as **`root`** (no password), or switch to unprivileged users (`su six`, `su guest`) to explore Scoped Storage and multi-user permissions.
+* From another host terminal, you can interact with the running guest using **`./sadb`**:
+  ```bash
+  ./sadb devices -l
+  ./sadb shell
+  ./sadb gdb /bin/servicemanager
+  ```
+* Run **`halt`** at the guest shell prompt to cleanly unmount filesystems and exit, or press **`Ctrl+\`** at any time for an immediate exit.
 
-### Command-Line Options
-```text
-Usage: ./six [-w|--wait] [-s|--single] [-d|--disk <path>] [single]
+### 4. Run the Automated Regression Suite
+SIX includes a 34-suite end-to-end regression test runner that exercises the kernel, filesystems, Device-Mapper, Binder services, `vold` USB hotplug, `MediaProvider` / `ExternalStorageProvider`, `Files` UI, `NVMe`, `UFS`, `fwupdmgr`, `gdb`, `strace`, `sadb`, networking, and shell job control:
 
-Options:
-  -w, --wait         Pause before boot and print host PID for gdb attach
-  -s, --single       Boot into built-in single-user shell (go>)
-  -d, --disk <path>  Root filesystem image (overrides $DISKFILE)
-  -h, --help         Show this help message and exit
+```bash
+./scripts/test_suite.py --parallel
 ```
-
-## Branches
-* **`main`**: 2026 32-bit x86 port for modern Linux (`x86_64` host with `gcc -m32`).
-* **`legacy_2005`** (tag **`v2005-cvs`**): Pristine 2003–2005 Solaris SPARC/x86 CVS tree as originally archived.
