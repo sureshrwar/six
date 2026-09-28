@@ -84,6 +84,7 @@ struct sidebar_item {
 	char label[32];
 	char sublabel[48];
 	char target_path[128];
+	char doc_id[64];
 	char media_uri[64];
 	int count_badge;
 	int is_storage;
@@ -94,6 +95,7 @@ struct sidebar_item {
 struct file_entry {
 	char name[64];
 	char full_path[192];
+	char doc_id[128];
 	char volume_name[24];
 	char mime[32];
 	char meta_extra[64];
@@ -107,6 +109,7 @@ struct file_entry {
 
 static int bfd = -1;
 static int mp_handle = -1;
+static int esp_handle = -1;
 static uid_t my_uid = 0;
 static char my_username[32] = "root";
 
@@ -133,6 +136,7 @@ static struct sidebar_item sb_items[MAX_SIDEBAR_ITEMS];
 
 static int browse_is_virtual = 0;
 static char current_dir[192] = "/storage/emulated/0";
+static char current_doc_id[128] = "primary:";
 static char current_uri[64]  = "";
 static char current_title[64] = "Internal Storage (/sdcard)";
 
@@ -153,33 +157,6 @@ static unsigned long last_dir_signature = 0;
 static char toast_msg[256] = "Ready. Live USB hotplug monitor active.";
 static int modal_open = 0;
 
-static char mp_tolower_ch(char c)
-{
-	if (c >= 'A' && c <= 'Z')
-		return (char)(c + ('a' - 'A'));
-	return c;
-}
-
-static int str_icase_eq(const char *a, const char *b)
-{
-	while (*a && *b) {
-		if (mp_tolower_ch(*a) != mp_tolower_ch(*b))
-			return 0;
-		a++;
-		b++;
-	}
-	return (*a == '\0' && *b == '\0');
-}
-
-static int has_ext(const char *name, const char *ext)
-{
-	int nlen = (int)strlen(name);
-	int elen = (int)strlen(ext);
-	if (nlen < elen)
-		return 0;
-	return str_icase_eq(name + nlen - elen, ext);
-}
-
 static void resolve_uid_name(uid_t uid, char *out, int out_max)
 {
 	struct passwd *pw;
@@ -197,6 +174,47 @@ static void resolve_uid_name(uid_t uid, char *out, int out_max)
 	snprintf(out, out_max, "uid%u", (unsigned int)uid);
 }
 
+/*
+ * Map a mounted FUSE path (/storage/emulated/0/... or /storage/<UUID>/...)
+ * to an ExternalStorageProvider Document ID (primary:... or <UUID>:...).
+ */
+static void path_to_doc_id(const char *path, char *out_doc_id, int out_max)
+{
+	if (!path || !path[0] ||
+	    strcmp(path, "/storage/emulated/0") == 0 ||
+	    strcmp(path, "/sdcard") == 0) {
+		strncpy(out_doc_id, "primary:", out_max - 1);
+		out_doc_id[out_max - 1] = '\0';
+		return;
+	}
+	if (strncmp(path, "/storage/emulated/0/", 20) == 0) {
+		snprintf(out_doc_id, out_max, "primary:%s", path + 20);
+		return;
+	}
+	if (strncmp(path, "/sdcard/", 8) == 0) {
+		snprintf(out_doc_id, out_max, "primary:%s", path + 8);
+		return;
+	}
+	if (strncmp(path, "/storage/", 9) == 0) {
+		const char *rest = path + 9;
+		const char *slash = strchr(rest, '/');
+		if (!slash) {
+			snprintf(out_doc_id, out_max, "%s:", rest);
+		} else {
+			int rlen = (int)(slash - rest);
+			char rid[32];
+			if (rlen >= (int)sizeof(rid))
+				rlen = sizeof(rid) - 1;
+			memcpy(rid, rest, rlen);
+			rid[rlen] = '\0';
+			snprintf(out_doc_id, out_max, "%s:%s", rid, slash + 1);
+		}
+		return;
+	}
+	strncpy(out_doc_id, "primary:", out_max - 1);
+	out_doc_id[out_max - 1] = '\0';
+}
+
 static void ensure_binder(void)
 {
 	struct binder_service_info sinfo;
@@ -212,12 +230,18 @@ static void ensure_binder(void)
 		if (ioctl(bfd, BINDER_IOC_LOOKUP_SVC, &sinfo) == 0 && sinfo.handle > 0)
 			mp_handle = sinfo.handle;
 	}
+	if (esp_handle <= 0) {
+		memset(&sinfo, 0, sizeof(sinfo));
+		strcpy(sinfo.name, "externalstorage");
+		if (ioctl(bfd, BINDER_IOC_LOOKUP_SVC, &sinfo) == 0 && sinfo.handle > 0)
+			esp_handle = sinfo.handle;
+	}
 }
 
 static int mp_transact(unsigned int code, const char *in_str,
 		       char *out_buf, int out_max)
 {
-	struct binder_ipc_msg msg;
+	static struct binder_ipc_msg msg;
 	int rc;
 
 	if (out_buf && out_max > 0)
@@ -238,7 +262,40 @@ static int mp_transact(unsigned int code, const char *in_str,
 	}
 
 	rc = ioctl(bfd, BINDER_IOC_TRANSACT, &msg);
-	if (rc < 0)
+	if (rc < 0 && msg.status == 0)
+		return -1;
+	if (out_buf && out_max > 0 && msg.data_size > 0) {
+		strncpy(out_buf, msg.data, out_max - 1);
+		out_buf[out_max - 1] = '\0';
+	}
+	return msg.status;
+}
+
+static int esp_transact(unsigned int code, const char *in_str,
+			char *out_buf, int out_max)
+{
+	static struct binder_ipc_msg msg;
+	int rc;
+
+	if (out_buf && out_max > 0)
+		out_buf[0] = '\0';
+
+	ensure_binder();
+	if (bfd < 0 || esp_handle <= 0)
+		return -1;
+
+	memset(&msg, 0, sizeof(msg));
+	msg.target_handle = esp_handle;
+	msg.code = code;
+	msg.flags = 0;
+	strcpy(msg.interface_token, "android.content.IDocumentsProvider");
+	if (in_str) {
+		strncpy(msg.data, in_str, BINDER_MAX_DATA_SIZE - 1);
+		msg.data_size = (unsigned int)strlen(msg.data) + 1;
+	}
+
+	rc = ioctl(bfd, BINDER_IOC_TRANSACT, &msg);
+	if (rc < 0 && msg.status == 0)
 		return -1;
 	if (out_buf && out_max > 0 && msg.data_size > 0) {
 		strncpy(out_buf, msg.data, out_max - 1);
@@ -249,7 +306,8 @@ static int mp_transact(unsigned int code, const char *in_str,
 
 static int count_query_rows(const char *uri)
 {
-	char req[128], resp[BINDER_MAX_DATA_SIZE];
+	static char resp[BINDER_MAX_DATA_SIZE];
+	char req[128];
 	int count = 0;
 	const char *p;
 
@@ -293,7 +351,7 @@ static int compute_fs_used_pct(const char *path)
 static int find_mounted_usb_fuse(const char *hint_uuid, char *mounted_uuid_out, int out_max)
 {
 	int fd, n;
-	char buf[2048];
+	static char buf[2048];
 	const char *p;
 
 	if (mounted_uuid_out && out_max > 0)
@@ -329,20 +387,38 @@ static int find_mounted_usb_fuse(const char *hint_uuid, char *mounted_uuid_out, 
 }
 
 /*
- * Rebuild the Left Navigation Drawer items (Libraries + Storage Devices).
+ * Helper to extract a value from "key=val," or "key=val\n" in a query row.
+ */
+static void extract_row_field(const char *row, const char *key, char *out, int out_max)
+{
+	const char *p = strstr(row, key);
+	int i = 0;
+
+	out[0] = '\0';
+	if (!p)
+		return;
+	p += strlen(key);
+	while (p[i] && p[i] != ',' && p[i] != '\n' && p[i] != '\r' && i < out_max - 1) {
+		out[i] = p[i];
+		i++;
+	}
+	out[i] = '\0';
+}
+
+/*
+ * Rebuild the Left Navigation Drawer items (Libraries via MediaProvider +
+ * Storage Roots via ExternalStorageProvider).
  */
 static void rebuild_sidebar(void)
 {
 	int prev_id = (sb_sel >= 0 && sb_sel < sb_count) ? sb_items[sb_sel].id : SB_DEV_INTERNAL;
 	int prev_active_id = (sb_active >= 0 && sb_active < sb_count) ? sb_items[sb_active].id : SB_DEV_INTERNAL;
-	int i;
+	static char resp[BINDER_MAX_DATA_SIZE];
+	int i, added_roots = 0;
 
 	sb_count = 0;
 
-	/* 1. Storage Devices first or Libraries first?
-	 * Let's put LIBRARIES (Recent, Images, Audio, Videos, Documents) and
-	 * STORAGE DEVICES (Internal Storage, plus USB Drive when plugged in).
-	 */
+	/* 1. MediaProvider Libraries */
 	memset(&sb_items[sb_count], 0, sizeof(struct sidebar_item));
 	sb_items[sb_count].id = SB_LIB_RECENT;
 	strcpy(sb_items[sb_count].label, "Recent");
@@ -378,29 +454,59 @@ static void rebuild_sidebar(void)
 	sb_items[sb_count].count_badge = count_query_rows("content://media/external/documents");
 	sb_count++;
 
-	/* Storage Devices */
-	memset(&sb_items[sb_count], 0, sizeof(struct sidebar_item));
-	sb_items[sb_count].id = SB_DEV_INTERNAL;
-	strcpy(sb_items[sb_count].label, "Internal (/sdcard)");
-	strcpy(sb_items[sb_count].sublabel, "/storage/emulated/0");
-	strcpy(sb_items[sb_count].target_path, "/storage/emulated/0");
-	sb_items[sb_count].is_storage = 1;
-	sb_items[sb_count].used_pct = compute_fs_used_pct("/storage/emulated/0");
-	strcpy(sb_items[sb_count].fstype, "fuse");
-	sb_count++;
+	/* 2. Storage Roots discovered from ExternalStorageProvider (IESP_QUERY_ROOTS) */
+	if (esp_transact(IESP_QUERY_ROOTS, "", resp, sizeof(resp)) == 0 &&
+	    strncmp(resp, "Row: ", 5) == 0) {
+		const char *line = resp;
+		while (*line && sb_count < MAX_SIDEBAR_ITEMS) {
+			const char *eol = strchr(line, '\n');
+			char rowbuf[320];
+			int rlen = eol ? (int)(eol - line) : (int)strlen(line);
+			if (rlen >= (int)sizeof(rowbuf))
+				rlen = sizeof(rowbuf) - 1;
+			memcpy(rowbuf, line, rlen);
+			rowbuf[rlen] = '\0';
 
-	if (last_usb_online > 0 && last_usb_uuid[0] && last_usb_mp_mounted > 0) {
+			if (strncmp(rowbuf, "Row: ", 5) == 0) {
+				char root_id[32], doc_id[64], title[32], mpath[128], fst[16], pct_s[16];
+				struct sidebar_item *sit = &sb_items[sb_count];
+
+				extract_row_field(rowbuf, "root_id=", root_id, sizeof(root_id));
+				extract_row_field(rowbuf, "document_id=", doc_id, sizeof(doc_id));
+				extract_row_field(rowbuf, "title=", title, sizeof(title));
+				extract_row_field(rowbuf, "mount_path=", mpath, sizeof(mpath));
+				extract_row_field(rowbuf, "fstype=", fst, sizeof(fst));
+				extract_row_field(rowbuf, "used_pct=", pct_s, sizeof(pct_s));
+
+				memset(sit, 0, sizeof(*sit));
+				sit->id = (strcmp(root_id, "primary") == 0) ? SB_DEV_INTERNAL : SB_DEV_USB;
+				strncpy(sit->label, title, sizeof(sit->label) - 1);
+				strncpy(sit->sublabel, mpath, sizeof(sit->sublabel) - 1);
+				strncpy(sit->target_path, mpath, sizeof(sit->target_path) - 1);
+				strncpy(sit->doc_id, doc_id, sizeof(sit->doc_id) - 1);
+				sit->is_storage = 1;
+				sit->used_pct = pct_s[0] ? atoi(pct_s) : compute_fs_used_pct(mpath);
+				strncpy(sit->fstype, fst[0] ? fst : "fuse", sizeof(sit->fstype) - 1);
+				sb_count++;
+				added_roots++;
+			}
+
+			if (!eol)
+				break;
+			line = eol + 1;
+		}
+	}
+
+	if (added_roots == 0) {
 		memset(&sb_items[sb_count], 0, sizeof(struct sidebar_item));
-		sb_items[sb_count].id = SB_DEV_USB;
-		snprintf(sb_items[sb_count].label, sizeof(sb_items[sb_count].label),
-			 "%.14s (USB)", last_usb_label[0] ? last_usb_label : last_usb_uuid);
-		snprintf(sb_items[sb_count].sublabel, sizeof(sb_items[sb_count].sublabel),
-			 "/storage/%s", last_usb_uuid);
-		snprintf(sb_items[sb_count].target_path, sizeof(sb_items[sb_count].target_path),
-			 "/storage/%s", last_usb_uuid);
+		sb_items[sb_count].id = SB_DEV_INTERNAL;
+		strcpy(sb_items[sb_count].label, "Internal (/sdcard)");
+		strcpy(sb_items[sb_count].sublabel, "/storage/emulated/0");
+		strcpy(sb_items[sb_count].target_path, "/storage/emulated/0");
+		strcpy(sb_items[sb_count].doc_id, "primary:");
 		sb_items[sb_count].is_storage = 1;
-		sb_items[sb_count].used_pct = compute_fs_used_pct(sb_items[sb_count].target_path);
-		strncpy(sb_items[sb_count].fstype, last_usb_fstype, sizeof(sb_items[sb_count].fstype) - 1);
+		sb_items[sb_count].used_pct = compute_fs_used_pct("/storage/emulated/0");
+		strcpy(sb_items[sb_count].fstype, "fuse");
 		sb_count++;
 	}
 
@@ -426,54 +532,23 @@ static void rebuild_sidebar(void)
 		sb_active = sb_sel;
 }
 
-/*
- * Helper to extract a value from "key=val," or "key=val\n" in MediaProvider query row.
- */
-static void extract_row_field(const char *row, const char *key, char *out, int out_max)
-{
-	const char *p = strstr(row, key);
-	int i = 0;
-
-	out[0] = '\0';
-	if (!p)
-		return;
-	p += strlen(key);
-	while (p[i] && p[i] != ',' && p[i] != '\n' && p[i] != '\r' && i < out_max - 1) {
-		out[i] = p[i];
-		i++;
-	}
-	out[i] = '\0';
-}
-
 static unsigned long compute_dir_signature(const char *dir_path)
 {
-	DIR *dp;
-	struct dirent *de;
+	char doc_id[128];
+	static char resp[BINDER_MAX_DATA_SIZE];
 	unsigned long sig = 5381UL;
+	int i;
 
 	if (browse_is_virtual)
 		return (unsigned long)entry_count;
 
-	dp = opendir(dir_path);
-	if (!dp)
-		return 0;
-	while ((de = readdir(dp)) != NULL) {
-		char full[256];
-		struct stat st;
-		const char *s = de->d_name;
-		if (strcmp(s, ".") == 0 || strcmp(s, "..") == 0)
-			continue;
-		while (*s) {
-			sig = ((sig << 5) + sig) + (unsigned char)(*s++);
-		}
-		snprintf(full, sizeof(full), "%s/%s", dir_path, de->d_name);
-		if (lstat(full, &st) == 0) {
-			sig ^= (unsigned long)st.st_size * 131UL;
-			sig ^= (unsigned long)st.st_mtime * 17UL;
-		}
+	path_to_doc_id(dir_path, doc_id, sizeof(doc_id));
+	if (esp_transact(IESP_QUERY_CHILD_DOCUMENTS, doc_id, resp, sizeof(resp)) == 0) {
+		for (i = 0; resp[i]; i++)
+			sig = ((sig << 5) + sig) + (unsigned char)resp[i];
+		return sig;
 	}
-	closedir(dp);
-	return sig;
+	return 0;
 }
 
 static int is_root_storage_dir(const char *path)
@@ -491,14 +566,16 @@ static int is_root_storage_dir(const char *path)
 }
 
 /*
- * Load entries for either a VFS directory or a MediaProvider virtual URI.
+ * Load entries for either a MediaProvider virtual URI or an
+ * ExternalStorageProvider Document tree over /dev/binder.
  */
 static void load_entries(void)
 {
+	static char resp[BINDER_MAX_DATA_SIZE];
 	entry_count = 0;
 
 	if (browse_is_virtual) {
-		char req[128], resp[BINDER_MAX_DATA_SIZE];
+		char req[128];
 		const char *line;
 
 		snprintf(req, sizeof(req), "%s||", current_uri);
@@ -535,6 +612,7 @@ static void load_entries(void)
 				extract_row_field(rowbuf, "title=", title_s, sizeof(title_s));
 				extract_row_field(rowbuf, "artist=", artist_s, sizeof(artist_s));
 
+				path_to_doc_id(fe->full_path, fe->doc_id, sizeof(fe->doc_id));
 				fe->media_id = atoi(id_s);
 				fe->size = (unsigned long)atoi(sz_s);
 				fe->is_dir = 0;
@@ -567,9 +645,9 @@ static void load_entries(void)
 			line = eol + 1;
 		}
 	} else {
-		DIR *dp;
-		struct dirent *de;
-		int pass;
+		const char *line;
+
+		path_to_doc_id(current_dir, current_doc_id, sizeof(current_doc_id));
 
 		if (!is_root_storage_dir(current_dir)) {
 			struct file_entry *fe = &entries[entry_count++];
@@ -582,59 +660,66 @@ static void load_entries(void)
 				*slash = '\0';
 			else
 				strcpy(fe->full_path, "/");
+			path_to_doc_id(fe->full_path, fe->doc_id, sizeof(fe->doc_id));
 			strcpy(fe->mime, "inode/directory");
 			strcpy(fe->owner_name, "root");
 			fe->is_dir = 1;
 			fe->is_parent = 1;
 		}
 
-		/* Pass 0: directories first; Pass 1: regular files */
-		for (pass = 0; pass < 2; pass++) {
-			dp = opendir(current_dir);
-			if (!dp)
-				break;
-			while ((de = readdir(dp)) != NULL && entry_count < MAX_FILE_ENTRIES) {
-				char full[256];
-				struct stat st;
-				int is_d;
-				struct file_entry *fe;
+		if (esp_transact(IESP_QUERY_CHILD_DOCUMENTS, current_doc_id, resp, sizeof(resp)) == 0 &&
+		    strncmp(resp, "Row: ", 5) == 0) {
+			line = resp;
+			while (*line && entry_count < MAX_FILE_ENTRIES) {
+				const char *eol = strchr(line, '\n');
+				char rowbuf[320];
+				int rlen = eol ? (int)(eol - line) : (int)strlen(line);
+				if (rlen >= (int)sizeof(rowbuf))
+					rlen = sizeof(rowbuf) - 1;
+				memcpy(rowbuf, line, rlen);
+				rowbuf[rlen] = '\0';
 
-				if (strcmp(de->d_name, ".") == 0 ||
-				    strcmp(de->d_name, "..") == 0 ||
-				    strcmp(de->d_name, "lost+found") == 0)
-					continue;
+				if (strncmp(rowbuf, "Row: ", 5) == 0) {
+					struct file_entry *fe = &entries[entry_count++];
+					char raw_mime[48], sz_s[24], own_s[32];
+					const char *paren;
 
-				snprintf(full, sizeof(full), "%s/%s", current_dir, de->d_name);
-				if (lstat(full, &st) < 0)
-					continue;
-				is_d = S_ISDIR(st.st_mode) ? 1 : 0;
-				if ((pass == 0 && !is_d) || (pass == 1 && is_d))
-					continue;
+					memset(fe, 0, sizeof(*fe));
+					extract_row_field(rowbuf, "document_id=", fe->doc_id, sizeof(fe->doc_id));
+					extract_row_field(rowbuf, "_display_name=", fe->name, sizeof(fe->name));
+					extract_row_field(rowbuf, "mime=", raw_mime, sizeof(raw_mime));
+					extract_row_field(rowbuf, "_size=", sz_s, sizeof(sz_s));
+					extract_row_field(rowbuf, "_data=", fe->full_path, sizeof(fe->full_path));
+					extract_row_field(rowbuf, "owner=", own_s, sizeof(own_s));
 
-				fe = &entries[entry_count++];
-				memset(fe, 0, sizeof(*fe));
-				strncpy(fe->name, de->d_name, sizeof(fe->name) - 1);
-				strncpy(fe->full_path, full, sizeof(fe->full_path) - 1);
-				fe->size = (unsigned long)st.st_size;
-				fe->owner_uid = st.st_uid;
-				resolve_uid_name(st.st_uid, fe->owner_name, sizeof(fe->owner_name));
-				fe->is_dir = is_d;
+					fe->size = (unsigned long)atoi(sz_s);
+					if (strcmp(raw_mime, "vnd.android.document/directory") == 0 ||
+					    strcmp(raw_mime, "inode/directory") == 0) {
+						fe->is_dir = 1;
+						strcpy(fe->mime, "inode/directory");
+					} else {
+						fe->is_dir = 0;
+						strncpy(fe->mime, raw_mime, sizeof(fe->mime) - 1);
+					}
 
-				if (is_d) {
-					strcpy(fe->mime, "inode/directory");
-				} else if (has_ext(fe->name, ".jpg") || has_ext(fe->name, ".jpeg")) {
-					strcpy(fe->mime, "image/jpeg");
-				} else if (has_ext(fe->name, ".png")) {
-					strcpy(fe->mime, "image/png");
-				} else if (has_ext(fe->name, ".mp3")) {
-					strcpy(fe->mime, "audio/mpeg");
-				} else if (has_ext(fe->name, ".mp4")) {
-					strcpy(fe->mime, "video/mp4");
-				} else {
-					strcpy(fe->mime, "text/plain");
+					paren = strchr(own_s, '(');
+					if (paren) {
+						int nlen = (int)(paren - own_s);
+						if (nlen >= (int)sizeof(fe->owner_name))
+							nlen = sizeof(fe->owner_name) - 1;
+						memcpy(fe->owner_name, own_s, nlen);
+						fe->owner_name[nlen] = '\0';
+						fe->owner_uid = (uid_t)atoi(paren + 1);
+					} else {
+						strncpy(fe->owner_name, own_s[0] ? own_s : "root", sizeof(fe->owner_name) - 1);
+						fe->owner_uid = 0;
+					}
 				}
+
+				if (!eol)
+					break;
+				line = eol + 1;
 			}
-			closedir(dp);
 		}
 		last_dir_signature = compute_dir_signature(current_dir);
 	}
@@ -977,7 +1062,7 @@ static void draw_inspector_pane(void)
 	}
 
 	if (insp_w >= 28 && body_bottom >= 22) {
-		snprintf(line, sizeof(line), " Path: %.*s", max_txt - 6, fe->full_path);
+		snprintf(line, sizeof(line), " DocID: %.*s", max_txt - 7, fe->doc_id);
 		draw_padded(7, insp_x, insp_w, A_NORMAL, line);
 	}
 
@@ -1071,19 +1156,25 @@ static void draw_inspector_pane(void)
 			}
 		}
 	} else {
-		DIR *dp = opendir(fe->full_path);
-		if (!dp && errno == EACCES) {
+		static char resp[BINDER_MAX_DATA_SIZE];
+		int rc = esp_transact(IESP_QUERY_CHILD_DOCUMENTS, fe->doc_id, resp, sizeof(resp));
+		if (rc == -EACCES) {
 			draw_padded(8, insp_x, insp_w, A_REVERSE, " SANDBOX LOCKED ");
-			draw_padded(9, insp_x, insp_w, A_NORMAL, " Other user's private");
-			draw_padded(10, insp_x, insp_w, A_NORMAL, " Android/data folder");
-		} else if (dp) {
+			draw_padded(9, insp_x, insp_w, A_NORMAL, " Blocked by SAF");
+			draw_padded(10, insp_x, insp_w, A_NORMAL, " Android/data policy");
+		} else if (rc == 0) {
 			int sub_cnt = 0;
-			struct dirent *de;
-			while ((de = readdir(dp)) != NULL) {
-				if (strcmp(de->d_name, ".") != 0 && strcmp(de->d_name, "..") != 0)
-					sub_cnt++;
+			const char *p = resp;
+			if (strncmp(resp, "Row: ", 5) == 0) {
+				while (*p) {
+					if (strncmp(p, "Row: ", 5) == 0)
+						sub_cnt++;
+					p = strchr(p, '\n');
+					if (!p)
+						break;
+					p++;
+				}
 			}
-			closedir(dp);
 			draw_padded(8, insp_x, insp_w, A_UNDERLINE, " Folder Summary:");
 			snprintf(line, sizeof(line), " Items: %d", sub_cnt);
 			draw_padded(9, insp_x, insp_w, A_NORMAL, line);
@@ -1388,8 +1479,8 @@ static int prompt_input(const char *prompt_str, char *out, int out_max)
 
 static void handle_create_file(void)
 {
-	char name[48], path[256], content[128];
-	int fd;
+	char name[48], content[128], req[320], resp[256];
+	int rc;
 
 	if (browse_is_virtual) {
 		strcpy(toast_msg, "[FILES] Select a folder in Storage Devices to create files.");
@@ -1399,18 +1490,17 @@ static void handle_create_file(void)
 		strcpy(toast_msg, "File creation cancelled.");
 		return;
 	}
-	snprintf(path, sizeof(path), "%s/%s", current_dir, name);
-	fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
-	if (fd < 0) {
-		snprintf(toast_msg, sizeof(toast_msg),
-			 "[SCOPED STORAGE] Cannot create %s: %s", name,
-			 (errno == EACCES) ? "Permission denied" : "Read-only or error");
-		return;
-	}
+	path_to_doc_id(current_dir, current_doc_id, sizeof(current_doc_id));
 	snprintf(content, sizeof(content), "Created by %s(uid=%u) in SIX Files app.\n",
 		 my_username, (unsigned int)my_uid);
-	write(fd, content, strlen(content));
-	close(fd);
+	snprintf(req, sizeof(req), "%s|text/plain|%s|%s", current_doc_id, name, content);
+	rc = esp_transact(IESP_CREATE_DOCUMENT, req, resp, sizeof(resp));
+	if (rc < 0) {
+		snprintf(toast_msg, sizeof(toast_msg),
+			 "[SCOPED STORAGE] Cannot create %s: %s", name,
+			 (rc == -EACCES) ? "Permission denied" : "Read-only or error");
+		return;
+	}
 	rebuild_sidebar();
 	load_entries();
 	snprintf(toast_msg, sizeof(toast_msg), "[FILES] Created %s (owner=%s)", name, my_username);
@@ -1418,7 +1508,8 @@ static void handle_create_file(void)
 
 static void handle_create_dir(void)
 {
-	char name[48], path[256];
+	char name[48], req[256], resp[256];
+	int rc;
 
 	if (browse_is_virtual) {
 		strcpy(toast_msg, "[FILES] Select a folder in Storage Devices to create folders.");
@@ -1428,8 +1519,10 @@ static void handle_create_dir(void)
 		strcpy(toast_msg, "Folder creation cancelled.");
 		return;
 	}
-	snprintf(path, sizeof(path), "%s/%s", current_dir, name);
-	if (mkdir(path, 0775) < 0) {
+	path_to_doc_id(current_dir, current_doc_id, sizeof(current_doc_id));
+	snprintf(req, sizeof(req), "%s|vnd.android.document/directory|%s|", current_doc_id, name);
+	rc = esp_transact(IESP_CREATE_DOCUMENT, req, resp, sizeof(resp));
+	if (rc < 0) {
 		snprintf(toast_msg, sizeof(toast_msg),
 			 "[SCOPED STORAGE] Cannot mkdir %s: Permission denied", name);
 		return;
@@ -1441,6 +1534,7 @@ static void handle_create_dir(void)
 static void handle_delete_selected(void)
 {
 	struct file_entry *fe;
+	char resp[256];
 	int rc;
 
 	if (entry_count <= 0 || file_sel < 0 || file_sel >= entry_count)
@@ -1449,11 +1543,7 @@ static void handle_delete_selected(void)
 	if (fe->is_parent)
 		return;
 
-	if (fe->is_dir)
-		rc = rmdir(fe->full_path);
-	else
-		rc = unlink(fe->full_path);
-
+	rc = esp_transact(IESP_DELETE_DOCUMENT, fe->doc_id, resp, sizeof(resp));
 	if (rc < 0) {
 		snprintf(toast_msg, sizeof(toast_msg),
 			 "[SCOPED STORAGE] Permission denied: %s is owned by %s(%u)",
@@ -1532,25 +1622,28 @@ static void dump_text_snapshot(void)
 	sync_terminal_size(1);
 	printf("=== Android Desktop Files (DocumentsUI) Snapshot [user=%s(%u), term=%dx%d] ===\n",
 	       my_username, (unsigned int)my_uid, term_cols, term_rows);
-	printf("Sidebar Roots & Libraries:\n");
+	printf("Sidebar Roots & Libraries (via ExternalStorageProvider & MediaProvider):\n");
 	for (i = 0; i < sb_count; i++) {
 		struct sidebar_item *it = &sb_items[i];
 		if (it->is_storage) {
-			printf("  [STORAGE] %-18s -> %s (%d%% used, %s)%s\n",
+			printf("  [STORAGE] %-18s -> %s (%d%% used, %s) docId=%s%s\n",
 			       it->label, it->target_path, it->used_pct, it->fstype,
-			       (i == sb_active) ? " [ACTIVE]" : "");
+			       it->doc_id, (i == sb_active) ? " [ACTIVE]" : "");
 		} else {
 			printf("  [LIBRARY] %-18s (%d items)%s\n",
 			       it->label, it->count_badge,
 			       (i == sb_active) ? " [ACTIVE]" : "");
 		}
 	}
-	printf("Current View: %s\n", browse_is_virtual ? current_title : current_dir);
+	if (browse_is_virtual)
+		printf("Current View: %s\n", current_title);
+	else
+		printf("Current View: %s (docId=%s)\n", current_dir, current_doc_id);
 	for (i = 0; i < entry_count; i++) {
 		struct file_entry *fe = &entries[i];
-		printf("  %-22s  %6luB  owner=%s(%u)  mime=%s\n",
+		printf("  %-22s  %6luB  owner=%s(%u)  mime=%s  docId=%s\n",
 		       fe->name, fe->size, fe->owner_name,
-		       (unsigned int)fe->owner_uid, fe->mime);
+		       (unsigned int)fe->owner_uid, fe->mime, fe->doc_id);
 	}
 }
 

@@ -35,10 +35,12 @@ static void usage(void)
 {
 	printf("Usage: content <subcommand> [options]\n");
 	printf("Subcommands:\n");
-	printf("  content query --uri <content://media/...> [--projection <cols>] [--where \"<expr>\"]\n");
-	printf("  content insert --uri <content://media/...> --bind _display_name:s:<name> [--bind relative_path:s:<dir>]\n");
-	printf("  content delete --uri <content://media/...> [--where \"<expr>\"]\n");
-	printf("  content read --uri <content://media/.../id>\n");
+	printf("  content query --uri <content://...> [--projection <cols>] [--where \"<expr>\"]\n");
+	printf("  content insert --uri <content://...> --bind _display_name:s:<name> [--bind mime_type:s:<mime>]\n");
+	printf("  content delete --uri <content://...> [--where \"<expr>\"]\n");
+	printf("  content rename --uri <content://com.android.externalstorage.documents/document/...> --bind _display_name:s:<name>\n");
+	printf("  content read --uri <content://...>\n");
+	printf("  content roots                           List ExternalStorageProvider SAF roots\n");
 	printf("  content scan                            Rescan all mounted volumes into MediaStore\n");
 	printf("  content status | volumes                Show MediaProvider FUSE volumes & stats\n");
 	printf("  content mount <UUID> [lower_path]       Mount /mnt/media_rw/<UUID> at /storage/<UUID>\n");
@@ -59,9 +61,18 @@ static void extract_bind_val(const char *arg, const char *key, char *out, int ou
 	out[out_max - 1] = '\0';
 }
 
+static int is_esp_uri(const char *u)
+{
+	if (!u)
+		return 0;
+	if (strncmp(u, "content://com.android.externalstorage.documents", 47) == 0)
+		return 1;
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
-	int bfd, i;
+	int bfd, i, use_esp = 0;
 	struct binder_service_info sinfo;
 	struct binder_ipc_msg msg;
 	const char *subcmd;
@@ -70,6 +81,8 @@ int main(int argc, char **argv)
 	const char *where = "";
 	char bind_name[64] = {0};
 	char bind_rel[64] = {0};
+	char bind_mime[48] = {0};
+	char bind_content[192] = {0};
 
 	if (argc < 2) {
 		usage();
@@ -93,10 +106,14 @@ int main(int argc, char **argv)
 			const char *b = argv[++i];
 			extract_bind_val(b, "_display_name", bind_name, sizeof(bind_name));
 			extract_bind_val(b, "relative_path", bind_rel, sizeof(bind_rel));
+			extract_bind_val(b, "mime_type", bind_mime, sizeof(bind_mime));
+			extract_bind_val(b, "content", bind_content, sizeof(bind_content));
 		} else if (strncmp(argv[i], "content://", 10) == 0 && !uri[0]) {
 			uri = argv[i];
 		}
 	}
+
+	use_esp = is_esp_uri(uri) || (strcmp(subcmd, "roots") == 0) || (strcmp(subcmd, "rename") == 0);
 
 	bfd = open("/dev/binder", O_RDWR);
 	if (bfd < 0) {
@@ -105,9 +122,9 @@ int main(int argc, char **argv)
 	}
 
 	memset(&sinfo, 0, sizeof(sinfo));
-	strcpy(sinfo.name, "media.provider");
+	strcpy(sinfo.name, use_esp ? "externalstorage" : "media.provider");
 	if (ioctl(bfd, BINDER_IOC_LOOKUP_SVC, &sinfo) < 0 || sinfo.handle <= 0) {
-		printf("content: MediaProvider ('media.provider') is not registered on /dev/binder\n");
+		printf("content: service '%s' is not registered on /dev/binder\n", sinfo.name);
 		close(bfd);
 		exit(1);
 	}
@@ -115,9 +132,93 @@ int main(int argc, char **argv)
 	memset(&msg, 0, sizeof(msg));
 	msg.target_handle = sinfo.handle;
 	msg.flags = 0;
-	strcpy(msg.interface_token, "android.content.IMediaProvider");
+	strcpy(msg.interface_token,
+	       use_esp ? "android.content.IDocumentsProvider" : "android.content.IMediaProvider");
 
-	if (strcmp(subcmd, "query") == 0) {
+	if (use_esp) {
+		if (strcmp(subcmd, "roots") == 0 ||
+		    (strcmp(subcmd, "query") == 0 &&
+		     strstr(uri, "/root") != NULL && strstr(uri, "/document/") == NULL)) {
+			msg.code = IESP_QUERY_ROOTS;
+		} else if (strcmp(subcmd, "query") == 0) {
+			int ulen = (int)strlen(uri);
+			if (ulen >= 9 && strcmp(uri + ulen - 9, "/children") == 0)
+				msg.code = IESP_QUERY_CHILD_DOCUMENTS;
+			else
+				msg.code = IESP_QUERY_DOCUMENT;
+			strncpy(msg.data, uri, sizeof(msg.data) - 1);
+			msg.data_size = (unsigned int)strlen(msg.data) + 1;
+		} else if (strcmp(subcmd, "insert") == 0) {
+			if (!uri[0] || !bind_name[0]) {
+				printf("content insert: --uri and --bind _display_name:s:<name> required\n");
+				close(bfd);
+				exit(1);
+			}
+			msg.code = IESP_CREATE_DOCUMENT;
+			snprintf(msg.data, sizeof(msg.data), "%s|%s|%s|%s",
+				 uri, bind_mime[0] ? bind_mime : "text/plain", bind_name, bind_content);
+			msg.data_size = (unsigned int)strlen(msg.data) + 1;
+		} else if (strcmp(subcmd, "delete") == 0) {
+			if (!uri[0]) {
+				printf("content delete: --uri required\n");
+				close(bfd);
+				exit(1);
+			}
+			msg.code = IESP_DELETE_DOCUMENT;
+			strncpy(msg.data, uri, sizeof(msg.data) - 1);
+			msg.data_size = (unsigned int)strlen(msg.data) + 1;
+		} else if (strcmp(subcmd, "rename") == 0) {
+			if (!uri[0] || !bind_name[0]) {
+				printf("content rename: --uri and --bind _display_name:s:<name> required\n");
+				close(bfd);
+				exit(1);
+			}
+			msg.code = IESP_RENAME_DOCUMENT;
+			snprintf(msg.data, sizeof(msg.data), "%s|%s||", uri, bind_name);
+			msg.data_size = (unsigned int)strlen(msg.data) + 1;
+		} else if (strcmp(subcmd, "read") == 0) {
+			char *data_tag;
+			msg.code = IESP_QUERY_DOCUMENT;
+			strncpy(msg.data, uri, sizeof(msg.data) - 1);
+			msg.data_size = (unsigned int)strlen(msg.data) + 1;
+			if (ioctl(bfd, BINDER_IOC_TRANSACT, &msg) < 0 || msg.status != 0) {
+				printf("content read: %s\n", msg.data[0] ? msg.data : "query failed");
+				close(bfd);
+				exit(1);
+			}
+			close(bfd);
+			data_tag = strstr(msg.data, "_data=");
+			if (!data_tag) {
+				printf("content read: %s\n", msg.data);
+				exit(1);
+			}
+			{
+				char fpath[128];
+				int k = 0, fd, n;
+				unsigned char buf[512];
+				data_tag += 6;
+				while (data_tag[k] && data_tag[k] != ',' && data_tag[k] != '\n' &&
+				       k < (int)sizeof(fpath) - 1) {
+					fpath[k] = data_tag[k];
+					k++;
+				}
+				fpath[k] = '\0';
+				fd = open(fpath, O_RDONLY);
+				if (fd < 0) {
+					printf("content read: cannot open %s (errno=%d)\n", fpath, errno);
+					exit(1);
+				}
+				while ((n = read(fd, buf, sizeof(buf))) > 0)
+					write(1, buf, n);
+				close(fd);
+				exit(0);
+			}
+		} else {
+			usage();
+			close(bfd);
+			exit(1);
+		}
+	} else if (strcmp(subcmd, "query") == 0) {
 		if (!uri[0])
 			uri = "content://media/external/files";
 		msg.code = IMP_QUERY;

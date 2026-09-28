@@ -29,7 +29,7 @@ static void usage(void)
 	       "         -l: only list running Binder services, do not dump them\n"
 	       "         -t TIMEOUT: timeout in seconds to wait for a service dump\n"
 	       "         SERVICE: dump only service SERVICE (e.g. power, mount, vold,\n"
-	       "                  media.provider, suspend, sysinfo)\n");
+	       "                  media.provider, externalstorage, suspend, sysinfo)\n");
 }
 
 static const char *resolve_service_alias(const char *name)
@@ -38,6 +38,10 @@ static const char *resolve_service_alias(const char *name)
 		return "media.provider";
 	if (strcmp(name, "storage") == 0)
 		return "mount";
+	if (strcmp(name, "documents") == 0 ||
+	    strcmp(name, "externalstorage.documents") == 0 ||
+	    strcmp(name, "com.android.externalstorage.documents") == 0)
+		return "externalstorage";
 	return name;
 }
 

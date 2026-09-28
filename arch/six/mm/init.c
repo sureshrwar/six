@@ -423,7 +423,15 @@ void set_proc_mappings()
 	 * 	are part of the kernel space. So no mappings.
 	 * }
 	 */
-	sti();
+	/*
+	 * Do NOT call sti() here: set_proc_mappings() is invoked inside
+	 * switch_to(prev, next) after current_set[0] = next and before
+	 * swapcontext(&prev->kcontext, &next->kcontext). Enabling host
+	 * signals before swapcontext() saves prev->kcontext would allow
+	 * an interrupt to fire on prev's stack with current == next.
+	 * schedule() re-enables interrupts via sti() after switch_to()
+	 * and del_timer().
+	 */
 	return;
 }
 #endif

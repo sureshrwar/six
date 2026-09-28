@@ -2266,9 +2266,18 @@ void sun_handler(int num, void *why, struct pt_regs *context)
 		 * setcontext(&current->ucontext) cleanly from the top.
 		 */
 #if (__i386__)
-		if (!(!IS_GUEST_USER_PC(context->pc) &&
-		      IS_GUEST_USER_PC(current->ucontext.pc)))
-			SAVE_ALL;
+		{
+			extern char six_host_restore_uc_tramp_end[];
+			int in_restore_uc =
+				((unsigned long)context->pc >=
+				 (unsigned long)six_host_restore_user_context &&
+				 (unsigned long)context->pc <
+				 (unsigned long)six_host_restore_uc_tramp_end);
+			if (!in_restore_uc &&
+			    !(!IS_GUEST_USER_PC(context->pc) &&
+			      IS_GUEST_USER_PC(current->ucontext.pc)))
+				SAVE_ALL;
+		}
 #else
 		SAVE_ALL;
 #endif

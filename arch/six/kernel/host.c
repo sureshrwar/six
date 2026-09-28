@@ -167,14 +167,15 @@ void six_host_restore_user_context(void *uc_ptr)
 	words[21] = cur_efl;
 
 	__asm__ __volatile__(
-		"movl %0, %%eax\n\t"
-		"pushl %%eax\n\t"
+		".globl six_host_restore_uc_tramp_start\n\t"
+		"six_host_restore_uc_tramp_start:\n\t"
+		"movl %0, %%esi\n\t"
 		"xorl %%edx, %%edx\n\t"
-		"leal 0x6c(%%eax), %%ecx\n\t"
+		"leal 0x6c(%%esi), %%ecx\n\t"
 		"movl $2, %%ebx\n\t"
 		"movl $126, %%eax\n\t"
 		"int $0x80\n\t"
-		"popl %%eax\n\t"
+		"movl %%esi, %%eax\n\t"
 		"movl 0x60(%%eax), %%ecx\n\t"
 		"testl %%ecx, %%ecx\n\t"
 		"jz 1f\n\t"
@@ -195,6 +196,8 @@ void six_host_restore_user_context(void *uc_ptr)
 		"movl 0x3c(%%eax), %%ecx\n\t"
 		"movl 0x40(%%eax), %%eax\n\t"
 		"ret\n\t"
+		".globl six_host_restore_uc_tramp_end\n\t"
+		"six_host_restore_uc_tramp_end:\n\t"
 		:
 		: "r"(uc_ptr)
 		: "memory", "cc");

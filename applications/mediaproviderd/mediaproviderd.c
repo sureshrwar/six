@@ -132,6 +132,12 @@ static unsigned long stat_fuse_ops = 0;
 static unsigned long stat_scoped_denials = 0;
 static unsigned long stat_exif_redactions = 0;
 static unsigned long stat_binder_queries = 0;
+static unsigned long stat_esp_root_queries = 0;
+static unsigned long stat_esp_doc_queries = 0;
+static unsigned long stat_esp_created = 0;
+static unsigned long stat_esp_deleted = 0;
+static unsigned long stat_esp_denials = 0;
+static int h_esp = -1;
 
 static unsigned char fuse_req_buf[20480];
 static unsigned char fuse_rep_buf[20480];
@@ -2441,10 +2447,679 @@ static void handle_binder_request(int bfd, struct binder_ipc_msg *msg)
 		ioctl(bfd, BINDER_IOC_REPLY, &reply);
 }
 
+static void parse_pipe4(const char *src,
+			char *a, int amax,
+			char *b, int bmax,
+			char *c, int cmax,
+			char *d, int dmax)
+{
+	const char *p = src ? src : "";
+	const char *sep;
+	int len;
+
+	a[0] = '\0';
+	b[0] = '\0';
+	c[0] = '\0';
+	d[0] = '\0';
+
+	sep = strchr(p, '|');
+	if (!sep) {
+		strncpy(a, p, amax - 1);
+		a[amax - 1] = '\0';
+		return;
+	}
+	len = (int)(sep - p);
+	if (len >= amax)
+		len = amax - 1;
+	memcpy(a, p, len);
+	a[len] = '\0';
+	p = sep + 1;
+
+	sep = strchr(p, '|');
+	if (!sep) {
+		strncpy(b, p, bmax - 1);
+		b[bmax - 1] = '\0';
+		return;
+	}
+	len = (int)(sep - p);
+	if (len >= bmax)
+		len = bmax - 1;
+	memcpy(b, p, len);
+	b[len] = '\0';
+	p = sep + 1;
+
+	sep = strchr(p, '|');
+	if (!sep) {
+		strncpy(c, p, cmax - 1);
+		c[cmax - 1] = '\0';
+		return;
+	}
+	len = (int)(sep - p);
+	if (len >= cmax)
+		len = cmax - 1;
+	memcpy(c, p, len);
+	c[len] = '\0';
+	p = sep + 1;
+
+	strncpy(d, p, dmax - 1);
+	d[dmax - 1] = '\0';
+}
+
+/*
+ * Parse an ExternalStorageProvider Document ID or URI:
+ *   - "primary:" or "primary:Pictures/note.txt"
+ *   - "7B9E-3D10:" or "XYZ:Pictures/six_note.txt"
+ *   - "content://com.android.externalstorage.documents/document/primary%3APictures/children"
+ */
+static int parse_esp_doc_id(const char *raw_in, struct mp_volume **out_vol,
+			    char *out_root_id, int root_max,
+			    char *out_rel, int rel_max)
+{
+	char decoded[256];
+	char root_part[64];
+	const char *p = raw_in ? raw_in : "";
+	const char *colon;
+	int i = 0, dlen;
+
+	if (out_vol)
+		*out_vol = NULL;
+	out_root_id[0] = '\0';
+	out_rel[0] = '\0';
+
+	if (strncmp(p, "content://com.android.externalstorage.documents/", 48) == 0) {
+		p += 48;
+		if (strncmp(p, "document/", 9) == 0)
+			p += 9;
+		else if (strncmp(p, "tree/", 5) == 0)
+			p += 5;
+		else if (strncmp(p, "root/", 5) == 0)
+			p += 5;
+	}
+
+	while (*p && i < (int)sizeof(decoded) - 1) {
+		if (p[0] == '%' && p[1] == '3' && (p[2] == 'A' || p[2] == 'a')) {
+			decoded[i++] = ':';
+			p += 3;
+		} else if (p[0] == '%' && p[1] == '2' && (p[2] == 'F' || p[2] == 'f')) {
+			decoded[i++] = '/';
+			p += 3;
+		} else {
+			decoded[i++] = *p++;
+		}
+	}
+	decoded[i] = '\0';
+
+	dlen = (int)strlen(decoded);
+	if (dlen >= 9 && strcmp(decoded + dlen - 9, "/children") == 0)
+		decoded[dlen - 9] = '\0';
+
+	colon = strchr(decoded, ':');
+	if (colon) {
+		int rlen = (int)(colon - decoded);
+		if (rlen >= (int)sizeof(root_part))
+			rlen = sizeof(root_part) - 1;
+		memcpy(root_part, decoded, rlen);
+		root_part[rlen] = '\0';
+		p = colon + 1;
+		while (*p == '/')
+			p++;
+		strncpy(out_rel, p, rel_max - 1);
+		out_rel[rel_max - 1] = '\0';
+	} else {
+		strncpy(root_part, decoded, sizeof(root_part) - 1);
+		root_part[sizeof(root_part) - 1] = '\0';
+		out_rel[0] = '\0';
+	}
+
+	dlen = (int)strlen(out_rel);
+	while (dlen > 0 && out_rel[dlen - 1] == '/')
+		out_rel[--dlen] = '\0';
+
+	if (!root_part[0] ||
+	    str_icase_eq(root_part, "primary") ||
+	    str_icase_eq(root_part, "external_primary")) {
+		if (!vols[0].active)
+			return -ENOENT;
+		if (out_vol)
+			*out_vol = &vols[0];
+		strncpy(out_root_id, "primary", root_max - 1);
+		out_root_id[root_max - 1] = '\0';
+		return 0;
+	}
+
+	for (i = 0; i < MAX_VOLUMES; i++) {
+		if (vols[i].active &&
+		    (str_icase_eq(vols[i].vol_id, root_part) ||
+		     str_icase_eq(vols[i].vol_name, root_part))) {
+			if (out_vol)
+				*out_vol = &vols[i];
+			strncpy(out_root_id, vols[i].vol_id, root_max - 1);
+			out_root_id[root_max - 1] = '\0';
+			return 0;
+		}
+	}
+
+	return -ENOENT;
+}
+
+static int compute_lower_used_pct(const char *path)
+{
+	struct statfs sfs;
+	if (statfs(path, &sfs) == 0 && sfs.f_blocks > 0) {
+		long used = sfs.f_blocks - sfs.f_bfree;
+		int pct = (int)((used * 100L) / sfs.f_blocks);
+		if (pct < 1 && used > 0)
+			pct = 1;
+		if (pct > 100)
+			pct = 100;
+		return pct;
+	}
+	return 12;
+}
+
+/*
+ * Handle Storage Access Framework (SAF) ExternalStorageProvider RPCs on
+ * service "externalstorage" [android.content.IDocumentsProvider], authority
+ * "com.android.externalstorage.documents".
+ */
+static void handle_esp_binder_request(int bfd, struct binder_ipc_msg *msg)
+{
+	struct binder_ipc_msg reply;
+
+	memset(&reply, 0, sizeof(reply));
+	reply.txn_id = msg->txn_id;
+	reply.status = 0;
+
+	switch (msg->code) {
+	case DUMP_TRANSACTION: {
+		int i, root_cnt = 0, pos = 0;
+		for (i = 0; i < MAX_VOLUMES; i++)
+			if (vols[i].active) root_cnt++;
+
+		pos += snprintf(reply.data + pos, sizeof(reply.data) - pos,
+				"ExternalStorageProvider (dumpsys externalstorage)\n"
+				"  Authority: com.android.externalstorage.documents (pid=%d)\n"
+				"  Active SAF Roots: %d\n"
+				"  Stats: root_queries=%lu doc_queries=%lu created=%lu deleted=%lu saf_denials=%lu",
+				getpid(), root_cnt,
+				stat_esp_root_queries, stat_esp_doc_queries,
+				stat_esp_created, stat_esp_deleted, stat_esp_denials);
+		for (i = 0; i < MAX_VOLUMES && pos < (int)sizeof(reply.data) - 96; i++) {
+			const char *rid;
+			if (!vols[i].active)
+				continue;
+			rid = vols[i].is_usb ? vols[i].vol_id : "primary";
+			pos += snprintf(reply.data + pos, sizeof(reply.data) - pos,
+					"\n  Root [%d]: %s (docId=%s: mount=%s)",
+					i, rid, rid, vols[i].upper_path);
+		}
+		reply.data_size = (unsigned int)strlen(reply.data) + 1;
+		break;
+	}
+
+	case PING_TRANSACTION:
+		snprintf(reply.data, sizeof(reply.data),
+			 "PONG from ExternalStorageProvider (com.android.externalstorage.documents, pid=%d)",
+			 getpid());
+		reply.data_size = (unsigned int)strlen(reply.data) + 1;
+		break;
+
+	case IESP_QUERY_ROOTS: {
+		struct binder_uevent_msg uev;
+		int i, row_idx = 0, pos = 0;
+
+		stat_esp_root_queries++;
+		memset(&uev, 0, sizeof(uev));
+		ioctl(bfd, BINDER_IOC_USB_STATUS, &uev);
+
+		for (i = 0; i < MAX_VOLUMES; i++) {
+			struct mp_volume *v = &vols[i];
+			const char *rid;
+			char title[48];
+			const char *fst;
+			int pct;
+
+			if (!v->active)
+				continue;
+			pct = compute_lower_used_pct(v->lower_path);
+			if (!v->is_usb) {
+				rid = "primary";
+				strcpy(title, "Internal (/sdcard)");
+				fst = "fuse";
+			} else {
+				rid = v->vol_id;
+				snprintf(title, sizeof(title), "%.14s (USB)",
+					 uev.label[0] ? uev.label : v->vol_id);
+				fst = uev.fstype[0] ? uev.fstype : "ext4";
+			}
+
+			if (pos > 0 && pos < (int)sizeof(reply.data) - 2)
+				reply.data[pos++] = '\n';
+			pos += snprintf(reply.data + pos, sizeof(reply.data) - pos,
+					"Row: %d root_id=%s, document_id=%s:, title=%s, mount_path=%s, fstype=%s, used_pct=%d, flags=0x17",
+					row_idx++, rid, rid, title, v->upper_path, fst, pct);
+		}
+		reply.data_size = (unsigned int)strlen(reply.data) + 1;
+		break;
+	}
+
+	case IESP_QUERY_DOCUMENT: {
+		struct mp_volume *vol = NULL;
+		char root_id[32], rel_path[160], lower_full[256], upper_full[256];
+		char mime[32], owner_name[24];
+		const char *disp_name;
+		struct stat st;
+		struct mp_node *node;
+		uid_t owner_uid;
+		int mtype = 0, is_d;
+
+		stat_esp_doc_queries++;
+		if (parse_esp_doc_id(msg->data, &vol, root_id, sizeof(root_id),
+				     rel_path, sizeof(rel_path)) < 0 || !vol) {
+			reply.status = -ENOENT;
+			strcpy(reply.data, "Document root not found");
+			reply.data_size = (unsigned int)strlen(reply.data) + 1;
+			break;
+		}
+
+		build_lower_path(vol, rel_path, lower_full, sizeof(lower_full));
+		if (lstat(lower_full, &st) < 0) {
+			reply.status = -ENOENT;
+			strcpy(reply.data, "Document not found");
+			reply.data_size = (unsigned int)strlen(reply.data) + 1;
+			break;
+		}
+
+		node = vol_find_or_add_node(vol, rel_path, st.st_uid, st.st_gid);
+		owner_uid = node ? node->owner_uid : st.st_uid;
+
+		if (check_scoped_access(vol, rel_path, (uid_t)msg->sender_euid, 0, 1, owner_uid) < 0) {
+			stat_esp_denials++;
+			reply.status = -EACCES;
+			snprintf(reply.data, sizeof(reply.data),
+				 "SecurityException: Scoped Storage denied access to %s:%s",
+				 root_id, rel_path);
+			reply.data_size = (unsigned int)strlen(reply.data) + 1;
+			break;
+		}
+
+		is_d = S_ISDIR(st.st_mode) ? 1 : 0;
+		if (is_d) {
+			strcpy(mime, "vnd.android.document/directory");
+		} else {
+			classify_media_file(rel_path, mime, &mtype);
+			if (strcmp(mime, "application/octet-stream") == 0)
+				strcpy(mime, "text/plain");
+		}
+
+		if (!rel_path[0]) {
+			disp_name = root_id;
+			snprintf(upper_full, sizeof(upper_full), "%s", vol->upper_path);
+		} else {
+			const char *sl = strrchr(rel_path, '/');
+			disp_name = sl ? (sl + 1) : rel_path;
+			snprintf(upper_full, sizeof(upper_full), "%s/%s", vol->upper_path, rel_path);
+		}
+		username_for_uid(owner_uid, owner_name, sizeof(owner_name));
+
+		snprintf(reply.data, sizeof(reply.data),
+			 "Row: 0 document_id=%s:%s, _display_name=%s, mime=%s, _size=%lu, _data=%s, owner=%s(%u), flags=0x%x",
+			 root_id, rel_path, disp_name, mime,
+			 is_d ? 0UL : (unsigned long)st.st_size,
+			 upper_full, owner_name, (unsigned int)owner_uid,
+			 is_d ? 0xce : 0x46);
+		reply.data_size = (unsigned int)strlen(reply.data) + 1;
+		break;
+	}
+
+	case IESP_QUERY_CHILD_DOCUMENTS: {
+		struct mp_volume *vol = NULL;
+		char root_id[32], rel_path[160], lower_dir[256];
+		DIR *dp;
+		struct dirent *de;
+		int pass, row_idx = 0, pos = 0;
+
+		stat_esp_doc_queries++;
+		if (parse_esp_doc_id(msg->data, &vol, root_id, sizeof(root_id),
+				     rel_path, sizeof(rel_path)) < 0 || !vol) {
+			reply.status = -ENOENT;
+			strcpy(reply.data, "Document root not found");
+			reply.data_size = (unsigned int)strlen(reply.data) + 1;
+			break;
+		}
+
+		/*
+		 * Android 11+ Scoped Storage SAF enforcement:
+		 * Non-root users cannot list the top-level Android/data or Android/obb
+		 * tree or another user's private sandbox via ExternalStorageProvider.
+		 */
+		if (msg->sender_euid != 0 && msg->sender_euid != 1023) {
+			if (strcmp(rel_path, "Android/data") == 0 ||
+			    strcmp(rel_path, "Android/obb") == 0 ||
+			    check_scoped_access(vol, rel_path, (uid_t)msg->sender_euid, 0, 1, 0) < 0) {
+				stat_esp_denials++;
+				if (strcmp(rel_path, "Android/data") == 0 ||
+				    strcmp(rel_path, "Android/obb") == 0)
+					stat_scoped_denials++;
+				reply.status = -EACCES;
+				snprintf(reply.data, sizeof(reply.data),
+					 "SecurityException: SAF access to %s:%s is restricted by ExternalStorageProvider",
+					 root_id, rel_path);
+				reply.data_size = (unsigned int)strlen(reply.data) + 1;
+				break;
+			}
+		}
+
+		build_lower_path(vol, rel_path, lower_dir, sizeof(lower_dir));
+		for (pass = 0; pass < 2; pass++) {
+			dp = opendir(lower_dir);
+			if (!dp)
+				break;
+			while ((de = readdir(dp)) != NULL) {
+				char child_rel[192], child_lower[256], child_upper[256];
+				char mime[32], owner_name[24];
+				struct stat st;
+				struct mp_node *node;
+				uid_t owner_uid;
+				int is_d, mtype = 0;
+
+				if (strcmp(de->d_name, ".") == 0 ||
+				    strcmp(de->d_name, "..") == 0 ||
+				    strcmp(de->d_name, "lost+found") == 0)
+					continue;
+
+				build_child_rel(rel_path, de->d_name, child_rel, sizeof(child_rel));
+				build_lower_path(vol, child_rel, child_lower, sizeof(child_lower));
+				if (lstat(child_lower, &st) < 0)
+					continue;
+
+				is_d = S_ISDIR(st.st_mode) ? 1 : 0;
+				if ((pass == 0 && !is_d) || (pass == 1 && is_d))
+					continue;
+
+				node = vol_find_or_add_node(vol, child_rel, st.st_uid, st.st_gid);
+				owner_uid = node ? node->owner_uid : st.st_uid;
+				username_for_uid(owner_uid, owner_name, sizeof(owner_name));
+
+				if (is_d) {
+					strcpy(mime, "vnd.android.document/directory");
+				} else {
+					classify_media_file(de->d_name, mime, &mtype);
+					if (strcmp(mime, "application/octet-stream") == 0)
+						strcpy(mime, "text/plain");
+				}
+
+				snprintf(child_upper, sizeof(child_upper), "%s/%s",
+					 vol->upper_path, child_rel);
+
+				if (pos > 0 && pos < (int)sizeof(reply.data) - 2)
+					reply.data[pos++] = '\n';
+				pos += snprintf(reply.data + pos, sizeof(reply.data) - pos,
+						"Row: %d document_id=%s:%s, _display_name=%s, mime=%s, _size=%lu, _data=%s, owner=%s(%u)",
+						row_idx++, root_id, child_rel, de->d_name, mime,
+						is_d ? 0UL : (unsigned long)st.st_size,
+						child_upper, owner_name, (unsigned int)owner_uid);
+				if (pos >= (int)sizeof(reply.data) - 110)
+					break;
+			}
+			closedir(dp);
+		}
+
+		if (row_idx == 0)
+			strcpy(reply.data, "No result found.");
+		reply.data_size = (unsigned int)strlen(reply.data) + 1;
+		break;
+	}
+
+	case IESP_CREATE_DOCUMENT: {
+		/* msg->data = "<parentDocId>|<mimeType>|<displayName>|<initialContent>" */
+		char parent_doc[128], mime[48], dname[64], init_body[256];
+		char root_id[32], parent_rel[160], child_rel[192], lower_full[256];
+		struct mp_volume *vol = NULL;
+		struct mp_node *node;
+
+		parse_pipe4(msg->data, parent_doc, sizeof(parent_doc),
+			    mime, sizeof(mime), dname, sizeof(dname),
+			    init_body, sizeof(init_body));
+		if (!dname[0] ||
+		    parse_esp_doc_id(parent_doc, &vol, root_id, sizeof(root_id),
+				     parent_rel, sizeof(parent_rel)) < 0 || !vol) {
+			reply.status = -EINVAL;
+			strcpy(reply.data, "Invalid createDocument arguments");
+			reply.data_size = (unsigned int)strlen(reply.data) + 1;
+			break;
+		}
+
+		build_child_rel(parent_rel, dname, child_rel, sizeof(child_rel));
+		if (check_scoped_access(vol, child_rel, (uid_t)msg->sender_euid, 1, 0,
+					(uid_t)msg->sender_euid) < 0) {
+			stat_esp_denials++;
+			reply.status = -EACCES;
+			snprintf(reply.data, sizeof(reply.data),
+				 "SecurityException: Scoped Storage denied createDocument %s:%s",
+				 root_id, child_rel);
+			reply.data_size = (unsigned int)strlen(reply.data) + 1;
+			break;
+		}
+
+		build_lower_path(vol, child_rel, lower_full, sizeof(lower_full));
+		if (strcmp(mime, "vnd.android.document/directory") == 0 ||
+		    strcmp(mime, "inode/directory") == 0) {
+			if (mkdir(lower_full, 0775) < 0) {
+				reply.status = -errno;
+				snprintf(reply.data, sizeof(reply.data),
+					 "mkdir failed for %s:%s", root_id, child_rel);
+				reply.data_size = (unsigned int)strlen(reply.data) + 1;
+				break;
+			}
+			chown(lower_full, (uid_t)msg->sender_euid, 0);
+			node = vol_find_or_add_node(vol, child_rel, (uid_t)msg->sender_euid, 0);
+			if (node)
+				node->owner_uid = (uid_t)msg->sender_euid;
+		} else {
+			int fd = open(lower_full, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+			if (fd < 0) {
+				reply.status = -errno;
+				snprintf(reply.data, sizeof(reply.data),
+					 "open(O_CREAT) failed for %s:%s", root_id, child_rel);
+				reply.data_size = (unsigned int)strlen(reply.data) + 1;
+				break;
+			}
+			if (init_body[0])
+				write(fd, init_body, strlen(init_body));
+			close(fd);
+			chown(lower_full, (uid_t)msg->sender_euid, 0);
+			node = vol_find_or_add_node(vol, child_rel, (uid_t)msg->sender_euid, 0);
+			if (node)
+				node->owner_uid = (uid_t)msg->sender_euid;
+			media_db_index_file(vol, child_rel, 1, (uid_t)msg->sender_euid);
+			media_db_save();
+		}
+
+		stat_esp_created++;
+		snprintf(reply.data, sizeof(reply.data),
+			 "document_id=%s:%s _data=%s/%s",
+			 root_id, child_rel, vol->upper_path, child_rel);
+		reply.data_size = (unsigned int)strlen(reply.data) + 1;
+		break;
+	}
+
+	case IESP_DELETE_DOCUMENT: {
+		struct mp_volume *vol = NULL;
+		char root_id[32], rel_path[160], lower_full[256], owner_name[24];
+		struct stat st;
+		struct mp_node *node;
+		uid_t owner_uid;
+		int rc;
+
+		if (parse_esp_doc_id(msg->data, &vol, root_id, sizeof(root_id),
+				     rel_path, sizeof(rel_path)) < 0 || !vol || !rel_path[0]) {
+			reply.status = -EINVAL;
+			strcpy(reply.data, "Invalid documentId for deleteDocument");
+			reply.data_size = (unsigned int)strlen(reply.data) + 1;
+			break;
+		}
+
+		build_lower_path(vol, rel_path, lower_full, sizeof(lower_full));
+		if (lstat(lower_full, &st) < 0) {
+			reply.status = -ENOENT;
+			strcpy(reply.data, "Document does not exist");
+			reply.data_size = (unsigned int)strlen(reply.data) + 1;
+			break;
+		}
+
+		node = vol_find_or_add_node(vol, rel_path, st.st_uid, st.st_gid);
+		owner_uid = node ? node->owner_uid : st.st_uid;
+		username_for_uid(owner_uid, owner_name, sizeof(owner_name));
+
+		if (check_scoped_access(vol, rel_path, (uid_t)msg->sender_euid, 1, 1, owner_uid) < 0) {
+			stat_esp_denials++;
+			reply.status = -EACCES;
+			snprintf(reply.data, sizeof(reply.data),
+				 "SecurityException: uid %d cannot delete %s:%s owned by %s(%u)",
+				 msg->sender_euid, root_id, rel_path,
+				 owner_name, (unsigned int)owner_uid);
+			reply.data_size = (unsigned int)strlen(reply.data) + 1;
+			break;
+		}
+
+		if (S_ISDIR(st.st_mode)) {
+			rc = rmdir(lower_full);
+		} else {
+			rc = unlink(lower_full);
+			if (rc == 0)
+				media_db_remove_file(vol->vol_name, rel_path);
+		}
+
+		if (rc < 0) {
+			reply.status = -errno;
+			snprintf(reply.data, sizeof(reply.data),
+				 "Failed to delete %s:%s (errno=%d)", root_id, rel_path, errno);
+		} else {
+			if (node)
+				node->in_use = 0;
+			stat_esp_deleted++;
+			snprintf(reply.data, sizeof(reply.data),
+				 "Deleted document %s:%s", root_id, rel_path);
+		}
+		reply.data_size = (unsigned int)strlen(reply.data) + 1;
+		break;
+	}
+
+	case IESP_RENAME_DOCUMENT: {
+		char doc_in[128], new_name[64], dummy1[16], dummy2[16];
+		char root_id[32], rel_path[160], parent_rel[160], new_rel[192];
+		char old_lower[256], new_lower[256];
+		struct mp_volume *vol = NULL;
+		struct stat st;
+		struct mp_node *node;
+		uid_t owner_uid;
+		char *slash;
+
+		parse_pipe4(msg->data, doc_in, sizeof(doc_in),
+			    new_name, sizeof(new_name),
+			    dummy1, sizeof(dummy1), dummy2, sizeof(dummy2));
+		if (!new_name[0] ||
+		    parse_esp_doc_id(doc_in, &vol, root_id, sizeof(root_id),
+				     rel_path, sizeof(rel_path)) < 0 || !vol || !rel_path[0]) {
+			reply.status = -EINVAL;
+			strcpy(reply.data, "Invalid renameDocument arguments");
+			reply.data_size = (unsigned int)strlen(reply.data) + 1;
+			break;
+		}
+
+		build_lower_path(vol, rel_path, old_lower, sizeof(old_lower));
+		if (lstat(old_lower, &st) < 0) {
+			reply.status = -ENOENT;
+			strcpy(reply.data, "Document does not exist");
+			reply.data_size = (unsigned int)strlen(reply.data) + 1;
+			break;
+		}
+
+		node = vol_find_or_add_node(vol, rel_path, st.st_uid, st.st_gid);
+		owner_uid = node ? node->owner_uid : st.st_uid;
+		if (check_scoped_access(vol, rel_path, (uid_t)msg->sender_euid, 1, 1, owner_uid) < 0) {
+			stat_esp_denials++;
+			reply.status = -EACCES;
+			strcpy(reply.data, "SecurityException: Scoped Storage denied renameDocument");
+			reply.data_size = (unsigned int)strlen(reply.data) + 1;
+			break;
+		}
+
+		strncpy(parent_rel, rel_path, sizeof(parent_rel) - 1);
+		parent_rel[sizeof(parent_rel) - 1] = '\0';
+		slash = strrchr(parent_rel, '/');
+		if (slash)
+			*slash = '\0';
+		else
+			parent_rel[0] = '\0';
+
+		build_child_rel(parent_rel, new_name, new_rel, sizeof(new_rel));
+		build_lower_path(vol, new_rel, new_lower, sizeof(new_lower));
+
+		if (rename(old_lower, new_lower) < 0) {
+			reply.status = -errno;
+			strcpy(reply.data, "rename failed");
+			reply.data_size = (unsigned int)strlen(reply.data) + 1;
+			break;
+		}
+
+		if (node) {
+			strncpy(node->rel_path, new_rel, sizeof(node->rel_path) - 1);
+			node->rel_path[sizeof(node->rel_path) - 1] = '\0';
+		}
+		if (S_ISREG(st.st_mode)) {
+			media_db_remove_file(vol->vol_name, rel_path);
+			media_db_index_file(vol, new_rel, 1, owner_uid);
+			media_db_save();
+		}
+
+		snprintf(reply.data, sizeof(reply.data),
+			 "document_id=%s:%s _data=%s/%s",
+			 root_id, new_rel, vol->upper_path, new_rel);
+		reply.data_size = (unsigned int)strlen(reply.data) + 1;
+		break;
+	}
+
+	case IESP_IS_CHILD_DOCUMENT: {
+		char p_doc[128], c_doc[128], d1[16], d2[16];
+		char p_root[32], c_root[32], p_rel[160], c_rel[160];
+		struct mp_volume *v1 = NULL, *v2 = NULL;
+		int is_child = 0;
+
+		parse_pipe4(msg->data, p_doc, sizeof(p_doc), c_doc, sizeof(c_doc),
+			    d1, sizeof(d1), d2, sizeof(d2));
+		if (parse_esp_doc_id(p_doc, &v1, p_root, sizeof(p_root), p_rel, sizeof(p_rel)) == 0 &&
+		    parse_esp_doc_id(c_doc, &v2, c_root, sizeof(c_root), c_rel, sizeof(c_rel)) == 0 &&
+		    v1 && v1 == v2) {
+			int plen = (int)strlen(p_rel);
+			if (plen == 0) {
+				is_child = 1;
+			} else if (strncmp(c_rel, p_rel, plen) == 0 &&
+				   (c_rel[plen] == '/' || c_rel[plen] == '\0')) {
+				is_child = 1;
+			}
+		}
+		snprintf(reply.data, sizeof(reply.data), "is_child=%s", is_child ? "true" : "false");
+		reply.data_size = (unsigned int)strlen(reply.data) + 1;
+		break;
+	}
+
+	default:
+		snprintf(reply.data, sizeof(reply.data),
+			 "IDocumentsProvider[code=%u] handled by ExternalStorageProvider", msg->code);
+		reply.data_size = (unsigned int)strlen(reply.data) + 1;
+		break;
+	}
+
+	if (!(msg->flags & TF_ONE_WAY))
+		ioctl(bfd, BINDER_IOC_REPLY, &reply);
+}
+
 int main(int argc, char **argv)
 {
 	int bfd;
-	struct binder_service_info svc;
+	struct binder_service_info svc, esp_svc;
 
 	(void)argc;
 	(void)argv;
@@ -2467,7 +3142,9 @@ int main(int argc, char **argv)
 		printf("mediaproviderd: warning: failed to mount /storage/emulated/0 via /dev/fuse\n");
 	}
 
-	/* 2. Register "media.provider" [android.content.IMediaProvider] on /dev/binder */
+	/* 2. Register "media.provider" [android.content.IMediaProvider] and
+	 *    "externalstorage" [android.content.IDocumentsProvider] on /dev/binder
+	 */
 	bfd = open("/dev/binder", O_RDWR);
 	if (bfd < 0) {
 		printf("mediaproviderd: cannot open /dev/binder (errno=%d)\n", errno);
@@ -2483,8 +3160,14 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	printf("mediaproviderd: MediaProvider FUSE + ContentProvider ready (pid=%d, handle=%d [android.content.IMediaProvider])\n",
-	       getpid(), svc.handle);
+	memset(&esp_svc, 0, sizeof(esp_svc));
+	strcpy(esp_svc.name, "externalstorage");
+	strcpy(esp_svc.descriptor, "android.content.IDocumentsProvider");
+	if (ioctl(bfd, BINDER_IOC_REGISTER_SVC, &esp_svc) == 0)
+		h_esp = esp_svc.handle;
+
+	printf("mediaproviderd: MediaProvider + ExternalStorageProvider ready (pid=%d, handles=%d,%d)\n",
+	       getpid(), svc.handle, h_esp);
 	fflush(stdout);
 
 	/* 3. Multiplex /dev/binder and all active /dev/fuse descriptors via select() */
@@ -2517,8 +3200,13 @@ int main(int argc, char **argv)
 		if (FD_ISSET(bfd, &rfds)) {
 			struct binder_ipc_msg msg;
 			memset(&msg, 0, sizeof(msg));
-			if (ioctl(bfd, BINDER_IOC_RECV, &msg) == 0)
-				handle_binder_request(bfd, &msg);
+			if (ioctl(bfd, BINDER_IOC_RECV, &msg) == 0) {
+				if ((h_esp > 0 && msg.target_handle == h_esp) ||
+				    strcmp(msg.interface_token, "android.content.IDocumentsProvider") == 0)
+					handle_esp_binder_request(bfd, &msg);
+				else
+					handle_binder_request(bfd, &msg);
+			}
 		}
 	}
 

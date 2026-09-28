@@ -239,7 +239,7 @@ static void binder_release(struct inode *inode, struct file *filp)
 		} else {
 			t->msg.status = -EPIPE;
 			t->done = 1;
-			wake_up_interruptible(&t->reply_wait);
+			wake_up(&t->reply_wait);
 		}
 	}
 	proc->todo = NULL;
@@ -248,7 +248,7 @@ static void binder_release(struct inode *inode, struct file *filp)
 		next = t->next;
 		t->msg.status = -EPIPE;
 		t->done = 1;
-		wake_up_interruptible(&t->reply_wait);
+		wake_up(&t->reply_wait);
 	}
 	proc->in_flight = NULL;
 
@@ -293,7 +293,7 @@ static void binder_enqueue_txn(struct binder_proc *target, struct binder_txn *tx
 static int binder_do_transact(struct binder_proc *sender,
 			      struct binder_ipc_msg *umsg)
 {
-	struct binder_ipc_msg kmsg;
+	static struct binder_ipc_msg kmsg;
 	struct binder_proc *target = NULL;
 	struct binder_svc_entry *svc = NULL;
 	struct binder_txn *txn;
@@ -366,12 +366,25 @@ static int binder_do_transact(struct binder_proc *sender,
 	binder_enqueue_txn(target, txn);
 
 	/* Sleep until target_proc replies or exits */
-	while (!txn->done) {
-		if (current->signal & ~current->blocked) {
-			kfree(txn);
-			return -ERESTARTSYS;
+	while (!txn->done && target->in_use)
+		sleep_on(&txn->reply_wait);
+
+	if (!txn->done) {
+		struct binder_txn **pp;
+		for (pp = &target->todo; *pp; pp = &(*pp)->next) {
+			if (*pp == txn) {
+				*pp = txn->next;
+				break;
+			}
 		}
-		interruptible_sleep_on(&txn->reply_wait);
+		for (pp = &target->in_flight; *pp; pp = &(*pp)->next) {
+			if (*pp == txn) {
+				*pp = txn->next;
+				break;
+			}
+		}
+		kfree(txn);
+		return -EPIPE;
 	}
 
 	memcpy_tofs(umsg, &txn->msg, sizeof(txn->msg));
@@ -418,7 +431,7 @@ static int binder_do_recv(struct binder_proc *proc,
 static int binder_do_reply(struct binder_proc *proc,
 			   struct binder_ipc_msg *umsg)
 {
-	struct binder_ipc_msg kmsg;
+	static struct binder_ipc_msg kmsg;
 	struct binder_txn **pp, *txn = NULL;
 	int err;
 
@@ -444,7 +457,7 @@ static int binder_do_reply(struct binder_proc *proc,
 		memcpy(txn->msg.data, kmsg.data, kmsg.data_size);
 	txn->done = 1;
 	stat_replies++;
-	wake_up_interruptible(&txn->reply_wait);
+	wake_up(&txn->reply_wait);
 	return 0;
 }
 
@@ -689,7 +702,7 @@ static int binder_ioctl(struct inode *inode, struct file *filp,
 	}
 
 	case BINDER_IOC_WAIT_EVENT: {
-		struct binder_wait_event wev;
+		static struct binder_wait_event wev;
 		err = verify_area(VERIFY_WRITE, (void *)arg, sizeof(wev));
 		if (err)
 			return err;

@@ -488,6 +488,9 @@ void copy_thread(int nr, unsigned long clone_flags, unsigned long esp, struct ta
 #endif
 		}
 	}
+#if (__i386__)
+	memset(&p->kcontext.uc_sigmask, 0, sizeof(p->kcontext.uc_sigmask));
+#endif
 }       
 
 /*

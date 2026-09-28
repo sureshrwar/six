@@ -158,6 +158,7 @@ applications/mkfs/mkfs.ext2
 applications/*/lsblk
 applications/*/servicemanager
 applications/*/service
+applications/*/dumpsys
 applications/*/vold
 applications/*/storaged
 applications/*/usbctl

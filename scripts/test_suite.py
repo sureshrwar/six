@@ -107,11 +107,13 @@ TESTS = [
             "service list && "
             "service check vold && "
             "service check mount && "
+            "service check externalstorage && "
             "dumpsys -l && "
             "dumpsys power && "
             "dumpsys mount && "
             "dumpsys vold && "
             "dumpsys media && "
+            "dumpsys externalstorage && "
             "dumpsys && "
             "sm list-disks"
         ),
@@ -122,6 +124,7 @@ TESTS = [
             "mount",
             "Service vold: found",
             "Service mount: found",
+            "Service externalstorage: found",
             "Currently running services:",
             "DUMP OF SERVICE power ([android.os.IPowerManager]",
             "POWER MANAGER (dumpsys power)",
@@ -129,6 +132,7 @@ TESTS = [
             "StorageManagerService (dumpsys mount)",
             "VoldNativeService (dumpsys vold)",
             "MediaProvider (dumpsys media.provider)",
+            "ExternalStorageProvider (dumpsys externalstorage)",
             "SystemSuspend (dumpsys suspend)",
             "SYSTEM INFO SERVICE (dumpsys sysinfo)",
         ],
@@ -515,7 +519,7 @@ TESTS = [
             "Reading symbols from /bin/servicemanager... done",
             "at applications/servicemanager/servicemanager.c:118",
             "Detaching from program: /bin/servicemanager, process ",
-            "Found 6 services:",
+            "Found 7 services:",
         ],
     ),
     TestCase(
@@ -552,9 +556,11 @@ TESTS = [
     ),
     TestCase(
         name="android.mediaprovider_fuse",
-        description="Android MediaProvider (/dev/fuse fuse.mediaprovider daemon, Scoped Storage per-UID enforcement, EXIF GPS redaction, content://media CLI)",
+        description="Android MediaProvider & ExternalStorageProvider (/dev/fuse fuse.mediaprovider daemon, Scoped Storage per-UID enforcement, EXIF GPS redaction, content://media & content://com.android.externalstorage.documents CLI)",
         cmd=(
             "content status && "
+            "content roots && "
+            "content query --uri content://com.android.externalstorage.documents/tree/primary:/children && "
             "cd /storage/emulated/0/Documents && pwd && "
             "cd /storage/emulated/0/DCIM/Camera && pwd && "
             "cd .. && pwd && cd / && "
@@ -562,7 +568,13 @@ TESTS = [
             "usbctl plug ext2 SAN_DISK_USB XYZ && "
             "sleep 1 && "
             "content status && "
+            "content roots && "
             "su six -c 'ls /mnt/media_rw/XYZ || echo RAW_USB_DENIED' && "
+            "su six -c 'content query --uri content://com.android.externalstorage.documents/tree/primary:Android/data/children || echo SAF_DATA_RESTRICTED' && "
+            "su six -c 'content insert --uri content://com.android.externalstorage.documents/tree/XYZ:Pictures/children --bind _display_name:s:saf_usb_doc.txt --bind mime_type:s:text/plain --bind content:s:saf_usb_body' && "
+            "su six -c 'content rename --uri content://com.android.externalstorage.documents/document/XYZ:Pictures/saf_usb_doc.txt --bind _display_name:s:saf_usb_renamed.txt' && "
+            "su six -c 'content read --uri content://com.android.externalstorage.documents/document/XYZ:Pictures/saf_usb_renamed.txt' && "
+            "su six -c 'content delete --uri content://com.android.externalstorage.documents/document/XYZ:Pictures/saf_usb_renamed.txt' && "
             "su six -c 'echo hello_from_six > /storage/XYZ/Pictures/six_note.txt' && "
             "su six -c 'content query --uri content://media/external/images/media' && "
             "content query --uri content://media/external/images/media && "
@@ -578,11 +590,17 @@ TESTS = [
         ),
         expected_substrings=[
             "volume external_primary : /data/media/0 -> /storage/emulated/0 (fuse.mediaprovider)",
+            "root_id=primary, document_id=primary:",
+            "document_id=primary:Pictures",
             "/storage/emulated/0/Documents",
             "/storage/emulated/0/DCIM/Camera",
             "/storage/emulated/0/DCIM",
             "volume xyz              : /mnt/media_rw/XYZ -> /storage/XYZ (fuse.mediaprovider)",
+            "root_id=XYZ, document_id=XYZ:",
             "RAW_USB_DENIED",
+            "SAF_DATA_RESTRICTED",
+            "document_id=XYZ:Pictures/saf_usb_renamed.txt",
+            "saf_usb_body",
             "lat=REDACTED, lon=REDACTED",
             "lat=37.4220N, lon=122.0841W",
             "GPSLatitude=REDACTED;GPSLongitude=REDACTED",
@@ -590,11 +608,12 @@ TESTS = [
             "SANDBOX_DENIED",
             "DELETE_DENIED",
             "[STORAGE] SAN_DISK_USB (USB) -> /storage/XYZ",
+            "docId=XYZ:",
         ],
     ),
     TestCase(
         name="apps.interactive_files",
-        description="Android Desktop curses Files app (/bin/files) with highlighted selection, Scoped Storage Inspector, live USB hotplug auto-refresh, and dynamic full-terminal resize",
+        description="Android Desktop curses Files app (/bin/files) operating through ExternalStorageProvider & MediaProvider with highlighted selection, Scoped Storage Inspector, live USB hotplug auto-refresh, and dynamic full-terminal resize",
         cmd=(
             "sh -c 'sleep 1; usbctl plug ext4 >/dev/null 2>&1' & "
             "su six -c 'files /storage/emulated/0/Pictures'"
@@ -615,6 +634,7 @@ TESTS = [
             "LIBRARIES",
             "STORAGE DEVICES",
             "INSPECTOR",
+            "DocID: primary:DCIM/Camera",
             "SANDISK_EXT4 (USB)",
             "[HOTPLUG] USB Mounted: SANDISK_EXT4 (ext4) -> /storage/7B9E-3D10",
             "[RESIZE] Terminal resized to 120x40 (full-window layout active)",
