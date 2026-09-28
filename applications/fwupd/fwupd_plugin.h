@@ -18,6 +18,8 @@ struct fwupd_device {
 	char		name[48];
 	char		device_id[24];
 	char		guid[40];
+	char		guid2[40];
+	char		update_protocol[32];
 	char		plugin[16];
 	char		dev_node[32];
 	char		vendor[40];
@@ -44,8 +46,10 @@ struct fwupd_plugin_ops {
 			     unsigned int slot);
 };
 
-/* Helper exported by fwupdmgr.c for plugin string normalization */
+/* Helpers exported by fwupdmgr.c for plugin string normalization & .bin/.cab I/O */
 void fwupd_trim_spaces(const char *src, int max_len, char *dst);
+int fwupd_payload_read(int fd, unsigned int offset,
+		       unsigned char *buf, unsigned int len);
 
 /* Registered built-in plugins under applications/fwupd/plugins/ */
 extern const struct fwupd_plugin_ops fu_nvme_plugin_ops;

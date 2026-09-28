@@ -70,6 +70,8 @@ static int fu_ufs_plugin_probe(struct fwupd_device *devs, int max_devs)
 	strcpy(d->name, "SIX JEDEC UFS 4.0 Flash Controller");
 	strcpy(d->device_id, FWUPD_DEVID_UFS);
 	strcpy(d->guid, FWUPD_GUID_UFS);
+	strcpy(d->guid2, FWUPD_GUID_UFS_SAMSUNG);
+	strcpy(d->update_protocol, "org.jedec.ufs");
 	strcpy(d->plugin, "ufs");
 	strcpy(d->dev_node, "/dev/ufs-bsg0");
 
@@ -111,8 +113,6 @@ static int fu_ufs_plugin_write_firmware(const struct fwupd_device *dev,
 		return -1;
 	}
 
-	lseek(bin_fd, 0L, 0);
-
 	/* Step 1: Stream .bin microcode via UFS SCSI WRITE_BUFFER (0x3B, Mode 0x0E) */
 	while (offset < bin_size) {
 		unsigned int chunk = bin_size - offset;
@@ -121,7 +121,7 @@ static int fu_ufs_plugin_write_firmware(const struct fwupd_device *dev,
 		if (chunk > FWUPD_CHUNK_SIZE)
 			chunk = FWUPD_CHUNK_SIZE;
 		memset(chunk_buf, 0, sizeof(chunk_buf));
-		nread = read(bin_fd, chunk_buf, chunk);
+		nread = fwupd_payload_read(bin_fd, offset, chunk_buf, chunk);
 		if (nread <= 0) {
 			close(fd);
 			return -1;

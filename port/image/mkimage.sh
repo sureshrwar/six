@@ -255,6 +255,15 @@ done < <(sed 's/#.*//' "$MANIFEST")
 chown 0:0 "$STAGE"
 chmod 0755 "$STAGE"
 
+if [ "$MODE" != "bin" ] && [ -f /google/data/ro/users/mo/motorman/www/data/share/cros/fwupd/ufs/test.cab ]; then
+	mkdir -p "$STAGE/etc/fwupd/remotes.d/lvfs/packages"
+	cp -f /google/data/ro/users/mo/motorman/www/data/share/cros/fwupd/ufs/test.cab \
+	      "$STAGE/etc/fwupd/remotes.d/lvfs/packages/test.cab"
+	chmod 0644 "$STAGE/etc/fwupd/remotes.d/lvfs/packages/test.cab"
+	chown 0:0 "$STAGE/etc/fwupd/remotes.d/lvfs/packages/test.cab"
+	ln -sfn remotes.d/lvfs/packages/test.cab "$STAGE/etc/fwupd/test.cab"
+fi
+
 if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
 	find "$STAGE" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
 fi

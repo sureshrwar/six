@@ -623,7 +623,16 @@ static void ufs_exec_scsi_upiu(struct ufs_utrd_entry *e)
 			ufs_fw_rev[4] = '\0';
 			memcpy(ufs_fw_sha256, full_sha256, 32);
 			if (detected_ver[0] >= '0' && detected_ver[0] <= '9' &&
-			    detected_ver[2] >= '0' && detected_ver[2] <= '9') {
+			    detected_ver[1] >= '0' && detected_ver[1] <= '9' &&
+			    detected_ver[2] >= '0' && detected_ver[2] <= '9' &&
+			    detected_ver[3] >= '0' && detected_ver[3] <= '9') {
+				ufs_device_version = (unsigned short)(
+					((unsigned int)(detected_ver[0] - '0') << 12) |
+					((unsigned int)(detected_ver[1] - '0') << 8) |
+					((unsigned int)(detected_ver[2] - '0') << 4) |
+					((unsigned int)(detected_ver[3] - '0')));
+			} else if (detected_ver[0] >= '0' && detected_ver[0] <= '9' &&
+				   detected_ver[2] >= '0' && detected_ver[2] <= '9') {
 				unsigned int maj = (unsigned int)(detected_ver[0] - '0');
 				unsigned int min = (unsigned int)(detected_ver[2] - '0');
 				unsigned int sub = (detected_ver[3] >= '0' && detected_ver[3] <= '9')

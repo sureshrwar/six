@@ -153,6 +153,25 @@ classify_buffer(int fd, const unsigned char *buf, int n, char *out, int outsz)
 		snprintf(out, outsz, "Zip archive data");
 		return;
 	}
+	if (n >= 36 && buf[0] == 'M' && buf[1] == 'S' && buf[2] == 'C' && buf[3] == 'F') {
+		unsigned int cb_cab = read_u32(buf + 8, 0);
+		unsigned short c_folders = read_u16(buf + 26, 0);
+		unsigned short c_files = read_u16(buf + 28, 0);
+		snprintf(out, outsz,
+			 "Microsoft Cabinet archive data, v%u.%u, %u bytes, %u folder%s, %u file%s",
+			 buf[25], buf[24], cb_cab,
+			 c_folders, (c_folders == 1) ? "" : "s",
+			 c_files, (c_files == 1) ? "" : "s");
+		return;
+	}
+	if (n >= 16 && buf[0] == 'U' && buf[1] == 'F' && buf[2] == 'S' && buf[3] == 'H') {
+		snprintf(out, outsz, "Samsung JEDEC UFS Controller Firmware binary (UFSH)");
+		return;
+	}
+	if (n >= 8 && buf[4] == 'S' && buf[5] == 'F' && buf[6] == 'W' && buf[7] == 'M') {
+		snprintf(out, outsz, "ARM Cortex-R5 Storage Controller Firmware binary (SFWM)");
+		return;
+	}
 	if (n >= 262 && memcmp(buf + 257, "ustar", 5) == 0) {
 		snprintf(out, outsz, "POSIX tar archive");
 		return;

@@ -15,7 +15,7 @@
     </custom>
     <releases>
       <release version="1.4.2" timestamp="1790517600" urgency="High">
-        <location>file:///etc/fwupd/remotes.d/lvfs/packages/six-nvme-ssd-1.4.2.bin</location>
+        <location>file:///etc/fwupd/remotes.d/lvfs/packages/six-nvme-ssd-1.4.2.cab</location>
         <description>
           <p>Optimize Admin/IO Queue doorbell latency and DSM/TRIM wear leveling</p>
         </description>
@@ -37,7 +37,7 @@
     </custom>
     <releases>
       <release version="4.10" timestamp="1790517600" urgency="Medium">
-        <location>file:///etc/fwupd/remotes.d/lvfs/packages/six-ufs-flash-4.10.bin</location>
+        <location>file:///etc/fwupd/remotes.d/lvfs/packages/six-ufs-flash-4.10.cab</location>
         <description>
           <p>Improve HS-Gear5 UniPro link stability and SLC WriteBooster flush policy</p>
         </description>
@@ -59,7 +59,7 @@
     </custom>
     <releases>
       <release version="1.10" timestamp="1790517600" urgency="Medium">
-        <location>file:///etc/fwupd/remotes.d/lvfs/packages/six-usb-scsi-1.10.bin</location>
+        <location>file:///etc/fwupd/remotes.d/lvfs/packages/six-usb-scsi-1.10.cab</location>
         <description>
           <p>Fix USB Mass Storage BOT SCSI sense reporting on hotplug transitions</p>
         </description>

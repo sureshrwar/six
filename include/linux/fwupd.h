@@ -16,6 +16,8 @@
 
 #define FWUPD_ARM_RESET_VECTOR		0xea000026U	/* ARM32: b 0xa0 (branch past 160B hdr) */
 #define FWUPD_BIN_MAGIC			0x4d574653U	/* "SFWM" (Storage Firmware Microcode) */
+#define FWUPD_CAB_MAGIC			0x4643534dU	/* "MSCF" (Microsoft Cabinet Archive) */
+#define FWUPD_UFSH_MAGIC		0x48534655U	/* "UFSH" (Samsung JEDEC UFS Firmware) */
 #define FWUPD_BIN_VERSION		1
 #define FWUPD_DEFAULT_PAYLOAD_SIZE	1024
 #define FWUPD_CHUNK_SIZE		512
@@ -37,9 +39,52 @@
 
 #define FWUPD_DEVID_UFS			"SIX-UFS-FLASH"
 #define FWUPD_GUID_UFS			"e4a761c2-891b-5c34-a120-9f8e7d6c5b4a"
+#define FWUPD_GUID_UFS_SAMSUNG		"41a057a2-a1ff-5764-bc6f-71aa045706ff"
 
 #define FWUPD_DEVID_USB_SCSI		"SIX-USB-SCSI"
 #define FWUPD_GUID_USB_SCSI		"7c3d2e1f-4b5a-5890-9123-456789abcdef"
+
+/*
+ * Microsoft Cabinet (MSCF v1.3) Archive Structures for LVFS .cab Packages
+ */
+struct fwupd_cab_hdr {
+	unsigned int	signature;	/* FWUPD_CAB_MAGIC (0x4643534d "MSCF") */
+	unsigned int	reserved1;
+	unsigned int	cb_cabinet;	/* Total .cab file size in bytes */
+	unsigned int	reserved2;
+	unsigned int	coff_files;	/* File offset of first CFFILE entry */
+	unsigned int	reserved3;
+	unsigned char	version_minor;	/* 3 */
+	unsigned char	version_major;	/* 1 */
+	unsigned short	c_folders;	/* Number of CFFOLDER entries */
+	unsigned short	c_files;	/* Number of CFFILE entries */
+	unsigned short	flags;		/* Cabinet option flags (0x0004 = reserve present) */
+	unsigned short	set_id;
+	unsigned short	i_cabinet;
+};
+
+struct fwupd_cab_folder {
+	unsigned int	coff_cab_start;	/* File offset of first CFDATA block */
+	unsigned short	c_cfdata;	/* Number of CFDATA blocks in this folder */
+	unsigned short	type_compress;	/* 0 = None (tcompTYPE_NONE) */
+};
+
+struct fwupd_cab_file_hdr {
+	unsigned int	cb_file;	/* Uncompressed file size in bytes */
+	unsigned int	uoff_folder_start; /* Uncompressed offset in folder */
+	unsigned short	i_folder;	/* Folder index */
+	unsigned short	date;
+	unsigned short	time;
+	unsigned short	attribs;
+	/* Followed by null-terminated szName[] */
+};
+
+struct fwupd_cab_data_hdr {
+	unsigned int	csum;		/* Checksum (0 = not computed) */
+	unsigned short	cb_data;	/* Compressed/stored bytes in this block */
+	unsigned short	cb_uncomp;	/* Uncompressed bytes in this block */
+	/* Followed by cb_data payload bytes */
+};
 
 /*
  * 160-byte Controller Firmware Binary (.bin) Image Header
@@ -330,6 +375,22 @@ static inline void fwupd_detect_bin_version(const unsigned char *hdr_buf,
 				k++;
 			}
 			out_ver[k] = '\0';
+			return;
+		}
+	}
+
+	/* Samsung JEDEC UFS Firmware Header ("UFSH"): BCD version at 0x0e (Pxx) & 0x0c (FWxx) */
+	if (hdr_len >= 16 &&
+	    hdr_buf[0] == 'U' && hdr_buf[1] == 'F' &&
+	    hdr_buf[2] == 'S' && hdr_buf[3] == 'H') {
+		unsigned char b_maj = hdr_buf[0x0e];
+		unsigned char b_min = hdr_buf[0x0c];
+		if (max_ver_len >= 4 && (b_maj != 0 || b_min != 0)) {
+			out_ver[0] = (char)('0' + ((b_maj >> 4) & 0x0f));
+			out_ver[1] = (char)('0' + (b_maj & 0x0f));
+			out_ver[2] = (char)('0' + ((b_min >> 4) & 0x0f));
+			out_ver[3] = (char)('0' + (b_min & 0x0f));
+			out_ver[4] = '\0';
 			return;
 		}
 	}

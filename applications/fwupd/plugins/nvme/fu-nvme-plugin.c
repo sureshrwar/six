@@ -61,6 +61,7 @@ static int fu_nvme_plugin_probe(struct fwupd_device *devs, int max_devs)
 	fwupd_trim_spaces(ctrl.mn, 40, d->name);
 	strcpy(d->device_id, FWUPD_DEVID_NVME);
 	strcpy(d->guid, FWUPD_GUID_NVME);
+	strcpy(d->update_protocol, "org.nvmexpress");
 	strcpy(d->plugin, "nvme");
 	strcpy(d->dev_node, "/dev/nvme0");
 	strcpy(d->vendor, "SIX (PCIe 0x1B36)");
@@ -100,8 +101,6 @@ static int fu_nvme_plugin_write_firmware(const struct fwupd_device *dev,
 		return -1;
 	}
 
-	lseek(bin_fd, 0L, 0);
-
 	/* Step 1: Stream .bin firmware image via NVME_ADMIN_DOWNLOAD_FW (opcode 0x11) */
 	while (offset < bin_size) {
 		unsigned int chunk = bin_size - offset;
@@ -112,7 +111,7 @@ static int fu_nvme_plugin_write_firmware(const struct fwupd_device *dev,
 			chunk = FWUPD_CHUNK_SIZE;
 		padded_chunk = (chunk + 3U) & ~3U;
 		memset(chunk_buf, 0, sizeof(chunk_buf));
-		nread = read(bin_fd, chunk_buf, chunk);
+		nread = fwupd_payload_read(bin_fd, offset, chunk_buf, chunk);
 		if (nread <= 0) {
 			close(fd);
 			return -1;

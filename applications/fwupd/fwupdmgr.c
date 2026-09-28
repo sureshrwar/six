@@ -10,27 +10,29 @@
  *   3. plugins/scsi/fu-scsi-plugin.c : SPC-4 SCSI WRITE_BUFFER FFU plugin
  *                                      Target: /dev/sda
  *
- * Firmware Binary (.bin) Support:
- *   - Parses AppStream XML catalog (/etc/fwupd/remotes.d/lvfs/metadata.xml)
- *   - Handles both signed controller .bin images (/etc/fwupd/remotes.d/lvfs/packages/*.bin)
- *     and arbitrary real-world vendor firmware .bin files of any size
- *     (ARM Cortex-R binaries, ELF32 images, UEFI capsules, raw microcode blobs).
+ * Firmware Archive (.cab) & Binary (.bin) Support:
+ *   - Natively parses Microsoft Cabinet (MSCF v1.3 .cab) LVFS archives,
+ *     extracting embedded AppStream `firmware.metainfo.xml`, validating the
+ *     `<checksum type="sha256">` against the embedded `.bin` payload across
+ *     `CFDATA` blocks, and streaming the `.bin` microcode directly to the
+ *     target hardware plugin without temporary file extraction.
+ *   - Also handles standalone controller `.bin` images and arbitrary real-world
+ *     vendor firmware `.bin` files of any size (Samsung UFSH UFS images, ARM
+ *     Cortex-R binaries, ELF32 images, raw microcode blobs).
  *
  * Supported Subcommands:
  *   fwupdmgr get-plugins              List registered fwupd hardware plugins
  *   fwupdmgr get-devices              Probe all plugins and display device tree
- *   fwupdmgr refresh                  Refresh LVFS metadata & .bin firmware images
+ *   fwupdmgr refresh                  Refresh LVFS metadata, .cab & .bin packages
  *   fwupdmgr get-updates              Compare device versions against LVFS catalog
  *   fwupdmgr update [DEVICE-ID|GUID]  Apply all pending LVFS firmware updates
- *   fwupdmgr install <file.bin> [DEVICE-ID] [--allow-older] [--allow-reinstall]
- *   fwupdmgr install-blob <file.bin> <DEVICE-ID>
- *                                     Install any signed or raw vendor .bin firmware
+ *   fwupdmgr install <file.cab|.bin> [DEVICE-ID] [--allow-older] [--allow-reinstall]
+ *   fwupdmgr install-blob <file.cab|.bin> [DEVICE-ID]
  *   fwupdmgr activate <DEVICE-ID> <slot>
- *                                     Switch active NVMe firmware slot (1 or 2)
  *   fwupdmgr verify [DEVICE-ID|GUID]  Verify device hardware SHA-256 checksums
  *   fwupdmgr get-history              Display firmware update history log
  *   fwupdmgr clear-history            Clear firmware update history log
- *   fwupdmgr examine <file.bin>       Inspect a .bin firmware image & SHA-256
+ *   fwupdmgr examine <file.cab|.bin>  Inspect a .cab archive or .bin firmware image
  */
 
 #include <stdio.h>
@@ -43,21 +45,26 @@
 
 #define MAX_DEVICES		8
 #define MAX_RELEASES		8
+#define CAB_MAX_FILES		8
+#define CAB_MAX_CFDATA		128
 #define LVFS_PKG_DIR		"/etc/fwupd/remotes.d/lvfs/packages"
 #define LVFS_META_PATH		"/etc/fwupd/remotes.d/lvfs/metadata.xml"
 #define FWUPD_HISTORY_PATH	"/var/lib/fwupd/history.db"
 
 struct lvfs_release {
-	char		component_id[40];
+	char		component_id[48];
 	char		device_id[24];
 	char		guid[40];
 	char		plugin[16];
+	char		update_protocol[32];
 	char		latest_ver[16];
 	char		factory_ver[16];
 	char		urgency[16];
 	char		summary[96];
 	char		pkg_filename[80];
+	char		bin_filename[80];
 	char		factory_pkg_filename[80];
+	char		factory_bin_filename[80];
 	unsigned short	capsule_flags;
 };
 
@@ -67,11 +74,14 @@ static struct lvfs_release lvfs_catalog[MAX_RELEASES] = {
 		FWUPD_DEVID_NVME,
 		FWUPD_GUID_NVME,
 		"nvme",
+		"org.nvmexpress",
 		"1.4.2",
 		"1.4.0",
 		"High",
 		"Optimize Admin/IO Queue doorbell latency and DSM/TRIM wear leveling",
+		"/etc/fwupd/remotes.d/lvfs/packages/six-nvme-ssd-1.4.2.cab",
 		"/etc/fwupd/remotes.d/lvfs/packages/six-nvme-ssd-1.4.2.bin",
+		"/etc/fwupd/remotes.d/lvfs/packages/six-nvme-ssd-1.4.0.cab",
 		"/etc/fwupd/remotes.d/lvfs/packages/six-nvme-ssd-1.4.0.bin",
 		FWUPD_FLAG_SIGNED_PAYLOAD | FWUPD_FLAG_DUAL_IMAGE | FWUPD_FLAG_USABLE_DURING_UPDATE
 	},
@@ -80,11 +90,14 @@ static struct lvfs_release lvfs_catalog[MAX_RELEASES] = {
 		FWUPD_DEVID_UFS,
 		FWUPD_GUID_UFS,
 		"ufs",
+		"org.jedec.ufs",
 		"4.10",
 		"4.00",
 		"Medium",
 		"Improve HS-Gear5 UniPro link stability and SLC WriteBooster flush policy",
+		"/etc/fwupd/remotes.d/lvfs/packages/six-ufs-flash-4.10.cab",
 		"/etc/fwupd/remotes.d/lvfs/packages/six-ufs-flash-4.10.bin",
+		"/etc/fwupd/remotes.d/lvfs/packages/six-ufs-flash-4.00.cab",
 		"/etc/fwupd/remotes.d/lvfs/packages/six-ufs-flash-4.00.bin",
 		FWUPD_FLAG_SIGNED_PAYLOAD | FWUPD_FLAG_USABLE_DURING_UPDATE
 	},
@@ -93,17 +106,78 @@ static struct lvfs_release lvfs_catalog[MAX_RELEASES] = {
 		FWUPD_DEVID_USB_SCSI,
 		FWUPD_GUID_USB_SCSI,
 		"scsi",
+		"org.t10.scsi.write_buffer",
 		"1.10",
 		"1.00",
 		"Medium",
 		"Fix USB Mass Storage BOT SCSI sense reporting on hotplug transitions",
+		"/etc/fwupd/remotes.d/lvfs/packages/six-usb-scsi-1.10.cab",
 		"/etc/fwupd/remotes.d/lvfs/packages/six-usb-scsi-1.10.bin",
+		"/etc/fwupd/remotes.d/lvfs/packages/six-usb-scsi-1.00.cab",
 		"/etc/fwupd/remotes.d/lvfs/packages/six-usb-scsi-1.00.bin",
 		FWUPD_FLAG_SIGNED_PAYLOAD | FWUPD_FLAG_REMOVABLE
 	}
 };
 
 static int nr_lvfs_releases = 3;
+
+/*
+ * Parsed Microsoft Cabinet (MSCF v1.3) Archive Context
+ */
+struct cab_file_entry {
+	char		name[96];
+	unsigned int	cb_file;
+	unsigned int	uoff_folder_start;
+};
+
+struct cab_cfdata_map {
+	unsigned int	file_data_off;
+	unsigned int	uncomp_off;
+	unsigned short	cb_data;
+};
+
+struct fwupd_cab_archive {
+	int			active;
+	unsigned int		cb_cabinet;
+	unsigned char		ver_major;
+	unsigned char		ver_minor;
+	unsigned short		c_folders;
+	unsigned short		c_files;
+	unsigned short		c_cfdata;
+	unsigned short		type_compress;
+	struct cab_file_entry	files[CAB_MAX_FILES];
+	int			nr_files;
+	struct cab_cfdata_map	blocks[CAB_MAX_CFDATA];
+	int			nr_blocks;
+	int			meta_file_idx;
+	int			payload_file_idx;
+	unsigned int		payload_uoff;
+	unsigned int		payload_size;
+	unsigned int		payload_nonzero;
+	char			component_id[64];
+	char			component_name[64];
+	char			summary[96];
+	char			developer[48];
+	char			guid[40];
+	char			update_protocol[32];
+	char			version_format[24];
+	char			plugin[16];
+	char			device_id[24];
+	char			release_version[16];
+	char			release_date[16];
+	char			urgency[16];
+	char			req_fw_min[16];
+	char			source_filename[96];
+	char			expected_sha256_hex[65];
+	unsigned char		payload_hdr[FWUPD_HDR_INSPECT_LEN];
+	unsigned int		payload_hdr_cap;
+	unsigned char		payload_sha256[32];
+	unsigned char		payload_code_sha256[32];
+	int			checksum_verified;
+};
+
+static struct fwupd_cab_archive active_cab;
+static char xml_scratch_buf[4096];
 
 /*
  * Plugin Registry (compiled from applications/fwupd/plugins/<name>/)
@@ -143,7 +217,61 @@ static void format_sha256_hex(const unsigned char sha256[32], char out_hex[65])
 }
 
 /*
- * Compare semantic version strings (e.g. "1.4.0" vs "1.4.2", "4.00" vs "4.10").
+ * Read uncompressed bytes from folder 0 across CFDATA blocks in a .cab file.
+ */
+static int cab_read_folder_bytes(const struct fwupd_cab_archive *cab,
+				 int fd,
+				 unsigned int folder_off,
+				 unsigned char *dst,
+				 unsigned int len)
+{
+	unsigned int done = 0;
+	int i;
+
+	while (done < len) {
+		int found = 0;
+		for (i = 0; i < cab->nr_blocks; i++) {
+			unsigned int b_start = cab->blocks[i].uncomp_off;
+			unsigned int b_len = cab->blocks[i].cb_data;
+			if (folder_off >= b_start && folder_off < b_start + b_len) {
+				unsigned int rel = folder_off - b_start;
+				unsigned int avail = b_len - rel;
+				unsigned int take = (len - done < avail) ? (len - done) : avail;
+				if (lseek(fd, (long)(cab->blocks[i].file_data_off + rel), 0) < 0)
+					return -1;
+				if (read(fd, dst + done, (int)take) != (int)take)
+					return -1;
+				done += take;
+				folder_off += take;
+				found = 1;
+				break;
+			}
+		}
+		if (!found)
+			break;
+	}
+	return (int)done;
+}
+
+/*
+ * Exported payload reader used by fu-nvme-plugin, fu-ufs-plugin, and fu-scsi-plugin.
+ * Transparently streams either a flat .bin file or the .bin payload inside a .cab archive.
+ */
+int fwupd_payload_read(int fd, unsigned int offset,
+		       unsigned char *buf, unsigned int len)
+{
+	if (active_cab.active) {
+		return cab_read_folder_bytes(&active_cab, fd,
+					     active_cab.payload_uoff + offset,
+					     buf, len);
+	}
+	if (lseek(fd, (long)offset, 0) < 0)
+		return -1;
+	return read(fd, buf, (int)len);
+}
+
+/*
+ * Compare semantic version strings (e.g. "1.4.0" vs "1.4.2", "4.00" vs "4.10", "4.10" vs "2101").
  * Returns <0 if a < b, 0 if a == b, >0 if a > b.
  */
 static int compare_versions(const char *a, const char *b)
@@ -216,6 +344,300 @@ static int extract_xml_attr(const char *line, const char *attr_prefix,
 	return 1;
 }
 
+static int str_ends_with(const char *str, const char *suffix)
+{
+	int slen = (int)strlen(str);
+	int xlen = (int)strlen(suffix);
+	if (slen < xlen)
+		return 0;
+	return strcmp(str + slen - xlen, suffix) == 0;
+}
+
+/*
+ * Check if a file begins with the "MSCF" (0x4643534d) Microsoft Cabinet signature.
+ */
+static int is_cab_file(const char *path)
+{
+	unsigned int sig = 0;
+	int fd = open(path, O_RDONLY);
+	if (fd < 0)
+		return 0;
+	if (read(fd, &sig, sizeof(sig)) != (int)sizeof(sig)) {
+		close(fd);
+		return 0;
+	}
+	close(fd);
+	return (sig == FWUPD_CAB_MAGIC);
+}
+
+/*
+ * Parse a `firmware.metainfo.xml` buffer extracted from an LVFS .cab archive.
+ */
+static void parse_metainfo_xml_buf(const char *xml, struct fwupd_cab_archive *cab)
+{
+	const char *p = xml;
+	char line[256], tmp[128];
+
+	while (*p) {
+		int k = 0;
+		while (*p && *p != '\n' && *p != '\r') {
+			if (k < (int)sizeof(line) - 1)
+				line[k++] = *p;
+			p++;
+		}
+		line[k] = '\0';
+		while (*p == '\n' || *p == '\r')
+			p++;
+
+		if (strstr(line, "<id>") && !strstr(line, "compare=")) {
+			if (extract_xml_tag(line, "<id>", "</id>", tmp, sizeof(tmp)))
+				strncpy(cab->component_id, tmp, sizeof(cab->component_id) - 1);
+		} else if (extract_xml_tag(line, "<name>", "</name>", tmp, sizeof(tmp))) {
+			strncpy(cab->component_name, tmp, sizeof(cab->component_name) - 1);
+		} else if (extract_xml_tag(line, "<summary>", "</summary>", tmp, sizeof(tmp))) {
+			strncpy(cab->summary, tmp, sizeof(cab->summary) - 1);
+		} else if (extract_xml_tag(line, "<developer_name>", "</developer_name>", tmp, sizeof(tmp))) {
+			strncpy(cab->developer, tmp, sizeof(cab->developer) - 1);
+		} else if (extract_xml_tag(line, "<firmware type=\"flashed\">", "</firmware>", tmp, sizeof(tmp))) {
+			strncpy(cab->guid, tmp, sizeof(cab->guid) - 1);
+		} else if (extract_xml_tag(line, "<value key=\"LVFS::VersionFormat\">", "</value>", tmp, sizeof(tmp))) {
+			strncpy(cab->version_format, tmp, sizeof(cab->version_format) - 1);
+		} else if (extract_xml_tag(line, "<value key=\"LVFS::UpdateProtocol\">", "</value>", tmp, sizeof(tmp))) {
+			strncpy(cab->update_protocol, tmp, sizeof(cab->update_protocol) - 1);
+		} else if (extract_xml_tag(line, "<value key=\"LVFS::Plugin\">", "</value>", tmp, sizeof(tmp))) {
+			strncpy(cab->plugin, tmp, sizeof(cab->plugin) - 1);
+		} else if (extract_xml_tag(line, "<value key=\"LVFS::DeviceId\">", "</value>", tmp, sizeof(tmp))) {
+			strncpy(cab->device_id, tmp, sizeof(cab->device_id) - 1);
+		} else if (strstr(line, "<release ")) {
+			if (extract_xml_attr(line, "version=\"", tmp, sizeof(tmp)))
+				strncpy(cab->release_version, tmp, sizeof(cab->release_version) - 1);
+			if (extract_xml_attr(line, "date=\"", tmp, sizeof(tmp)))
+				strncpy(cab->release_date, tmp, sizeof(cab->release_date) - 1);
+			if (extract_xml_attr(line, "urgency=\"", tmp, sizeof(tmp)))
+				strncpy(cab->urgency, tmp, sizeof(cab->urgency) - 1);
+		} else if (strstr(line, "<checksum") && strstr(line, "type=\"sha256\"")) {
+			const char *gt = strchr(line, '>');
+			if (gt && extract_xml_tag(gt, ">", "</checksum>", tmp, sizeof(tmp)))
+				strncpy(cab->expected_sha256_hex, tmp, sizeof(cab->expected_sha256_hex) - 1);
+		} else if (extract_xml_tag(line, "<filename>", "</filename>", tmp, sizeof(tmp))) {
+			strncpy(cab->source_filename, tmp, sizeof(cab->source_filename) - 1);
+		} else if (strstr(line, "<firmware ") && strstr(line, "compare=\"ge\"")) {
+			if (extract_xml_attr(line, "version=\"", tmp, sizeof(tmp)))
+				strncpy(cab->req_fw_min, tmp, sizeof(cab->req_fw_min) - 1);
+		}
+	}
+}
+
+/*
+ * Parse a Microsoft Cabinet (MSCF v1.3) .cab archive, extract its
+ * `firmware.metainfo.xml`, and verify the embedded `.bin` firmware payload
+ * using streaming FIPS 180-4 SHA-256 across all CFDATA blocks.
+ */
+static int parse_cab_archive(const char *cab_path, struct fwupd_cab_archive *cab)
+{
+	struct fwupd_cab_hdr hdr;
+	struct fwupd_cab_folder folder;
+	struct fwupd_sha256_ctx full_ctx, code_ctx;
+	unsigned char chunk[FWUPD_CHUNK_SIZE];
+	unsigned int folder_table_off = sizeof(struct fwupd_cab_hdr);
+	unsigned char cb_cfdata_rsvd = 0;
+	unsigned int pos, uncomp_cursor, offset;
+	char calc_hex[65];
+	int fd, i;
+
+	memset(cab, 0, sizeof(*cab));
+	cab->meta_file_idx = -1;
+	cab->payload_file_idx = -1;
+
+	fd = open(cab_path, O_RDONLY);
+	if (fd < 0)
+		return -1;
+
+	if (read(fd, &hdr, sizeof(hdr)) != (int)sizeof(hdr) ||
+	    hdr.signature != FWUPD_CAB_MAGIC ||
+	    hdr.c_folders < 1 || hdr.c_files < 1) {
+		close(fd);
+		return -1;
+	}
+
+	cab->cb_cabinet = hdr.cb_cabinet;
+	cab->ver_major = hdr.version_major;
+	cab->ver_minor = hdr.version_minor;
+	cab->c_folders = hdr.c_folders;
+	cab->c_files = hdr.c_files;
+
+	/* Handle optional reserve header (cfhdrRESERVE_PRESENT = 0x0004) */
+	if (hdr.flags & 0x0004) {
+		unsigned char rsvd_hdr[4];
+		unsigned short cb_cfhdr;
+		if (read(fd, rsvd_hdr, 4) != 4) {
+			close(fd);
+			return -1;
+		}
+		cb_cfhdr = (unsigned short)rsvd_hdr[0] | ((unsigned short)rsvd_hdr[1] << 8);
+		cb_cfdata_rsvd = rsvd_hdr[3];
+		folder_table_off += 4U + cb_cfhdr;
+	}
+
+	if (lseek(fd, (long)folder_table_off, 0) < 0 ||
+	    read(fd, &folder, sizeof(folder)) != (int)sizeof(folder)) {
+		close(fd);
+		return -1;
+	}
+
+	cab->c_cfdata = folder.c_cfdata;
+	cab->type_compress = folder.type_compress;
+	if ((folder.type_compress & 0x000f) != 0) {
+		close(fd);
+		return -2; /* Unsupported compression type */
+	}
+
+	/* Map all CFDATA blocks in Folder 0 */
+	pos = folder.coff_cab_start;
+	uncomp_cursor = 0;
+	for (i = 0; i < (int)folder.c_cfdata && i < CAB_MAX_CFDATA; i++) {
+		struct fwupd_cab_data_hdr dhdr;
+		if (lseek(fd, (long)pos, 0) < 0 ||
+		    read(fd, &dhdr, sizeof(dhdr)) != (int)sizeof(dhdr)) {
+			close(fd);
+			return -1;
+		}
+		cab->blocks[i].file_data_off = pos + (unsigned int)sizeof(dhdr) + cb_cfdata_rsvd;
+		cab->blocks[i].uncomp_off = uncomp_cursor;
+		cab->blocks[i].cb_data = dhdr.cb_data;
+		cab->nr_blocks++;
+		uncomp_cursor += dhdr.cb_uncomp;
+		pos = cab->blocks[i].file_data_off + dhdr.cb_data;
+	}
+
+	/* Read CFFILE entries starting at hdr.coff_files */
+	pos = hdr.coff_files;
+	for (i = 0; i < (int)hdr.c_files && i < CAB_MAX_FILES; i++) {
+		struct fwupd_cab_file_hdr fhdr;
+		char name_buf[96];
+		int k = 0;
+		char ch;
+
+		if (lseek(fd, (long)pos, 0) < 0 ||
+		    read(fd, &fhdr, sizeof(fhdr)) != (int)sizeof(fhdr)) {
+			close(fd);
+			return -1;
+		}
+		pos += sizeof(fhdr);
+		while (read(fd, &ch, 1) == 1) {
+			pos++;
+			if (ch == '\0')
+				break;
+			if (k < (int)sizeof(name_buf) - 1)
+				name_buf[k++] = ch;
+		}
+		name_buf[k] = '\0';
+
+		strcpy(cab->files[i].name, name_buf);
+		cab->files[i].cb_file = fhdr.cb_file;
+		cab->files[i].uoff_folder_start = fhdr.uoff_folder_start;
+		cab->nr_files++;
+
+		if (str_ends_with(name_buf, ".metainfo.xml") || str_ends_with(name_buf, ".xml"))
+			cab->meta_file_idx = i;
+		else if (str_ends_with(name_buf, ".bin") || str_ends_with(name_buf, ".fw"))
+			cab->payload_file_idx = i;
+	}
+
+	/* Extract and parse firmware.metainfo.xml if present */
+	if (cab->meta_file_idx >= 0) {
+		unsigned int xml_len = cab->files[cab->meta_file_idx].cb_file;
+		if (xml_len >= sizeof(xml_scratch_buf))
+			xml_len = sizeof(xml_scratch_buf) - 1;
+		memset(xml_scratch_buf, 0, sizeof(xml_scratch_buf));
+		if (cab_read_folder_bytes(cab, fd,
+					  cab->files[cab->meta_file_idx].uoff_folder_start,
+					  (unsigned char *)xml_scratch_buf, xml_len) == (int)xml_len) {
+			xml_scratch_buf[xml_len] = '\0';
+			parse_metainfo_xml_buf(xml_scratch_buf, cab);
+		}
+	}
+
+	/* Match source_filename from metainfo.xml if specified */
+	if (cab->source_filename[0]) {
+		for (i = 0; i < cab->nr_files; i++) {
+			if (strcmp(cab->files[i].name, cab->source_filename) == 0) {
+				cab->payload_file_idx = i;
+				break;
+			}
+		}
+	}
+
+	/* Fallback: pick the largest non-XML/non-TXT file in the cabinet */
+	if (cab->payload_file_idx < 0) {
+		unsigned int best_sz = 0;
+		for (i = 0; i < cab->nr_files; i++) {
+			if (i != cab->meta_file_idx &&
+			    !str_ends_with(cab->files[i].name, ".txt") &&
+			    !str_ends_with(cab->files[i].name, ".asc") &&
+			    !str_ends_with(cab->files[i].name, ".p7b") &&
+			    cab->files[i].cb_file > best_sz) {
+				best_sz = cab->files[i].cb_file;
+				cab->payload_file_idx = i;
+			}
+		}
+	}
+
+	if (cab->payload_file_idx < 0) {
+		close(fd);
+		return -1;
+	}
+
+	cab->payload_uoff = cab->files[cab->payload_file_idx].uoff_folder_start;
+	cab->payload_size = cab->files[cab->payload_file_idx].cb_file;
+	if (!cab->source_filename[0])
+		strcpy(cab->source_filename, cab->files[cab->payload_file_idx].name);
+
+	/* Stream the embedded .bin payload across CFDATA blocks to compute SHA-256 */
+	fwupd_sha256_init(&full_ctx);
+	fwupd_sha256_init(&code_ctx);
+	offset = 0;
+	while (offset < cab->payload_size) {
+		unsigned int rem = cab->payload_size - offset;
+		unsigned int take = (rem > FWUPD_CHUNK_SIZE) ? FWUPD_CHUNK_SIZE : rem;
+		int nread = cab_read_folder_bytes(cab, fd, cab->payload_uoff + offset, chunk, take);
+		if (nread <= 0) {
+			close(fd);
+			return -1;
+		}
+		for (i = 0; i < nread; i++) {
+			unsigned int bpos = offset + (unsigned int)i;
+			if (bpos < FWUPD_HDR_INSPECT_LEN) {
+				cab->payload_hdr[bpos] = chunk[i];
+				if (bpos + 1 > cab->payload_hdr_cap)
+					cab->payload_hdr_cap = bpos + 1;
+			}
+			if (chunk[i] != 0)
+				cab->payload_nonzero++;
+		}
+		fwupd_sha256_update(&full_ctx, chunk, (unsigned int)nread);
+		if (offset + (unsigned int)nread > (unsigned int)sizeof(struct fwupd_bin_hdr)) {
+			unsigned int hdr_sz = (unsigned int)sizeof(struct fwupd_bin_hdr);
+			unsigned int code_start = (offset >= hdr_sz) ? 0U : (hdr_sz - offset);
+			fwupd_sha256_update(&code_ctx, chunk + code_start,
+					    (unsigned int)nread - code_start);
+		}
+		offset += (unsigned int)nread;
+	}
+	close(fd);
+
+	fwupd_sha256_final(&full_ctx, cab->payload_sha256);
+	fwupd_sha256_final(&code_ctx, cab->payload_code_sha256);
+	format_sha256_hex(cab->payload_sha256, calc_hex);
+
+	if (cab->expected_sha256_hex[0]) {
+		cab->checksum_verified = (strcmp(calc_hex, cab->expected_sha256_hex) == 0);
+	} else {
+		cab->checksum_verified = 1;
+	}
+	return 0;
+}
+
 /*
  * Parse /etc/fwupd/remotes.d/lvfs/metadata.xml to populate/update lvfs_catalog[].
  */
@@ -238,6 +660,8 @@ static void parse_lvfs_metadata_xml(void)
 				strncpy(r->component_id, tmp, sizeof(r->component_id) - 1);
 			} else if (extract_xml_tag(line, "<firmware type=\"flashed\">", "</firmware>", tmp, sizeof(tmp))) {
 				strncpy(r->guid, tmp, sizeof(r->guid) - 1);
+			} else if (extract_xml_tag(line, "<value key=\"LVFS::UpdateProtocol\">", "</value>", tmp, sizeof(tmp))) {
+				strncpy(r->update_protocol, tmp, sizeof(r->update_protocol) - 1);
 			} else if (extract_xml_tag(line, "<value key=\"LVFS::Plugin\">", "</value>", tmp, sizeof(tmp))) {
 				strncpy(r->plugin, tmp, sizeof(r->plugin) - 1);
 			} else if (extract_xml_tag(line, "<value key=\"LVFS::DeviceId\">", "</value>", tmp, sizeof(tmp))) {
@@ -278,6 +702,167 @@ static int write_bin_firmware_file(const char *path, const char *plugin,
 	return 0;
 }
 
+/*
+ * Build a genuine Microsoft Cabinet (MSCF v1.3) LVFS `.cab` archive containing:
+ *   [0] firmware.metainfo.xml
+ *   [1] README.txt
+ *   [2] <basename>.bin (1,184-byte signed controller firmware .bin)
+ */
+static int write_cab_firmware_file(const char *cab_path,
+				   const char *bin_path,
+				   const char *component_id,
+				   const char *plugin,
+				   const char *update_protocol,
+				   const char *device_id,
+				   const char *guid,
+				   const char *fw_version,
+				   const char *urgency,
+				   const char *summary,
+				   unsigned short flags)
+{
+	unsigned char bin_buf[sizeof(struct fwupd_bin_hdr) + FWUPD_DEFAULT_PAYLOAD_SIZE];
+	unsigned char bin_sha256[32];
+	char sha_hex[65];
+	char xml_buf[1280];
+	char readme_buf[384];
+	const char *bin_base;
+	const char *slash;
+	struct fwupd_cab_hdr chdr;
+	struct fwupd_cab_folder cfolder;
+	struct fwupd_cab_file_hdr f0, f1, f2;
+	struct fwupd_cab_data_hdr dhdr;
+	unsigned int xml_len, readme_len, bin_len;
+	unsigned int f0_namelen, f1_namelen, f2_namelen;
+	unsigned int coff_data, total_uncomp, total_cab;
+	int fd;
+
+	fwupd_build_bin_image(plugin, device_id, guid, fw_version, flags, bin_buf, bin_sha256);
+	format_sha256_hex(bin_sha256, sha_hex);
+
+	bin_base = bin_path;
+	slash = strrchr(bin_path, '/');
+	if (slash)
+		bin_base = slash + 1;
+
+	sprintf(xml_buf,
+		"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+		"<component type=\"firmware\">\n"
+		"  <id>%s</id>\n"
+		"  <name>%s</name>\n"
+		"  <summary>%s</summary>\n"
+		"  <developer_name>SIX Storage Engineering</developer_name>\n"
+		"  <provides>\n"
+		"    <firmware type=\"flashed\">%s</firmware>\n"
+		"  </provides>\n"
+		"  <custom>\n"
+		"    <value key=\"LVFS::VersionFormat\">plain</value>\n"
+		"    <value key=\"LVFS::UpdateProtocol\">%s</value>\n"
+		"    <value key=\"LVFS::Plugin\">%s</value>\n"
+		"    <value key=\"LVFS::DeviceId\">%s</value>\n"
+		"  </custom>\n"
+		"  <releases>\n"
+		"    <release version=\"%s\" date=\"2026-09-28\" urgency=\"%s\">\n"
+		"      <checksum type=\"sha256\" filename=\"%s\" target=\"content\">%s</checksum>\n"
+		"      <description>\n"
+		"        <p>%s</p>\n"
+		"      </description>\n"
+		"      <artifacts>\n"
+		"        <artifact type=\"source\">\n"
+		"          <filename>%s</filename>\n"
+		"          <checksum type=\"sha256\">%s</checksum>\n"
+		"        </artifact>\n"
+		"      </artifacts>\n"
+		"    </release>\n"
+		"  </releases>\n"
+		"</component>\n",
+		component_id, device_id, summary, guid,
+		update_protocol, plugin, device_id,
+		fw_version, urgency, bin_base, sha_hex,
+		summary, bin_base, sha_hex);
+
+	sprintf(readme_buf,
+		"README FIRST\n"
+		"============\n\n"
+		"Install this LVFS Cabinet archive on SIX using fwupdmgr:\n\n"
+		"    fwupdmgr install %s\n",
+		cab_path);
+
+	xml_len = (unsigned int)strlen(xml_buf);
+	readme_len = (unsigned int)strlen(readme_buf);
+	bin_len = (unsigned int)sizeof(bin_buf);
+
+	f0_namelen = (unsigned int)strlen("firmware.metainfo.xml") + 1U;
+	f1_namelen = (unsigned int)strlen("README.txt") + 1U;
+	f2_namelen = (unsigned int)strlen(bin_base) + 1U;
+
+	coff_data = (unsigned int)sizeof(chdr) + (unsigned int)sizeof(cfolder) +
+		    (unsigned int)sizeof(f0) + f0_namelen +
+		    (unsigned int)sizeof(f1) + f1_namelen +
+		    (unsigned int)sizeof(f2) + f2_namelen;
+	total_uncomp = xml_len + readme_len + bin_len;
+	total_cab = coff_data + (unsigned int)sizeof(dhdr) + total_uncomp;
+
+	memset(&chdr, 0, sizeof(chdr));
+	chdr.signature = FWUPD_CAB_MAGIC;
+	chdr.cb_cabinet = total_cab;
+	chdr.coff_files = (unsigned int)sizeof(chdr) + (unsigned int)sizeof(cfolder);
+	chdr.version_minor = 3;
+	chdr.version_major = 1;
+	chdr.c_folders = 1;
+	chdr.c_files = 3;
+	chdr.set_id = 0x5358;
+
+	memset(&cfolder, 0, sizeof(cfolder));
+	cfolder.coff_cab_start = coff_data;
+	cfolder.c_cfdata = 1;
+	cfolder.type_compress = 0;
+
+	memset(&f0, 0, sizeof(f0));
+	f0.cb_file = xml_len;
+	f0.uoff_folder_start = 0;
+	f0.date = 0x5d3c;
+	f0.time = 0x0800;
+	f0.attribs = 0x20;
+
+	memset(&f1, 0, sizeof(f1));
+	f1.cb_file = readme_len;
+	f1.uoff_folder_start = xml_len;
+	f1.date = 0x5d3c;
+	f1.time = 0x0800;
+	f1.attribs = 0x20;
+
+	memset(&f2, 0, sizeof(f2));
+	f2.cb_file = bin_len;
+	f2.uoff_folder_start = xml_len + readme_len;
+	f2.date = 0x5d3c;
+	f2.time = 0x0800;
+	f2.attribs = 0x20;
+
+	memset(&dhdr, 0, sizeof(dhdr));
+	dhdr.csum = 0;
+	dhdr.cb_data = (unsigned short)total_uncomp;
+	dhdr.cb_uncomp = (unsigned short)total_uncomp;
+
+	fd = open(cab_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	if (fd < 0)
+		return -1;
+
+	write(fd, &chdr, sizeof(chdr));
+	write(fd, &cfolder, sizeof(cfolder));
+	write(fd, &f0, sizeof(f0));
+	write(fd, "firmware.metainfo.xml", (int)f0_namelen);
+	write(fd, &f1, sizeof(f1));
+	write(fd, "README.txt", (int)f1_namelen);
+	write(fd, &f2, sizeof(f2));
+	write(fd, bin_base, (int)f2_namelen);
+	write(fd, &dhdr, sizeof(dhdr));
+	write(fd, xml_buf, (int)xml_len);
+	write(fd, readme_buf, (int)readme_len);
+	write(fd, bin_buf, (int)bin_len);
+	close(fd);
+	return 0;
+}
+
 static int bin_file_valid(const char *path, const char *expected_plugin)
 {
 	struct fwupd_bin_hdr hdr;
@@ -312,15 +897,31 @@ static void ensure_lvfs_repository(int force_rebuild)
 
 	for (i = 0; i < nr_lvfs_releases; i++) {
 		const struct lvfs_release *r = &lvfs_catalog[i];
-		if (force_rebuild || !bin_file_valid(r->pkg_filename, r->plugin)) {
-			write_bin_firmware_file(r->pkg_filename, r->plugin,
+		if (force_rebuild || !bin_file_valid(r->bin_filename, r->plugin)) {
+			write_bin_firmware_file(r->bin_filename, r->plugin,
 						r->device_id, r->guid,
 						r->latest_ver, r->capsule_flags);
 		}
-		if (force_rebuild || !bin_file_valid(r->factory_pkg_filename, r->plugin)) {
-			write_bin_firmware_file(r->factory_pkg_filename, r->plugin,
+		if (force_rebuild || !bin_file_valid(r->factory_bin_filename, r->plugin)) {
+			write_bin_firmware_file(r->factory_bin_filename, r->plugin,
 						r->device_id, r->guid,
 						r->factory_ver, r->capsule_flags);
+		}
+		if (force_rebuild || !is_cab_file(r->pkg_filename)) {
+			write_cab_firmware_file(r->pkg_filename, r->bin_filename,
+						r->component_id, r->plugin,
+						r->update_protocol, r->device_id,
+						r->guid, r->latest_ver,
+						r->urgency, r->summary,
+						r->capsule_flags);
+		}
+		if (force_rebuild || !is_cab_file(r->factory_pkg_filename)) {
+			write_cab_firmware_file(r->factory_pkg_filename, r->factory_bin_filename,
+						r->component_id, r->plugin,
+						r->update_protocol, r->device_id,
+						r->guid, r->factory_ver,
+						"Low", "Factory baseline firmware image",
+						r->capsule_flags);
 		}
 	}
 }
@@ -328,7 +929,7 @@ static void ensure_lvfs_repository(int force_rebuild)
 /*
  * Inspect any .bin file on disk using streaming SHA-256.
  * Works on both SIX controller .bin images and arbitrary real-world .bin files
- * of any size (ARM Cortex-R, ELF32, UEFI Capsule, raw vendor blobs).
+ * of any size (Samsung UFSH, ARM Cortex-R, ELF32, UEFI Capsule, raw vendor blobs).
  */
 static int inspect_bin_file(const char *bin_path,
 			    unsigned char hdr_buf[FWUPD_HDR_INSPECT_LEN],
@@ -391,6 +992,9 @@ static const char *describe_bin_format(const unsigned char *hdr_buf, unsigned in
 		if (hdr->magic == FWUPD_BIN_MAGIC)
 			return "ARM Cortex-R5 Controller Firmware Image (.bin, SFWM)";
 	}
+	if (hdr_len >= 4 && hdr_buf[0] == 'U' && hdr_buf[1] == 'F' &&
+	    hdr_buf[2] == 'S' && hdr_buf[3] == 'H')
+		return "Samsung JEDEC UFS Controller Firmware Binary (.bin, UFSH)";
 	if (hdr_len >= 4 && hdr_buf[0] == 0x7f && hdr_buf[1] == 'E' &&
 	    hdr_buf[2] == 'L' && hdr_buf[3] == 'F')
 		return "ELF32 Controller Firmware Binary (.bin)";
@@ -431,6 +1035,8 @@ static struct fwupd_device *find_device(struct fwupd_device *devs, int nr_devs,
 	for (i = 0; i < nr_devs; i++) {
 		if (strcmp(devs[i].device_id, query) == 0 ||
 		    strcmp(devs[i].guid, query) == 0 ||
+		    (devs[i].guid2[0] && strcmp(devs[i].guid2, query) == 0) ||
+		    (devs[i].update_protocol[0] && strcmp(devs[i].update_protocol, query) == 0) ||
 		    strcmp(devs[i].dev_node, query) == 0 ||
 		    strcmp(devs[i].plugin, query) == 0)
 			return &devs[i];
@@ -537,7 +1143,10 @@ static int cmd_get_devices(void)
 		printf("%s%s:\n", branch, d->name);
 		printf("%s    Device ID:          %s\n", pipe, d->device_id);
 		printf("%s    GUID:               %s\n", pipe, d->guid);
-		printf("%s    Plugin:             %s (%s)\n", pipe, d->plugin, d->dev_node);
+		if (d->guid2[0])
+			printf("%s    Compat GUID:        %s\n", pipe, d->guid2);
+		printf("%s    Plugin / Protocol:  %s (%s, %s)\n",
+		       pipe, d->plugin, d->update_protocol, d->dev_node);
 		printf("%s    Vendor / Serial:    %s / %s\n", pipe, d->vendor, d->serial);
 		printf("%s    Current Version:    %s\n", pipe, d->version);
 		printf("%s    Bootloader / Slots: %s\n", pipe, d->bootloader_info);
@@ -551,8 +1160,8 @@ static int cmd_refresh(void)
 {
 	ensure_lvfs_repository(1);
 	printf("Updating lvfs metadata from %s...\n", LVFS_META_PATH);
-	printf("Successfully refreshed LVFS metadata (%d component releases, %d firmware .bin images staged in %s)\n",
-	       nr_lvfs_releases, nr_lvfs_releases * 2, LVFS_PKG_DIR);
+	printf("Successfully refreshed LVFS metadata (%d component releases, %d .cab archives & %d .bin images staged in %s)\n",
+	       nr_lvfs_releases, nr_lvfs_releases * 2, nr_lvfs_releases * 2, LVFS_PKG_DIR);
 	return 0;
 }
 
@@ -576,7 +1185,7 @@ static int cmd_get_updates(void)
 			printf("      Current Version: %s\n", d->version);
 			printf("      Update Version:  %s (Component: %s, Urgency: %s)\n",
 			       r->latest_ver, r->component_id, r->urgency);
-			printf("      Firmware Binary: %s\n", r->pkg_filename);
+			printf("      LVFS Package:    %s\n", r->pkg_filename);
 			printf("      Release Notes:   %s\n", r->summary);
 		} else {
 			printf("  ✓ %s (%s): up to date at version %s\n",
@@ -589,64 +1198,113 @@ static int cmd_get_updates(void)
 	return 0;
 }
 
-static int install_bin_on_device(const char *bin_path,
-				 const char *target_query,
-				 int allow_older,
-				 int allow_reinstall)
+static int install_package_on_device(const char *pkg_path,
+				     const char *target_query,
+				     int allow_older,
+				     int allow_reinstall)
 {
 	unsigned char hdr_buf[FWUPD_HDR_INSPECT_LEN];
 	unsigned char full_sha256[32], code_sha256[32];
 	unsigned int hdr_cap = 0, total_size = 0, nonzero = 0;
-	const struct fwupd_bin_hdr *hdr = (const struct fwupd_bin_hdr *)hdr_buf;
+	const struct fwupd_bin_hdr *hdr;
 	struct fwupd_device devs[MAX_DEVICES];
-	struct fwupd_device *dev;
+	struct fwupd_device *dev = NULL;
 	const struct fwupd_plugin_ops *plug;
 	char target_ver[16], old_ver[16], hex[65];
-	int is_sfwm = 0, bin_fd, nr_devs, cmp, max_ver_len;
+	int is_cab = 0, is_sfwm = 0, bin_fd, nr_devs, cmp, max_ver_len, rc;
 
-	if (inspect_bin_file(bin_path, hdr_buf, &hdr_cap, &total_size,
-			     &nonzero, full_sha256, code_sha256) < 0) {
-		fprintf(stderr, "fwupdmgr: cannot open firmware .bin file '%s'\n", bin_path);
-		return 1;
-	}
-	if (total_size < 64) {
-		fprintf(stderr, "fwupdmgr: invalid firmware .bin '%s' (%u bytes < 64B minimum)\n",
-			bin_path, total_size);
-		return 1;
+	active_cab.active = 0;
+
+	if (is_cab_file(pkg_path)) {
+		is_cab = 1;
+		rc = parse_cab_archive(pkg_path, &active_cab);
+		if (rc == -2) {
+			fprintf(stderr, "fwupdmgr: cabinet '%s' uses compressed CFDATA; only uncompressed LVFS .cab is supported\n",
+				pkg_path);
+			return 1;
+		}
+		if (rc < 0 || active_cab.payload_size < 64) {
+			fprintf(stderr, "fwupdmgr: invalid or corrupted LVFS .cab archive '%s'\n", pkg_path);
+			return 1;
+		}
+		if (!active_cab.checksum_verified) {
+			fprintf(stderr, "fwupdmgr: .cab payload SHA-256 mismatch against firmware.metainfo.xml (%s)\n",
+				active_cab.expected_sha256_hex);
+			return 1;
+		}
+		memcpy(hdr_buf, active_cab.payload_hdr, FWUPD_HDR_INSPECT_LEN);
+		hdr_cap = active_cab.payload_hdr_cap;
+		total_size = active_cab.payload_size;
+		nonzero = active_cab.payload_nonzero;
+		memcpy(full_sha256, active_cab.payload_sha256, 32);
+		memcpy(code_sha256, active_cab.payload_code_sha256, 32);
+		active_cab.active = 1;
+	} else {
+		if (inspect_bin_file(pkg_path, hdr_buf, &hdr_cap, &total_size,
+				     &nonzero, full_sha256, code_sha256) < 0) {
+			fprintf(stderr, "fwupdmgr: cannot open firmware package '%s'\n", pkg_path);
+			return 1;
+		}
+		if (total_size < 64) {
+			fprintf(stderr, "fwupdmgr: invalid firmware .bin '%s' (%u bytes < 64B minimum)\n",
+				pkg_path, total_size);
+			return 1;
+		}
 	}
 
+	hdr = (const struct fwupd_bin_hdr *)hdr_buf;
 	if (hdr_cap >= sizeof(struct fwupd_bin_hdr) && hdr->magic == FWUPD_BIN_MAGIC)
 		is_sfwm = 1;
 
 	nr_devs = probe_all_devices(devs, MAX_DEVICES);
-	dev = find_device(devs, nr_devs,
-			  (target_query && target_query[0]) ? target_query
-			  : (is_sfwm ? hdr->device_id : FWUPD_DEVID_NVME));
+	if (target_query && target_query[0]) {
+		dev = find_device(devs, nr_devs, target_query);
+	} else if (is_cab) {
+		if (active_cab.device_id[0])
+			dev = find_device(devs, nr_devs, active_cab.device_id);
+		if (!dev && active_cab.guid[0])
+			dev = find_device(devs, nr_devs, active_cab.guid);
+		if (!dev && active_cab.update_protocol[0])
+			dev = find_device(devs, nr_devs, active_cab.update_protocol);
+		if (!dev && active_cab.plugin[0])
+			dev = find_device(devs, nr_devs, active_cab.plugin);
+	} else if (is_sfwm) {
+		dev = find_device(devs, nr_devs, hdr->device_id);
+	} else {
+		dev = find_device(devs, nr_devs, FWUPD_DEVID_NVME);
+	}
+
 	if (!dev) {
-		fprintf(stderr, "fwupdmgr: target device '%s' is not online\n",
-			(target_query && target_query[0]) ? target_query
-			: (is_sfwm ? hdr->device_id : "unknown"));
+		active_cab.active = 0;
+		fprintf(stderr, "fwupdmgr: target device for '%s' is not online\n", pkg_path);
 		return 1;
 	}
 
 	max_ver_len = (strcmp(dev->plugin, "nvme") == 0) ? 8 : 4;
 	memset(target_ver, 0, sizeof(target_ver));
 	fwupd_detect_bin_version(hdr_buf, hdr_cap, full_sha256, max_ver_len, target_ver);
+	if (is_cab && active_cab.release_version[0] && !is_sfwm) {
+		strncpy(target_ver, active_cab.release_version, (size_t)max_ver_len);
+		target_ver[max_ver_len] = '\0';
+	}
 
 	cmp = compare_versions(target_ver, dev->version);
-	if (cmp == 0 && !allow_reinstall && is_sfwm) {
+	if (cmp == 0 && !allow_reinstall && (is_sfwm || is_cab)) {
+		active_cab.active = 0;
 		fprintf(stderr, "fwupdmgr: %s is already at version %s (use --allow-reinstall)\n",
 			dev->device_id, dev->version);
 		return 1;
 	}
-	if (cmp < 0 && !allow_older && is_sfwm) {
-		fprintf(stderr, "fwupdmgr: .bin version %s is older than installed %s on %s (use --allow-older)\n",
+	if (cmp < 0 && !allow_older && (is_sfwm || is_cab)) {
+		active_cab.active = 0;
+		fprintf(stderr, "fwupdmgr: firmware version %s is older than installed %s on %s (use --allow-older)\n",
 			target_ver, dev->version, dev->device_id);
 		return 1;
 	}
 
 	plug = find_plugin(dev->plugin);
 	if (!plug) {
+		active_cab.active = 0;
 		fprintf(stderr, "fwupdmgr: plugin '%s' not found\n", dev->plugin);
 		return 1;
 	}
@@ -654,9 +1312,24 @@ static int install_bin_on_device(const char *bin_path,
 	strcpy(old_ver, dev->version);
 	format_sha256_hex(full_sha256, hex);
 
-	printf("Loading & verifying firmware binary %s...\n", bin_path);
-	printf("  Binary Format : %s (%u bytes)\n",
-	       describe_bin_format(hdr_buf, hdr_cap), total_size);
+	if (is_cab) {
+		printf("Decompressing & verifying LVFS cabinet archive %s...\n", pkg_path);
+		printf("  Cabinet Header: MSCF v%u.%u (%u bytes, %u files, %u CFDATA blocks)\n",
+		       active_cab.ver_major, active_cab.ver_minor,
+		       active_cab.cb_cabinet, active_cab.c_files, active_cab.c_cfdata);
+		if (active_cab.component_id[0]) {
+			printf("  AppStream ID  : %s (%s)\n",
+			       active_cab.component_id,
+			       active_cab.component_name[0] ? active_cab.component_name : active_cab.summary);
+		}
+		printf("  Payload Image : %s (%u bytes, %s)\n",
+		       active_cab.source_filename, total_size,
+		       describe_bin_format(hdr_buf, hdr_cap));
+	} else {
+		printf("Loading & verifying firmware binary %s...\n", pkg_path);
+		printf("  Binary Format : %s (%u bytes)\n",
+		       describe_bin_format(hdr_buf, hdr_cap), total_size);
+	}
 	printf("  Target Device : %s (%s, GUID %s)\n", dev->name, dev->device_id, dev->guid);
 	printf("  Plugin / Node : %s (%s)\n", dev->plugin, dev->dev_node);
 	printf("  Transition    : %s -> %s\n", old_ver, target_ver);
@@ -666,12 +1339,15 @@ static int install_bin_on_device(const char *bin_path,
 		printf("  [WARN] Binary microcode SHA-256 mismatch detected in user-space; forwarding to controller to verify hardware rejection...\n");
 	}
 
-	bin_fd = open(bin_path, O_RDONLY);
-	if (bin_fd < 0)
+	bin_fd = open(pkg_path, O_RDONLY);
+	if (bin_fd < 0) {
+		active_cab.active = 0;
 		return 1;
+	}
 
 	if (plug->write_firmware(dev, bin_fd, total_size) < 0) {
 		close(bin_fd);
+		active_cab.active = 0;
 		record_history(dev->device_id, dev->guid, dev->plugin,
 			       old_ver, target_ver, full_sha256, "failed-signature");
 		printf("fwupdmgr: firmware update FAILED on %s (hardware rejected .bin image)\n",
@@ -679,6 +1355,7 @@ static int install_bin_on_device(const char *bin_path,
 		return 1;
 	}
 	close(bin_fd);
+	active_cab.active = 0;
 
 	/* Re-probe device to verify the new version and hardware SHA-256 digest */
 	nr_devs = probe_all_devices(devs, MAX_DEVICES);
@@ -711,6 +1388,7 @@ static int cmd_update(const char *target_query)
 		if (target_query && target_query[0]) {
 			if (strcmp(d->device_id, target_query) != 0 &&
 			    strcmp(d->guid, target_query) != 0 &&
+			    (d->guid2[0] == '\0' || strcmp(d->guid2, target_query) != 0) &&
 			    strcmp(d->plugin, target_query) != 0 &&
 			    strcmp(d->dev_node, target_query) != 0)
 				continue;
@@ -720,7 +1398,7 @@ static int cmd_update(const char *target_query)
 		if (!r)
 			continue;
 		if (compare_versions(d->version, r->latest_ver) < 0) {
-			if (install_bin_on_device(r->pkg_filename, d->device_id, 0, 0) != 0)
+			if (install_package_on_device(r->pkg_filename, d->device_id, 0, 0) != 0)
 				rc = 1;
 			else
 				updated++;
@@ -748,6 +1426,7 @@ static int cmd_verify(const char *target_query)
 		if (target_query && target_query[0]) {
 			if (strcmp(d->device_id, target_query) != 0 &&
 			    strcmp(d->guid, target_query) != 0 &&
+			    (d->guid2[0] == '\0' || strcmp(d->guid2, target_query) != 0) &&
 			    strcmp(d->plugin, target_query) != 0)
 				continue;
 		}
@@ -845,27 +1524,81 @@ static int cmd_clear_history(void)
 	return 0;
 }
 
-static int cmd_examine(const char *bin_path)
+static int cmd_examine(const char *pkg_path)
 {
 	unsigned char hdr_buf[FWUPD_HDR_INSPECT_LEN];
 	unsigned char full_sha256[32], code_sha256[32];
 	unsigned int hdr_cap = 0, total_size = 0, nonzero = 0;
 	const struct fwupd_bin_hdr *hdr = (const struct fwupd_bin_hdr *)hdr_buf;
 	char full_hex[65], code_hex[65], detected_ver[16];
-	int is_sfwm = 0, sig_ok = 1;
+	int sig_ok = 1, i;
 
-	if (!bin_path) {
-		fprintf(stderr, "fwupdmgr examine: missing <.bin> file path\n");
+	if (!pkg_path) {
+		fprintf(stderr, "fwupdmgr examine: missing <.cab|.bin> file path\n");
 		return 1;
 	}
-	if (inspect_bin_file(bin_path, hdr_buf, &hdr_cap, &total_size,
+
+	if (is_cab_file(pkg_path)) {
+		int rc = parse_cab_archive(pkg_path, &active_cab);
+		if (rc < 0) {
+			fprintf(stderr, "fwupdmgr examine: invalid or unsupported .cab archive '%s'\n",
+				pkg_path);
+			return 1;
+		}
+		format_sha256_hex(active_cab.payload_sha256, full_hex);
+		printf("LVFS Cabinet Archive Inspection (%s):\n", pkg_path);
+		printf("  Archive Format : Microsoft Cabinet Archive (MSCF v%u.%u, %u bytes, %u folder, %u files, %u CFDATA blocks)\n",
+		       active_cab.ver_major, active_cab.ver_minor,
+		       active_cab.cb_cabinet, active_cab.c_folders,
+		       active_cab.c_files, active_cab.c_cfdata);
+		for (i = 0; i < active_cab.nr_files; i++) {
+			printf("  %s [%d] %s (%u bytes @ folder+0x%x)\n",
+			       (i == 0) ? "Cabinet Files  :" : "                ",
+			       i, active_cab.files[i].name,
+			       active_cab.files[i].cb_file,
+			       active_cab.files[i].uoff_folder_start);
+		}
+		if (active_cab.component_id[0])
+			printf("  Component ID   : %s\n", active_cab.component_id);
+		if (active_cab.component_name[0] || active_cab.summary[0])
+			printf("  Component Name : %s (%s)\n",
+			       active_cab.component_name[0] ? active_cab.component_name : active_cab.component_id,
+			       active_cab.summary);
+		if (active_cab.developer[0])
+			printf("  Developer      : %s\n", active_cab.developer);
+		if (active_cab.update_protocol[0])
+			printf("  Update Protocol: %s\n", active_cab.update_protocol);
+		if (active_cab.guid[0])
+			printf("  AppStream GUID : %s\n", active_cab.guid);
+		if (active_cab.release_version[0]) {
+			printf("  Release Version: %s (Date: %s, Urgency: %s, Format: %s",
+			       active_cab.release_version,
+			       active_cab.release_date[0] ? active_cab.release_date : "n/a",
+			       active_cab.urgency[0] ? active_cab.urgency : "normal",
+			       active_cab.version_format[0] ? active_cab.version_format : "plain");
+			if (active_cab.req_fw_min[0])
+				printf(", Requires: >= %s", active_cab.req_fw_min);
+			printf(")\n");
+		}
+		printf("  Payload Binary : %s (%u bytes)\n",
+		       active_cab.source_filename, active_cab.payload_size);
+		printf("  Binary Format  : %s\n",
+		       describe_bin_format(active_cab.payload_hdr, active_cab.payload_hdr_cap));
+		if (active_cab.expected_sha256_hex[0])
+			printf("  Meta Checksum  : %s\n", active_cab.expected_sha256_hex);
+		printf("  Payload SHA256 : %s [%s]\n",
+		       full_hex, active_cab.checksum_verified ? "VALID SIGNATURE" : "CORRUPTED");
+		return active_cab.checksum_verified ? 0 : 1;
+	}
+
+	if (inspect_bin_file(pkg_path, hdr_buf, &hdr_cap, &total_size,
 			     &nonzero, full_sha256, code_sha256) < 0) {
-		fprintf(stderr, "fwupdmgr examine: cannot open '%s'\n", bin_path);
+		fprintf(stderr, "fwupdmgr examine: cannot open '%s'\n", pkg_path);
 		return 1;
 	}
 	if (total_size < 64 || nonzero < 16) {
 		fprintf(stderr, "fwupdmgr examine: '%s' is too small or empty (%u bytes)\n",
-			bin_path, total_size);
+			pkg_path, total_size);
 		return 1;
 	}
 
@@ -874,11 +1607,10 @@ static int cmd_examine(const char *bin_path)
 	memset(detected_ver, 0, sizeof(detected_ver));
 	fwupd_detect_bin_version(hdr_buf, hdr_cap, full_sha256, 8, detected_ver);
 
-	printf("Firmware Binary Inspection (%s):\n", bin_path);
+	printf("Firmware Binary Inspection (%s):\n", pkg_path);
 	printf("  Binary Format  : %s\n", describe_bin_format(hdr_buf, hdr_cap));
 
 	if (hdr_cap >= sizeof(struct fwupd_bin_hdr) && hdr->magic == FWUPD_BIN_MAGIC) {
-		is_sfwm = 1;
 		sig_ok = (memcmp(hdr->code_sha256, code_sha256, 32) == 0 &&
 			  sizeof(struct fwupd_bin_hdr) + hdr->code_len == total_size);
 		printf("  ARM Vector/Sig : 0x%08x (b 0xa0) / 0x%08x (\"SFWM\") v%u\n",
@@ -908,15 +1640,15 @@ static void usage(void)
 	       "Commands:\n"
 	       "  get-plugins                            List built-in hardware plugins (nvme, ufs, scsi)\n"
 	       "  get-devices                            Probe hardware and list updatable devices\n"
-	       "  refresh                                Refresh LVFS metadata and .bin firmware images\n"
+	       "  refresh                                Refresh LVFS metadata, .cab & .bin packages\n"
 	       "  get-updates                            Show available LVFS firmware updates\n"
-	       "  update [DEVICE-ID|GUID|PLUGIN]         Update devices to latest LVFS .bin firmware\n"
-	       "  install <firmware.bin> [DEVICE-ID] [--allow-older] [--allow-reinstall]\n"
-	       "  install-blob <firmware.bin> <DEVICE-ID>\n"
-	       "                                         Install any signed or raw vendor .bin firmware\n"
+	       "  update [DEVICE-ID|GUID|PLUGIN]         Update devices to latest LVFS .cab firmware\n"
+	       "  install <firmware.cab|.bin> [DEVICE-ID] [--allow-older] [--allow-reinstall]\n"
+	       "  install-blob <firmware.cab|.bin> [DEVICE-ID]\n"
+	       "                                         Install an LVFS .cab archive or raw vendor .bin\n"
 	       "  activate <DEVICE-ID> <slot>            Switch active NVMe firmware slot (1 or 2)\n"
 	       "  verify [DEVICE-ID|GUID]                Verify device firmware SHA-256 checksums\n"
-	       "  examine <firmware.bin>                 Inspect a .bin firmware image & SHA-256\n"
+	       "  examine <firmware.cab|.bin>            Inspect an LVFS .cab archive or .bin image\n"
 	       "  get-history                            Show firmware update history\n"
 	       "  clear-history                          Clear firmware update history\n");
 }
@@ -944,7 +1676,7 @@ int main(int argc, char **argv)
 	if (strcmp(sub, "update") == 0 || strcmp(sub, "upgrade") == 0)
 		return cmd_update((argc >= 3 && argv[2][0] != '-') ? argv[2] : NULL);
 	if (strcmp(sub, "install") == 0 || strcmp(sub, "install-blob") == 0) {
-		const char *bin_path = NULL;
+		const char *pkg_path = NULL;
 		const char *target = NULL;
 		int allow_older = (strcmp(sub, "install-blob") == 0);
 		int allow_reinstall = (strcmp(sub, "install-blob") == 0);
@@ -954,16 +1686,16 @@ int main(int argc, char **argv)
 				allow_older = 1;
 			else if (strcmp(argv[i], "--allow-reinstall") == 0)
 				allow_reinstall = 1;
-			else if (!bin_path)
-				bin_path = argv[i];
+			else if (!pkg_path)
+				pkg_path = argv[i];
 			else if (!target)
 				target = argv[i];
 		}
-		if (!bin_path) {
-			fprintf(stderr, "fwupdmgr %s: missing <firmware.bin> path\n", sub);
+		if (!pkg_path) {
+			fprintf(stderr, "fwupdmgr %s: missing <firmware.cab|.bin> path\n", sub);
 			return 1;
 		}
-		return install_bin_on_device(bin_path, target, allow_older, allow_reinstall);
+		return install_package_on_device(pkg_path, target, allow_older, allow_reinstall);
 	}
 	if (strcmp(sub, "activate") == 0 || strcmp(sub, "switch-slot") == 0) {
 		const char *dev_q = (argc >= 3) ? argv[2] : FWUPD_DEVID_NVME;

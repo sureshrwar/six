@@ -53,6 +53,7 @@ static int fu_scsi_plugin_probe(struct fwupd_device *devs, int max_devs)
 	strcpy(d->name, "SIX USB Mass Storage SCSI Disk");
 	strcpy(d->device_id, FWUPD_DEVID_USB_SCSI);
 	strcpy(d->guid, FWUPD_GUID_USB_SCSI);
+	strcpy(d->update_protocol, "org.t10.scsi.write_buffer");
 	strcpy(d->plugin, "scsi");
 	strcpy(d->dev_node, "/dev/sda");
 
@@ -88,8 +89,6 @@ static int fu_scsi_plugin_write_firmware(const struct fwupd_device *dev,
 		return -1;
 	}
 
-	lseek(bin_fd, 0L, 0);
-
 	/* Step 1: Stream .bin microcode via SCSI WRITE_BUFFER (0x3B, Mode 0x0E) */
 	while (offset < bin_size) {
 		unsigned int chunk = bin_size - offset;
@@ -98,7 +97,7 @@ static int fu_scsi_plugin_write_firmware(const struct fwupd_device *dev,
 		if (chunk > FWUPD_CHUNK_SIZE)
 			chunk = FWUPD_CHUNK_SIZE;
 		memset(chunk_buf, 0, sizeof(chunk_buf));
-		nread = read(bin_fd, chunk_buf, chunk);
+		nread = fwupd_payload_read(bin_fd, offset, chunk_buf, chunk);
 		if (nread <= 0) {
 			close(fd);
 			return -1;
