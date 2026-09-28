@@ -2,24 +2,13 @@
 
 **SIX** is an active, self-contained operating system environment that runs entirely as an unprivileged user-space process on modern Linux hosts.
 
-While SIX originally began in the early 2000s as a Solaris port of User Mode Linux 2.0.11, it is a legacy preservation project**. Instead, SIX is an evolving hybrid system that grafts **modern Linux kernel subsystems** and **contemporary Android platform architecture** onto a compact, fast-booting Linux 2.0.11 foundation—complete with its own C library, self-hosting compiler toolchain, storage stack, IPC fabric, and interactive userland.
+While SIX originally began in the early 2000s as a Solaris port of User Mode Linux 2.0.11, it is **not** a legacy preservation project. Instead, SIX is an evolving hybrid system that grafts **modern Linux kernel subsystems** and **contemporary Android platform architecture** onto a compact, fast-booting Linux 2.0.11 foundation—complete with its own C library, self-hosting compiler toolchain, storage stack, IPC fabric, and interactive userland.
 
 New modern Linux and Android capabilities are continuously being designed, ported, and integrated.
 
-```text
-  #####    #*#   #     #
- #     #    #     #   #
- #          #      # #
-  #####     #       #
-       #    #      # #
- #     #    #     #   #
-  #####    ###   #     #
-
-SIX 1.0 (Linux 2.0.11)
-
-black login: root
-root@black:~#
-```
+<p align="center">
+  <img src="docs/six_demo.gif" alt="SIX Live Demo — Boot, Multi-Tier Storage, Android Binder Services, Scoped Storage Files UI with Live USB Hotplug, and Opportunistic Suspend" width="100%">
+</p>
 
 ---
 
