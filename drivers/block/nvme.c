@@ -81,6 +81,21 @@ static unsigned long smart_media_errors = 0;
 static unsigned long smart_power_cycles = 1;
 
 /* NVMe Firmware Slot (LID 0x03) & Firmware Image Download (0x11) state */
+#define NVME_HDR_MAGIC		0x454d564eU	/* "NVME" */
+#define NVME_PERSIST_HDR_OFFSET	0UL		/* Sector 0 (before ext4 superblock at 1024B) */
+
+struct nvme_persist_hdr {
+	unsigned int	magic;
+	unsigned char	active_fw_slot;
+	unsigned char	rsvd0[3];
+	char		fw_slots[2][8];
+	unsigned char	fw_slot_sha256[2][32];
+	unsigned int	fw_commit_count;
+	unsigned int	power_cycles;
+	unsigned char	rsvd[416];
+};
+
+static struct nvme_persist_hdr nvme_hdr;
 static unsigned char nvme_fw_staging[8192];
 static unsigned int nvme_fw_staged_len = 0;
 static unsigned char nvme_active_fw_slot = 1;
@@ -97,6 +112,52 @@ static struct hd_struct nvme_part[NVME_MAX_MINORS];
 
 static unsigned char nvme_zero_page[4096];
 static unsigned char nvme_admin_bounce[4096];
+
+static void nvme_save_persist_hdr(void)
+{
+	if (nvme_fd < 0)
+		return;
+	memset(&nvme_hdr, 0, sizeof(nvme_hdr));
+	nvme_hdr.magic = NVME_HDR_MAGIC;
+	nvme_hdr.active_fw_slot = nvme_active_fw_slot;
+	memcpy(nvme_hdr.fw_slots, nvme_fw_slots, sizeof(nvme_fw_slots));
+	memcpy(nvme_hdr.fw_slot_sha256, nvme_fw_slot_sha256, sizeof(nvme_fw_slot_sha256));
+	nvme_hdr.fw_commit_count = nvme_fw_commit_count;
+	nvme_hdr.power_cycles = (unsigned int)smart_power_cycles;
+	lseek(nvme_fd, (long)NVME_PERSIST_HDR_OFFSET, 0);
+	write(nvme_fd, &nvme_hdr, sizeof(nvme_hdr));
+}
+
+static void nvme_load_or_init_persist_hdr(void)
+{
+	if (nvme_fd < 0)
+		return;
+
+	memset(&nvme_hdr, 0, sizeof(nvme_hdr));
+	lseek(nvme_fd, (long)NVME_PERSIST_HDR_OFFSET, 0);
+	if (read(nvme_fd, &nvme_hdr, sizeof(nvme_hdr)) == (int)sizeof(nvme_hdr) &&
+	    nvme_hdr.magic == NVME_HDR_MAGIC) {
+		if (nvme_hdr.active_fw_slot < 1 || nvme_hdr.active_fw_slot > 2)
+			nvme_hdr.active_fw_slot = 1;
+		nvme_active_fw_slot = nvme_hdr.active_fw_slot;
+		memcpy(nvme_fw_slots, nvme_hdr.fw_slots, sizeof(nvme_fw_slots));
+		memcpy(nvme_fw_slot_sha256, nvme_hdr.fw_slot_sha256, sizeof(nvme_fw_slot_sha256));
+		nvme_fw_commit_count = nvme_hdr.fw_commit_count;
+		smart_power_cycles = (unsigned long)nvme_hdr.power_cycles + 1UL;
+		nvme_save_persist_hdr();
+	} else {
+		nvme_active_fw_slot = 1;
+		memcpy(nvme_fw_slots[0], "1.4.0   ", 8);
+		memcpy(nvme_fw_slots[1], "        ", 8);
+		memset(nvme_fw_slot_sha256, 0, sizeof(nvme_fw_slot_sha256));
+		fwupd_build_microcode(FWUPD_DEVID_NVME, "1.4.0",
+				      nvme_admin_bounce, FWUPD_DEFAULT_PAYLOAD_SIZE,
+				      nvme_fw_slot_sha256[0]);
+		nvme_fw_commit_count = 0;
+		smart_power_cycles = 1;
+		nvme_save_persist_hdr();
+	}
+}
 
 static void nvme_init_queue(struct nvme_queue *q, unsigned short qid,
 			    unsigned short depth)
@@ -335,6 +396,7 @@ static void nvme_exec_admin_sqe(const struct nvme_command *cmd,
 			}
 			nvme_active_fw_slot = (unsigned char)fs;
 			nvme_fw_commit_count++;
+			nvme_save_persist_hdr();
 			printk("nvme0: Firmware Commit (CA=2): switched active slot to Slot %u (%.8s)\n",
 			       fs, nvme_fw_slots[fs - 1]);
 			return;
@@ -378,6 +440,7 @@ static void nvme_exec_admin_sqe(const struct nvme_command *cmd,
 		if (ca == 1 || ca == 3)
 			nvme_active_fw_slot = (unsigned char)fs;
 		nvme_fw_commit_count++;
+		nvme_save_persist_hdr();
 		printk("nvme0: Firmware Commit (CA=%u): installed rev %s into Slot %u (ACTIVE)\n",
 		       ca, hdr->fw_version, fs);
 		return;
@@ -1114,6 +1177,7 @@ int nvme_init(void)
 		}
 		nvme_sectors = (unsigned long)sz / 512UL;
 		nvme_online = 1;
+		nvme_load_or_init_persist_hdr();
 	} else {
 		printk("nvme0: warning: could not open backing file %s\n", nvme_img_path);
 		nvme_online = 0;

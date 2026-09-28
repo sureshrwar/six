@@ -47,7 +47,11 @@ struct ufs_persist_hdr {
 	unsigned int	rpmb_key_set;
 	unsigned int	rpmb_write_counter;
 	unsigned char	rpmb_key[32];
-	unsigned char	rsvd[456];
+	char		fw_rev[8];
+	unsigned short	device_version;
+	unsigned short	ffu_count;
+	unsigned char	fw_sha256[32];
+	unsigned char	rsvd[412];
 };
 
 struct ufs_lun_geom {
@@ -237,6 +241,20 @@ static void ufs_load_or_init_persist_hdr(void)
 	    ufs_hdr.magic == UFS_HDR_MAGIC) {
 		if (ufs_hdr.boot_lun_id != 1 && ufs_hdr.boot_lun_id != 2)
 			ufs_hdr.boot_lun_id = 1;
+		if (ufs_hdr.fw_rev[0] == '\0') {
+			memset(ufs_hdr.fw_rev, 0, sizeof(ufs_hdr.fw_rev));
+			strcpy(ufs_hdr.fw_rev, "4.00");
+			ufs_hdr.device_version = 0x0400;
+			ufs_hdr.ffu_count = 0;
+			fwupd_build_microcode(FWUPD_DEVID_UFS, "4.00",
+					      ufs_bounce_buf, FWUPD_DEFAULT_PAYLOAD_SIZE,
+					      ufs_hdr.fw_sha256);
+		}
+		memset(ufs_fw_rev, 0, sizeof(ufs_fw_rev));
+		strncpy(ufs_fw_rev, ufs_hdr.fw_rev, 4);
+		ufs_device_version = ufs_hdr.device_version;
+		ufs_ffu_count = ufs_hdr.ffu_count;
+		memcpy(ufs_fw_sha256, ufs_hdr.fw_sha256, 32);
 		ufs_hdr.power_cycles++;
 		ufs_save_persist_hdr();
 	} else {
@@ -249,6 +267,10 @@ static void ufs_load_or_init_persist_hdr(void)
 		ufs_hdr.power_cycles = 1;
 		ufs_hdr.rpmb_key_set = 0;
 		ufs_hdr.rpmb_write_counter = 0;
+		strcpy(ufs_hdr.fw_rev, "4.00");
+		ufs_hdr.device_version = 0x0400;
+		ufs_hdr.ffu_count = 0;
+		memcpy(ufs_hdr.fw_sha256, ufs_fw_sha256, 32);
 		ufs_save_persist_hdr();
 	}
 
@@ -630,6 +652,12 @@ static void ufs_exec_scsi_upiu(struct ufs_utrd_entry *e)
 				ufs_device_version = (unsigned short)((maj << 8) | (min << 4) | sub);
 			}
 			ufs_ffu_count++;
+			memset(ufs_hdr.fw_rev, 0, sizeof(ufs_hdr.fw_rev));
+			strncpy(ufs_hdr.fw_rev, ufs_fw_rev, 4);
+			ufs_hdr.device_version = ufs_device_version;
+			ufs_hdr.ffu_count = (unsigned short)ufs_ffu_count;
+			memcpy(ufs_hdr.fw_sha256, ufs_fw_sha256, 32);
+			ufs_save_persist_hdr();
 			printk("ufshcd0: SCSI WRITE_BUFFER FFU activated rev=%s (wDeviceVersion=0x%04x)\n",
 			       ufs_fw_rev, ufs_device_version);
 			return;

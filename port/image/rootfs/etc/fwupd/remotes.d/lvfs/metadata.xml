@@ -30,8 +30,8 @@
       <firmware type="flashed">e4a761c2-891b-5c34-a120-9f8e7d6c5b4a</firmware>
     </provides>
     <custom>
-      <value key="LVFS::UpdateProtocol">org.t10.scsi.write_buffer</value>
-      <value key="LVFS::Plugin">scsi</value>
+      <value key="LVFS::UpdateProtocol">org.jedec.ufs</value>
+      <value key="LVFS::Plugin">ufs</value>
     </custom>
     <releases>
       <release version="4.10" timestamp="1790517600" urgency="medium">

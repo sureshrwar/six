@@ -700,7 +700,7 @@ TESTS = [
     ),
     TestCase(
         name="fwupd.lvfs_nvme_and_scsi_ffu",
-        description="Firmware Update Manager (/bin/fwupdmgr) with nvme (Admin 0x11/0x10 + LID 0x03) and scsi (SPC-4 INQUIRY + WRITE_BUFFER 0x3B FFU) plugins",
+        description="Firmware Update Manager (/bin/fwupdmgr) with nvme, ufs, and scsi plugins under applications/fwupd/plugins/",
         cmd=(
             "fwupdmgr clear-history && "
             "fwupdmgr get-plugins && "
@@ -725,21 +725,24 @@ TESTS = [
         ),
         expected_substrings=[
             "nvme     [ENABLED]  NVM Express 1.4 Controller Firmware Update Plugin",
-            "scsi     [ENABLED]  SPC-4 SCSI / JEDEC UFS 4.0 Field Firmware Update (FFU) Plugin",
+            "ufs      [ENABLED]  JEDEC UFS 4.0 Field Firmware Update (FFU) Plugin",
+            "scsi     [ENABLED]  SPC-4 SCSI Field Firmware Update (FFU) Plugin",
             "Successfully refreshed LVFS metadata (3 component releases, 6 signed capsules staged",
             "Target GUID    : b585990a-003e-5270-89d5-3705a17f9a43",
             "[VALID SIGNATURE]",
             "[nvme] NVME_ADMIN_DOWNLOAD_FW (0x11): chunk 1/3 (512/1184 bytes, OFST=0 dwords)",
             "[nvme] NVME_ADMIN_ACTIVATE_FW (0x10): committed & activated Slot 2 (CA=3, FS=2)",
             "Successfully updated SIX Virtual NVMe SSD Controller (SIX-NVME-SSD) from 1.4.0 to 1.4.2 [VERIFIED]",
-            "[scsi] SCSI WRITE_BUFFER (0x3B, Mode 0x0E): chunk 1/3 (512/1184 bytes, offset=0x0000)",
-            "[scsi] SCSI WRITE_BUFFER (0x3B, Mode 0x0F): deferred microcode verified & activated",
+            "[ufs] UFS FFU WRITE_BUFFER (0x3B, Mode 0x0E): chunk 1/3 (512/1184 bytes, offset=0x0000)",
+            "[ufs] UFS FFU WRITE_BUFFER (0x3B, Mode 0x0F): deferred microcode verified & activated",
             "Successfully updated SIX JEDEC UFS 4.0 Flash Controller (SIX-UFS-FLASH) from 4.00 to 4.10 [VERIFIED]",
             "afi  : 0x22 (Active Slot: 2, Next Reset Slot: 2)",
             "frs1 : 1.4.0 [RO Factory]",
             "frs2 : 1.4.2 [RW Updatable]",
             "Verified SIX Virtual NVMe SSD Controller (SIX-NVME-SSD, plugin=nvme, version=1.4.2):",
-            "Verified SIX JEDEC UFS 4.0 Flash Controller (SIX-UFS-FLASH, plugin=scsi, version=4.10):",
+            "Verified SIX JEDEC UFS 4.0 Flash Controller (SIX-UFS-FLASH, plugin=ufs, version=4.10):",
+            "[scsi] SCSI WRITE_BUFFER (0x3B, Mode 0x0E): chunk 1/3 (512/1184 bytes, offset=0x0000)",
+            "[scsi] SCSI WRITE_BUFFER (0x3B, Mode 0x0F): deferred microcode verified & activated",
             "Successfully updated SIX USB Mass Storage SCSI Disk (SIX-USB-SCSI) from 1.00 to 1.10 [VERIFIED]",
             "[nvme] NVME_ADMIN_ACTIVATE_FW (0x10) REJECTED by controller (status=NVME_SC_FW_IMAGE_ERROR)",
             "fwupdmgr: firmware update FAILED on SIX-NVME-SSD (hardware rejected image)",

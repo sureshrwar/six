@@ -2,14 +2,13 @@
  * fwupdmgr.c - Linux Vendor Firmware Service (LVFS) / fwupd Client & Plugin
  *              Engine for SIX (/bin/fwupdmgr)
  *
- * Built-in Hardware Plugins:
- *   1. nvme : NVMe 1.4 Admin Queue Firmware Image Download (0x11) &
- *             Firmware Commit / Activate (0x10) + Firmware Slot Log (LID 0x03)
- *             Target: /dev/nvme0 (SIX Virtual NVMe SSD Controller)
- *   2. scsi : SPC-4 SCSI INQUIRY (0x12), WRITE_BUFFER (0x3B, Mode 0x0E/0x0F),
- *             and READ_BUFFER (0x3C) Field Firmware Update (FFU)
- *             Targets: /dev/ufs-bsg0 (SIX JEDEC UFS 4.0 Flash Controller)
- *                      /dev/sda      (SIX USB Mass Storage SCSI Disk)
+ * Modular Hardware Plugins (under applications/fwupd/plugins/):
+ *   1. plugins/nvme/fu-nvme-plugin.c : NVM Express 1.4 Admin Queue plugin
+ *                                      Target: /dev/nvme0
+ *   2. plugins/ufs/fu-ufs-plugin.c   : JEDEC UFS 4.0 UPIU + WRITE_BUFFER FFU
+ *                                      Target: /dev/ufs-bsg0
+ *   3. plugins/scsi/fu-scsi-plugin.c : SPC-4 SCSI WRITE_BUFFER FFU plugin
+ *                                      Target: /dev/sda
  *
  * Supported Subcommands:
  *   fwupdmgr get-plugins              List registered fwupd hardware plugins
@@ -33,33 +32,12 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/ioctl.h>
-#include "../../include/linux/nvme.h"
-#include "../../include/linux/ufs.h"
-#include "../../include/linux/fwupd.h"
+#include "fwupd_plugin.h"
 
 #define MAX_DEVICES		8
 #define LVFS_PKG_DIR		"/etc/fwupd/remotes.d/lvfs/packages"
 #define LVFS_META_PATH		"/etc/fwupd/remotes.d/lvfs/metadata.xml"
 #define FWUPD_HISTORY_PATH	"/var/lib/fwupd/history.db"
-
-struct fwupd_device {
-	char		name[48];
-	char		device_id[24];
-	char		guid[40];
-	char		plugin[16];
-	char		dev_node[32];
-	char		vendor[40];
-	char		serial[28];
-	char		version[16];
-	char		bootloader_info[64];
-	char		flags_str[96];
-	unsigned char	active_slot;
-	char		slot1_ver[12];
-	char		slot2_ver[12];
-	unsigned char	sha256[32];
-	int		online;
-};
 
 struct lvfs_release {
 	const char	*component_id;
@@ -93,7 +71,7 @@ static const struct lvfs_release lvfs_catalog[] = {
 		"org.six.ufs.firmware",
 		FWUPD_DEVID_UFS,
 		FWUPD_GUID_UFS,
-		"scsi",
+		"ufs",
 		"4.10",
 		"4.00",
 		"Medium",
@@ -119,7 +97,18 @@ static const struct lvfs_release lvfs_catalog[] = {
 
 #define NR_LVFS_RELEASES	(int)(sizeof(lvfs_catalog) / sizeof(lvfs_catalog[0]))
 
-static void trim_spaces(const char *src, int max_len, char *dst)
+/*
+ * Plugin Registry (compiled from applications/fwupd/plugins/<name>/)
+ */
+static const struct fwupd_plugin_ops * const fwupd_plugins[] = {
+	&fu_nvme_plugin_ops,
+	&fu_ufs_plugin_ops,
+	&fu_scsi_plugin_ops
+};
+
+#define NR_PLUGINS	(int)(sizeof(fwupd_plugins) / sizeof(fwupd_plugins[0]))
+
+void fwupd_trim_spaces(const char *src, int max_len, char *dst)
 {
 	int i;
 
@@ -211,9 +200,24 @@ static int write_signed_capsule_file(const char *path, const char *plugin,
 	return 0;
 }
 
+static int capsule_file_valid(const char *path, const char *expected_plugin)
+{
+	struct fwupd_capsule_hdr hdr;
+	int fd = open(path, O_RDONLY);
+	if (fd < 0)
+		return 0;
+	if (read(fd, &hdr, sizeof(hdr)) != (int)sizeof(hdr)) {
+		close(fd);
+		return 0;
+	}
+	close(fd);
+	return (hdr.magic == FWUPD_CAPSULE_MAGIC &&
+		strcmp(hdr.plugin, expected_plugin) == 0);
+}
+
 static void ensure_lvfs_repository(int force_rebuild)
 {
-	int i, fd;
+	int i;
 
 	mkdir("/etc/fwupd", 0755);
 	mkdir("/etc/fwupd/remotes.d", 0755);
@@ -222,26 +226,18 @@ static void ensure_lvfs_repository(int force_rebuild)
 	mkdir("/var", 0755);
 	mkdir("/var/lib", 0755);
 	mkdir("/var/lib/fwupd", 0755);
+	mkdir("/data/misc", 0755);
+	mkdir("/data/misc/fwupd", 0755);
+	symlink("/data/misc/fwupd/history.db", FWUPD_HISTORY_PATH);
 
 	for (i = 0; i < NR_LVFS_RELEASES; i++) {
 		const struct lvfs_release *r = &lvfs_catalog[i];
-		fd = open(r->pkg_filename, O_RDONLY);
-		if (fd >= 0 && !force_rebuild) {
-			close(fd);
-		} else {
-			if (fd >= 0)
-				close(fd);
+		if (force_rebuild || !capsule_file_valid(r->pkg_filename, r->plugin)) {
 			write_signed_capsule_file(r->pkg_filename, r->plugin,
 						  r->device_id, r->guid,
 						  r->latest_ver, r->capsule_flags);
 		}
-
-		fd = open(r->factory_pkg_filename, O_RDONLY);
-		if (fd >= 0 && !force_rebuild) {
-			close(fd);
-		} else {
-			if (fd >= 0)
-				close(fd);
+		if (force_rebuild || !capsule_file_valid(r->factory_pkg_filename, r->plugin)) {
 			write_signed_capsule_file(r->factory_pkg_filename, r->plugin,
 						  r->device_id, r->guid,
 						  r->factory_ver, r->capsule_flags);
@@ -249,357 +245,13 @@ static void ensure_lvfs_repository(int force_rebuild)
 	}
 }
 
-/* =========================================================================
- * Plugin 1: NVMe 1.4 Plugin ("nvme")
- * Uses NVME_IOCTL_ADMIN_CMD with Identify (0x06), Get Log Page LID 0x03 (0x02),
- * Firmware Image Download (0x11), and Firmware Commit / Activate (0x10).
- * ========================================================================= */
-
-static int nvme_plugin_probe(struct fwupd_device *devs, int max_devs)
-{
-	struct nvme_id_ctrl ctrl;
-	struct nvme_fw_slot_info_log fw_log;
-	struct nvme_passthru_cmd cmd;
-	struct fwupd_device *d;
-	int fd;
-
-	if (max_devs < 1)
-		return 0;
-
-	fd = open("/dev/nvme0", O_RDWR);
-	if (fd < 0)
-		fd = open("/dev/nvme0n1", O_RDONLY);
-	if (fd < 0)
-		return 0;
-
-	memset(&ctrl, 0, sizeof(ctrl));
-	memset(&cmd, 0, sizeof(cmd));
-	cmd.opcode = nvme_admin_identify;
-	cmd.addr = (unsigned long)&ctrl;
-	cmd.data_len = sizeof(ctrl);
-	cmd.cdw10 = NVME_ID_CNS_CTRL;
-	if (ioctl(fd, NVME_IOCTL_ADMIN_CMD, &cmd) < 0) {
-		close(fd);
-		return 0;
-	}
-
-	memset(&fw_log, 0, sizeof(fw_log));
-	memset(&cmd, 0, sizeof(cmd));
-	cmd.opcode = nvme_admin_get_log_page;
-	cmd.nsid = 0xffffffffU;
-	cmd.addr = (unsigned long)&fw_log;
-	cmd.data_len = sizeof(fw_log);
-	cmd.cdw10 = NVME_LOG_FW_SLOT | (((sizeof(fw_log) / 4) - 1) << 16);
-	ioctl(fd, NVME_IOCTL_ADMIN_CMD, &cmd);
-	close(fd);
-
-	d = &devs[0];
-	memset(d, 0, sizeof(*d));
-	trim_spaces(ctrl.mn, 40, d->name);
-	strcpy(d->device_id, FWUPD_DEVID_NVME);
-	strcpy(d->guid, FWUPD_GUID_NVME);
-	strcpy(d->plugin, "nvme");
-	strcpy(d->dev_node, "/dev/nvme0");
-	strcpy(d->vendor, "SIX (PCIe 0x1B36)");
-	trim_spaces(ctrl.sn, 20, d->serial);
-	trim_spaces(ctrl.fr, 8, d->version);
-
-	d->active_slot = fw_log.afi & 0x07;
-	if (d->active_slot < 1 || d->active_slot > 2)
-		d->active_slot = 1;
-	trim_spaces(fw_log.frs[0], 8, d->slot1_ver);
-	trim_spaces(fw_log.frs[1], 8, d->slot2_ver);
-	if (!d->slot2_ver[0])
-		strcpy(d->slot2_ver, "empty");
-
-	sprintf(d->bootloader_info, "Active Slot %u (Slot1=%s [RO], Slot2=%s [RW])",
-		d->active_slot, d->slot1_ver, d->slot2_ver);
-	strcpy(d->flags_str, "internal|updatable|signed-payload|usable-during-update|dual-image");
-	memcpy(d->sha256, fw_log.slot_sha256[d->active_slot - 1], 32);
-	d->online = 1;
-	return 1;
-}
-
-static int nvme_plugin_write_firmware(const struct fwupd_device *dev,
-				      const unsigned char *img,
-				      unsigned int img_len)
-{
-	struct nvme_passthru_cmd cmd;
-	unsigned int offset = 0;
-	unsigned int chunk_idx = 0;
-	unsigned int total_chunks = (img_len + FWUPD_CHUNK_SIZE - 1) / FWUPD_CHUNK_SIZE;
-	int fd, rc;
-
-	fd = open(dev->dev_node, O_RDWR);
-	if (fd < 0) {
-		fprintf(stderr, "fwupdmgr [nvme]: cannot open %s\n", dev->dev_node);
-		return -1;
-	}
-
-	/* Step 1: Stream firmware capsule via NVME_ADMIN_DOWNLOAD_FW (opcode 0x11) */
-	while (offset < img_len) {
-		unsigned int chunk = img_len - offset;
-		unsigned int padded_chunk;
-		unsigned char chunk_buf[FWUPD_CHUNK_SIZE];
-
-		if (chunk > FWUPD_CHUNK_SIZE)
-			chunk = FWUPD_CHUNK_SIZE;
-		padded_chunk = (chunk + 3U) & ~3U;
-		memset(chunk_buf, 0, sizeof(chunk_buf));
-		memcpy(chunk_buf, img + offset, chunk);
-
-		memset(&cmd, 0, sizeof(cmd));
-		cmd.opcode = nvme_admin_download_fw;
-		cmd.addr = (unsigned long)chunk_buf;
-		cmd.data_len = padded_chunk;
-		cmd.cdw10 = (padded_chunk / 4U) - 1U;	/* NUMD (0-based dwords) */
-		cmd.cdw11 = offset / 4U;		/* OFST (dword offset) */
-
-		if (ioctl(fd, NVME_IOCTL_ADMIN_CMD, &cmd) < 0) {
-			fprintf(stderr, "fwupdmgr [nvme]: NVME_ADMIN_DOWNLOAD_FW failed at offset %u\n",
-				offset);
-			close(fd);
-			return -1;
-		}
-		offset += chunk;
-		chunk_idx++;
-		printf("  [nvme] NVME_ADMIN_DOWNLOAD_FW (0x11): chunk %u/%u (%u/%u bytes, OFST=%u dwords)\n",
-		       chunk_idx, total_chunks, offset, img_len, cmd.cdw11);
-	}
-
-	/* Step 2: Commit & Activate in Slot 2 via NVME_ADMIN_ACTIVATE_FW (opcode 0x10, CA=3, FS=2) */
-	memset(&cmd, 0, sizeof(cmd));
-	cmd.opcode = nvme_admin_activate_fw;
-	cmd.cdw10 = (3U << 3) | 2U; /* CA=011b (activate immediately), FS=2 (Slot 2) */
-
-	rc = ioctl(fd, NVME_IOCTL_ADMIN_CMD, &cmd);
-	close(fd);
-	if (rc < 0) {
-		printf("  [nvme] NVME_ADMIN_ACTIVATE_FW (0x10) REJECTED by controller (status=NVME_SC_FW_IMAGE_ERROR)\n");
-		return -1;
-	}
-	printf("  [nvme] NVME_ADMIN_ACTIVATE_FW (0x10): committed & activated Slot 2 (CA=3, FS=2)\n");
-	return 0;
-}
-
-static int nvme_plugin_activate_slot(const struct fwupd_device *dev, unsigned int slot)
-{
-	struct nvme_passthru_cmd cmd;
-	int fd, rc;
-
-	fd = open(dev->dev_node, O_RDWR);
-	if (fd < 0)
-		return -1;
-
-	memset(&cmd, 0, sizeof(cmd));
-	cmd.opcode = nvme_admin_activate_fw;
-	cmd.cdw10 = (2U << 3) | (slot & 0x07U); /* CA=010b (activate existing slot), FS=slot */
-	rc = ioctl(fd, NVME_IOCTL_ADMIN_CMD, &cmd);
-	close(fd);
-	return rc;
-}
-
-/* =========================================================================
- * Plugin 2: SPC-4 SCSI / UFS FFU Plugin ("scsi")
- * Uses UFS_IOCTL_SCSI_CMD with INQUIRY (0x12), WRITE_BUFFER (0x3B, Mode
- * 0x0E Download Microcode with Offsets & Mode 0x0F Activate Deferred
- * Microcode), and READ_BUFFER (0x3C) on /dev/ufs-bsg0 and /dev/sda.
- * ========================================================================= */
-
-static int scsi_probe_one(const char *dev_node, const char *device_id,
-			  const char *guid, const char *friendly_name,
-			  const char *default_serial, int is_ufs,
-			  struct fwupd_device *out_dev)
-{
-	struct ufs_bsg_scsi_ioctl sc;
-	unsigned char inq[68];
-	char vendor[12], prod[20], rev[8];
-	int fd;
-
-	fd = open(dev_node, O_RDWR);
-	if (fd < 0)
-		fd = open(dev_node, O_RDONLY);
-	if (fd < 0)
-		return 0;
-
-	memset(inq, 0, sizeof(inq));
-	memset(&sc, 0, sizeof(sc));
-	sc.lun = 0;
-	sc.opcode = UFS_SCSI_INQUIRY;
-	sc.data_len = sizeof(inq);
-	sc.data_addr = (unsigned long)inq;
-
-	if (ioctl(fd, UFS_IOCTL_SCSI_CMD, &sc) < 0 || sc.status != 0x00) {
-		close(fd);
-		return 0;
-	}
-
-	memset(out_dev, 0, sizeof(*out_dev));
-	strcpy(out_dev->name, friendly_name);
-	strcpy(out_dev->device_id, device_id);
-	strcpy(out_dev->guid, guid);
-	strcpy(out_dev->plugin, "scsi");
-	strcpy(out_dev->dev_node, dev_node);
-
-	trim_spaces((const char *)(inq + 8), 8, vendor);
-	trim_spaces((const char *)(inq + 16), 16, prod);
-	trim_spaces((const char *)(inq + 32), 4, rev);
-
-	sprintf(out_dev->vendor, "%s (%s)", vendor, prod);
-	strcpy(out_dev->serial, default_serial);
-	strcpy(out_dev->version, rev);
-	memcpy(out_dev->sha256, inq + 36, 32);
-
-	if (is_ufs) {
-		struct ufs_bsg_query_ioctl q;
-		unsigned int boot_slot = 1;
-		memset(&q, 0, sizeof(q));
-		q.opcode = UPIU_QUERY_OPCODE_READ_ATTR;
-		q.idn = UFS_ATTR_IDN_BOOT_LUN_ID;
-		if (ioctl(fd, UFS_IOCTL_QUERY, &q) == 0)
-			boot_slot = q.value;
-		sprintf(out_dev->bootloader_info,
-			"bBootLunID=0x%02x (Boot Slot %c)",
-			boot_slot, (boot_slot == 2) ? 'B' : 'A');
-		strcpy(out_dev->flags_str,
-		       "internal|updatable|signed-payload|usable-during-update");
-	} else {
-		strcpy(out_dev->bootloader_info, "SPC-4 USB Mass Storage BOT");
-		strcpy(out_dev->flags_str, "updatable|signed-payload|removable");
-	}
-
-	close(fd);
-	out_dev->online = 1;
-	return 1;
-}
-
-static int scsi_plugin_probe(struct fwupd_device *devs, int max_devs)
-{
-	int count = 0;
-
-	if (count < max_devs) {
-		count += scsi_probe_one("/dev/ufs-bsg0",
-					FWUPD_DEVID_UFS,
-					FWUPD_GUID_UFS,
-					"SIX JEDEC UFS 4.0 Flash Controller",
-					"SIX-UFS4-2026-0001",
-					1,
-					&devs[count]);
-	}
-	if (count < max_devs) {
-		count += scsi_probe_one("/dev/sda",
-					FWUPD_DEVID_USB_SCSI,
-					FWUPD_GUID_USB_SCSI,
-					"SIX USB Mass Storage SCSI Disk",
-					"USB-SCSI-4A8F-9C21",
-					0,
-					&devs[count]);
-	}
-	return count;
-}
-
-static int scsi_plugin_write_firmware(const struct fwupd_device *dev,
-				      const unsigned char *img,
-				      unsigned int img_len)
-{
-	struct ufs_bsg_scsi_ioctl sc;
-	unsigned int offset = 0;
-	unsigned int chunk_idx = 0;
-	unsigned int total_chunks = (img_len + FWUPD_CHUNK_SIZE - 1) / FWUPD_CHUNK_SIZE;
-	int fd, rc;
-
-	fd = open(dev->dev_node, O_RDWR);
-	if (fd < 0) {
-		fprintf(stderr, "fwupdmgr [scsi]: cannot open %s\n", dev->dev_node);
-		return -1;
-	}
-
-	/* Step 1: Stream microcode via SCSI WRITE_BUFFER (0x3B, Mode 0x0E: Download with Offsets) */
-	while (offset < img_len) {
-		unsigned int chunk = img_len - offset;
-		if (chunk > FWUPD_CHUNK_SIZE)
-			chunk = FWUPD_CHUNK_SIZE;
-
-		memset(&sc, 0, sizeof(sc));
-		sc.lun = 0;
-		sc.opcode = UFS_SCSI_WRITE_BUFFER;
-		sc.rsvd = SCSI_WB_MODE_DOWNLOAD_OFFSET_SAVE;
-		sc.lba = offset;
-		sc.data_len = chunk;
-		sc.data_addr = (unsigned long)(img + offset);
-
-		if (ioctl(fd, UFS_IOCTL_SCSI_CMD, &sc) < 0 || sc.status != 0x00) {
-			fprintf(stderr, "fwupdmgr [scsi]: WRITE_BUFFER (Mode 0x0E) failed at offset %u\n",
-				offset);
-			close(fd);
-			return -1;
-		}
-		offset += chunk;
-		chunk_idx++;
-		printf("  [scsi] SCSI WRITE_BUFFER (0x3B, Mode 0x0E): chunk %u/%u (%u/%u bytes, offset=0x%04x)\n",
-		       chunk_idx, total_chunks, offset, img_len, sc.lba);
-	}
-
-	/* Step 2: Activate deferred microcode via SCSI WRITE_BUFFER (0x3B, Mode 0x0F) */
-	memset(&sc, 0, sizeof(sc));
-	sc.lun = 0;
-	sc.opcode = UFS_SCSI_WRITE_BUFFER;
-	sc.rsvd = SCSI_WB_MODE_ACTIVATE_DEFERRED;
-	sc.lba = 0;
-	sc.data_len = 0;
-	sc.data_addr = 0;
-
-	rc = ioctl(fd, UFS_IOCTL_SCSI_CMD, &sc);
-	close(fd);
-	if (rc < 0 || sc.status != 0x00) {
-		printf("  [scsi] SCSI WRITE_BUFFER (0x3B, Mode 0x0F) REJECTED by target (status=0x%02x CHECK_CONDITION)\n",
-		       sc.status);
-		return -1;
-	}
-	printf("  [scsi] SCSI WRITE_BUFFER (0x3B, Mode 0x0F): deferred microcode verified & activated\n");
-	return 0;
-}
-
-/* =========================================================================
- * Plugin Registry & Dispatch Table
- * ========================================================================= */
-
-struct fwupd_plugin_ops {
-	const char	*name;
-	const char	*summary;
-	const char	*protocol;
-	int (*probe)(struct fwupd_device *devs, int max_devs);
-	int (*write_firmware)(const struct fwupd_device *dev,
-			      const unsigned char *img,
-			      unsigned int img_len);
-};
-
-static const struct fwupd_plugin_ops fwupd_plugins[] = {
-	{
-		"nvme",
-		"NVM Express 1.4 Controller Firmware Update Plugin",
-		"NVMe Admin Queue (0x11 Download / 0x10 Commit / LID 0x03 Slot Log)",
-		nvme_plugin_probe,
-		nvme_plugin_write_firmware
-	},
-	{
-		"scsi",
-		"SPC-4 SCSI / JEDEC UFS 4.0 Field Firmware Update (FFU) Plugin",
-		"SCSI CDB (0x12 INQUIRY / 0x3B WRITE_BUFFER Mode 0x0E & 0x0F / 0x3C READ_BUFFER)",
-		scsi_plugin_probe,
-		scsi_plugin_write_firmware
-	}
-};
-
-#define NR_PLUGINS	(int)(sizeof(fwupd_plugins) / sizeof(fwupd_plugins[0]))
-
 static int probe_all_devices(struct fwupd_device *devs, int max_devs)
 {
 	int total = 0;
 	int i;
 
 	for (i = 0; i < NR_PLUGINS && total < max_devs; i++) {
-		total += fwupd_plugins[i].probe(devs + total, max_devs - total);
+		total += fwupd_plugins[i]->probe(devs + total, max_devs - total);
 	}
 	return total;
 }
@@ -608,8 +260,8 @@ static const struct fwupd_plugin_ops *find_plugin(const char *name)
 {
 	int i;
 	for (i = 0; i < NR_PLUGINS; i++) {
-		if (strcmp(fwupd_plugins[i].name, name) == 0)
-			return &fwupd_plugins[i];
+		if (strcmp(fwupd_plugins[i]->name, name) == 0)
+			return fwupd_plugins[i];
 	}
 	return NULL;
 }
@@ -669,9 +321,9 @@ static int cmd_get_plugins(void)
 	printf("fwupd 1.9.24 — Enabled Hardware Firmware Update Plugins:\n");
 	for (i = 0; i < NR_PLUGINS; i++) {
 		printf("  %-8s [ENABLED]  %s\n",
-		       fwupd_plugins[i].name, fwupd_plugins[i].summary);
+		       fwupd_plugins[i]->name, fwupd_plugins[i]->summary);
 		printf("                      Transport: %s\n",
-		       fwupd_plugins[i].protocol);
+		       fwupd_plugins[i]->protocol);
 	}
 	return 0;
 }
@@ -922,6 +574,7 @@ static int cmd_activate(const char *target_query, const char *slot_str)
 {
 	struct fwupd_device devs[MAX_DEVICES];
 	struct fwupd_device *dev;
+	const struct fwupd_plugin_ops *plug;
 	unsigned int slot = slot_str ? (unsigned int)atoi(slot_str) : 1;
 	char old_ver[16];
 	int nr = probe_all_devices(devs, MAX_DEVICES);
@@ -931,8 +584,10 @@ static int cmd_activate(const char *target_query, const char *slot_str)
 		fprintf(stderr, "fwupdmgr activate: device not found\n");
 		return 1;
 	}
-	if (strcmp(dev->plugin, "nvme") != 0) {
-		fprintf(stderr, "fwupdmgr activate: dual-slot activation is only supported on nvme devices\n");
+	plug = find_plugin(dev->plugin);
+	if (!plug || !plug->activate_slot) {
+		fprintf(stderr, "fwupdmgr activate: dual-slot activation is not supported by plugin '%s'\n",
+			dev->plugin);
 		return 1;
 	}
 	if (slot < 1 || slot > 2) {
@@ -941,7 +596,7 @@ static int cmd_activate(const char *target_query, const char *slot_str)
 	}
 
 	strcpy(old_ver, dev->version);
-	if (nvme_plugin_activate_slot(dev, slot) < 0) {
+	if (plug->activate_slot(dev, slot) < 0) {
 		fprintf(stderr, "fwupdmgr activate: failed to activate Slot %u on %s\n",
 			slot, dev->device_id);
 		return 1;
@@ -980,7 +635,9 @@ static int cmd_get_history(void)
 
 static int cmd_clear_history(void)
 {
+	unlink("/data/misc/fwupd/history.db");
 	unlink(FWUPD_HISTORY_PATH);
+	symlink("/data/misc/fwupd/history.db", FWUPD_HISTORY_PATH);
 	printf("Cleared firmware update history (%s).\n", FWUPD_HISTORY_PATH);
 	return 0;
 }
@@ -1029,10 +686,10 @@ static int cmd_examine(const char *capsule_path)
 
 static void usage(void)
 {
-	printf("fwupdmgr 1.9.24 (SIX Firmware Update Manager — nvme & scsi plugins)\n"
+	printf("fwupdmgr 1.9.24 (SIX Firmware Update Manager — nvme, ufs & scsi plugins)\n"
 	       "Usage: fwupdmgr <command> [options]\n\n"
 	       "Commands:\n"
-	       "  get-plugins                            List built-in hardware plugins (nvme, scsi)\n"
+	       "  get-plugins                            List built-in hardware plugins (nvme, ufs, scsi)\n"
 	       "  get-devices                            Probe hardware and list updatable devices\n"
 	       "  refresh                                Refresh LVFS metadata and signed capsules\n"
 	       "  get-updates                            Show available LVFS firmware updates\n"
