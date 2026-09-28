@@ -138,6 +138,7 @@ SUBDIRS	=	start \
 		who \
 		chown \
 		mediaproviderd \
+		externalstoraged \
 		content \
 		files \
 		nvme \

@@ -11,6 +11,7 @@ sleep 0.25
 /bin/vold &
 /bin/storaged &
 /bin/mediaproviderd &
+/bin/externalstoraged &
 /bin/sadbd &
 
 sleep 0.25

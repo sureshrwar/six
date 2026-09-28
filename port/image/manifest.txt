@@ -204,6 +204,7 @@ file  /bin/whoami           0755  applications/whoami/whoami
 file  /bin/who              0755  applications/who/who
 file  /bin/chown            0755  applications/chown/chown
 file  /bin/mediaproviderd   0755  applications/mediaproviderd/mediaproviderd
+file  /bin/externalstoraged 0755  applications/externalstoraged/externalstoraged
 file  /bin/content          0755  applications/content/content
 sym   /bin/mediaprovider    -     content
 file  /bin/files            0755  applications/files/files

@@ -346,6 +346,8 @@ TESTS = [
             "write(",
             "servicemanager",
             "vold",
+            "mediaproviderd",
+            "externalstorage",
         ],
     ),
     TestCase(
