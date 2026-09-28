@@ -81,7 +81,7 @@ static unsigned long smart_media_errors = 0;
 static unsigned long smart_power_cycles = 1;
 
 /* NVMe Firmware Slot (LID 0x03) & Firmware Image Download (0x11) state */
-#define NVME_HDR_MAGIC		0x454d564eU	/* "NVME" */
+#define NVME_HDR_MAGIC		0x454d5632U	/* "NVM2" (.bin full SHA-256) */
 #define NVME_PERSIST_HDR_OFFSET	0UL		/* Sector 0 (before ext4 superblock at 1024B) */
 
 struct nvme_persist_hdr {
@@ -96,8 +96,7 @@ struct nvme_persist_hdr {
 };
 
 static struct nvme_persist_hdr nvme_hdr;
-static unsigned char nvme_fw_staging[8192];
-static unsigned int nvme_fw_staged_len = 0;
+static struct fwupd_stream_state nvme_fw_stream;
 static unsigned char nvme_active_fw_slot = 1;
 static char nvme_fw_slots[2][8] = {
 	{ '1', '.', '4', '.', '0', ' ', ' ', ' ' },
@@ -150,9 +149,9 @@ static void nvme_load_or_init_persist_hdr(void)
 		memcpy(nvme_fw_slots[0], "1.4.0   ", 8);
 		memcpy(nvme_fw_slots[1], "        ", 8);
 		memset(nvme_fw_slot_sha256, 0, sizeof(nvme_fw_slot_sha256));
-		fwupd_build_microcode(FWUPD_DEVID_NVME, "1.4.0",
-				      nvme_admin_bounce, FWUPD_DEFAULT_PAYLOAD_SIZE,
-				      nvme_fw_slot_sha256[0]);
+		fwupd_build_bin_image("nvme", FWUPD_DEVID_NVME, FWUPD_GUID_NVME, "1.4.0",
+				      FWUPD_FLAG_SIGNED_PAYLOAD | FWUPD_FLAG_DUAL_IMAGE | FWUPD_FLAG_USABLE_DURING_UPDATE,
+				      nvme_admin_bounce, nvme_fw_slot_sha256[0]);
 		nvme_fw_commit_count = 0;
 		smart_power_cycles = 1;
 		nvme_save_persist_hdr();
@@ -356,29 +355,22 @@ static void nvme_exec_admin_sqe(const struct nvme_command *cmd,
 	case nvme_admin_download_fw: {
 		unsigned int numd = cmd->cdw10;
 		unsigned int ofst = cmd->cdw11;
-		unsigned int bytes = (numd + 1U) * 4U;
+		unsigned int bytes = cmd->cdw12 ? cmd->cdw12 : ((numd + 1U) * 4U);
 		unsigned int offset = ofst * 4U;
-		void *src = (void *)cmd->prp1_lo;
+		const unsigned char *src = (const unsigned char *)cmd->prp1_lo;
 
-		if (!src || bytes == 0 || offset + bytes > sizeof(nvme_fw_staging)) {
+		if (fwupd_stream_write_chunk(&nvme_fw_stream, offset, src, bytes) < 0) {
 			*out_status = NVME_SC_INVALID_FIELD;
 			return;
 		}
-		if (offset == 0) {
-			memset(nvme_fw_staging, 0, sizeof(nvme_fw_staging));
-			nvme_fw_staged_len = 0;
-		}
-		memcpy(nvme_fw_staging + offset, src, bytes);
-		if (offset + bytes > nvme_fw_staged_len)
-			nvme_fw_staged_len = offset + bytes;
 		return;
 	}
 
 	case nvme_admin_activate_fw: {
 		unsigned int fs = cmd->cdw10 & 0x07;
 		unsigned int ca = (cmd->cdw10 >> 3) & 0x07;
-		const struct fwupd_capsule_hdr *hdr;
-		unsigned char calc_sha256[32];
+		unsigned char full_sha256[32];
+		char detected_ver[12];
 		int i, vlen;
 
 		if (fs == 0)
@@ -402,47 +394,34 @@ static void nvme_exec_admin_sqe(const struct nvme_command *cmd,
 			return;
 		}
 
-		/* CA=0, 1, 3: Validate staged firmware capsule header & SHA-256 signature */
+		/* CA=0, 1, 3: Validate streamed .bin firmware image & SHA-256 integrity */
 		if (fs == 1) {
 			/* Slot 1 is factory read-only per ctrl.frmw bit 0 */
 			*out_status = NVME_SC_READ_ONLY;
 			return;
 		}
-		if (nvme_fw_staged_len < sizeof(struct fwupd_capsule_hdr)) {
-			*out_status = NVME_SC_FW_IMAGE_ERROR;
-			return;
-		}
-		hdr = (const struct fwupd_capsule_hdr *)nvme_fw_staging;
-		if (hdr->magic != FWUPD_CAPSULE_MAGIC ||
-		    strcmp(hdr->device_id, FWUPD_DEVID_NVME) != 0 ||
-		    hdr->payload_len == 0 ||
-		    sizeof(*hdr) + hdr->payload_len > nvme_fw_staged_len) {
-			printk("nvme0: Firmware Commit REJECTED (invalid capsule header or target ID)\n");
-			*out_status = NVME_SC_FW_IMAGE_ERROR;
-			return;
-		}
-
-		fwupd_sha256(nvme_fw_staging + sizeof(*hdr), hdr->payload_len, calc_sha256);
-		if (memcmp(calc_sha256, hdr->sha256, 32) != 0) {
-			printk("nvme0: Firmware Commit REJECTED (SHA-256 signature mismatch)\n");
+		memset(detected_ver, 0, sizeof(detected_ver));
+		if (fwupd_stream_validate_and_finalize(&nvme_fw_stream, FWUPD_DEVID_NVME,
+						       8, detected_ver, full_sha256) < 0) {
+			printk("nvme0: Firmware Commit REJECTED (.bin integrity / SHA-256 verification failed)\n");
 			*out_status = NVME_SC_FW_IMAGE_ERROR;
 			return;
 		}
 
 		memset(nvme_fw_slots[fs - 1], ' ', 8);
-		vlen = (int)strlen(hdr->fw_version);
+		vlen = (int)strlen(detected_ver);
 		if (vlen > 8)
 			vlen = 8;
 		for (i = 0; i < vlen; i++)
-			nvme_fw_slots[fs - 1][i] = hdr->fw_version[i];
-		memcpy(nvme_fw_slot_sha256[fs - 1], hdr->sha256, 32);
+			nvme_fw_slots[fs - 1][i] = detected_ver[i];
+		memcpy(nvme_fw_slot_sha256[fs - 1], full_sha256, 32);
 
 		if (ca == 1 || ca == 3)
 			nvme_active_fw_slot = (unsigned char)fs;
 		nvme_fw_commit_count++;
 		nvme_save_persist_hdr();
-		printk("nvme0: Firmware Commit (CA=%u): installed rev %s into Slot %u (ACTIVE)\n",
-		       ca, hdr->fw_version, fs);
+		printk("nvme0: Firmware Commit (CA=%u): installed .bin rev %s (%u bytes) into Slot %u (ACTIVE)\n",
+		       ca, detected_ver, nvme_fw_stream.staged_len, fs);
 		return;
 	}
 
@@ -1156,11 +1135,11 @@ int nvme_init(void)
 	nvme_init_queue(&nvme_admin_q, 0, NVME_AQ_DEPTH);
 	nvme_init_queue(&nvme_io_q, 1, NVME_IOQ_DEPTH);
 
-	/* Initialize Slot 1 factory firmware ("1.4.0") cryptographic SHA-256 digest */
+	/* Initialize Slot 1 factory firmware ("1.4.0") .bin cryptographic SHA-256 digest */
 	memset(nvme_fw_slot_sha256, 0, sizeof(nvme_fw_slot_sha256));
-	fwupd_build_microcode(FWUPD_DEVID_NVME, "1.4.0",
-			      nvme_admin_bounce, FWUPD_DEFAULT_PAYLOAD_SIZE,
-			      nvme_fw_slot_sha256[0]);
+	fwupd_build_bin_image("nvme", FWUPD_DEVID_NVME, FWUPD_GUID_NVME, "1.4.0",
+			      FWUPD_FLAG_SIGNED_PAYLOAD | FWUPD_FLAG_DUAL_IMAGE | FWUPD_FLAG_USABLE_DURING_UPDATE,
+			      nvme_admin_bounce, nvme_fw_slot_sha256[0]);
 
 	env_path = getenv("NVMEDISKFILE");
 	if (env_path && env_path[0]) {

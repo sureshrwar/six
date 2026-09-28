@@ -40,8 +40,7 @@ static char usb_sd_fstype[16] = "ext2";
 static char usb_sd_img_path[64] = "./disk/x86/usb_ext2.img";
 
 /* SCSI Field Firmware Update (FFU via WRITE_BUFFER 0x3B) state for /dev/sda */
-static unsigned char usb_sd_fw_staging[8192];
-static unsigned int usb_sd_fw_staged_len = 0;
+static struct fwupd_stream_state usb_sd_fw_stream;
 static char usb_sd_fw_rev[8] = "1.00";
 static unsigned char usb_sd_fw_sha256[32];
 static unsigned char usb_sd_scsi_bounce[4096];
@@ -350,52 +349,34 @@ static int usb_sd_handle_scsi_ioctl(unsigned long arg)
 
 		if (mode == SCSI_WB_MODE_DOWNLOAD_OFFSET_SAVE ||
 		    mode == SCSI_WB_MODE_DOWNLOAD_SAVE) {
-			if (xfer_len == 0 || buf_off + xfer_len > sizeof(usb_sd_fw_staging)) {
+			if (fwupd_stream_write_chunk(&usb_sd_fw_stream, buf_off,
+						     usb_sd_scsi_bounce, xfer_len) < 0) {
 				sc.status = 0x02;
 				break;
 			}
-			if (buf_off == 0) {
-				memset(usb_sd_fw_staging, 0, sizeof(usb_sd_fw_staging));
-				usb_sd_fw_staged_len = 0;
-			}
-			memcpy(usb_sd_fw_staging + buf_off, usb_sd_scsi_bounce, xfer_len);
-			if (buf_off + xfer_len > usb_sd_fw_staged_len)
-				usb_sd_fw_staged_len = buf_off + xfer_len;
 			if (mode == SCSI_WB_MODE_DOWNLOAD_OFFSET_SAVE)
 				break;
 		}
 
 		if (mode == SCSI_WB_MODE_ACTIVATE_DEFERRED ||
 		    mode == SCSI_WB_MODE_DOWNLOAD_SAVE) {
-			const struct fwupd_capsule_hdr *hdr;
-			unsigned char calc_sha256[32];
+			unsigned char full_sha256[32];
+			char detected_ver[8];
 
-			if (usb_sd_fw_staged_len < sizeof(struct fwupd_capsule_hdr)) {
-				sc.status = 0x02;
-				break;
-			}
-			hdr = (const struct fwupd_capsule_hdr *)usb_sd_fw_staging;
-			if (hdr->magic != FWUPD_CAPSULE_MAGIC ||
-			    strcmp(hdr->device_id, FWUPD_DEVID_USB_SCSI) != 0 ||
-			    hdr->payload_len == 0 ||
-			    sizeof(*hdr) + hdr->payload_len > usb_sd_fw_staged_len) {
-				printk("sd 0:0:0:0: [sda] SCSI WRITE_BUFFER FFU REJECTED (invalid header)\n");
-				sc.status = 0x02;
-				break;
-			}
-			fwupd_sha256(usb_sd_fw_staging + sizeof(*hdr), hdr->payload_len, calc_sha256);
-			if (memcmp(calc_sha256, hdr->sha256, 32) != 0) {
-				printk("sd 0:0:0:0: [sda] SCSI WRITE_BUFFER FFU REJECTED (SHA-256 mismatch)\n");
+			memset(detected_ver, 0, sizeof(detected_ver));
+			if (fwupd_stream_validate_and_finalize(&usb_sd_fw_stream, FWUPD_DEVID_USB_SCSI,
+							       4, detected_ver, full_sha256) < 0) {
+				printk("sd 0:0:0:0: [sda] SCSI WRITE_BUFFER FFU REJECTED (.bin integrity / SHA-256 mismatch)\n");
 				sc.status = 0x02;
 				break;
 			}
 			memset(usb_sd_fw_rev, ' ', 4);
 			usb_sd_fw_rev[4] = '\0';
-			strncpy(usb_sd_fw_rev, hdr->fw_version, 4);
+			strncpy(usb_sd_fw_rev, detected_ver, 4);
 			usb_sd_fw_rev[4] = '\0';
-			memcpy(usb_sd_fw_sha256, hdr->sha256, 32);
-			printk("sd 0:0:0:0: [sda] SCSI WRITE_BUFFER FFU activated rev=%s\n",
-			       usb_sd_fw_rev);
+			memcpy(usb_sd_fw_sha256, full_sha256, 32);
+			printk("sd 0:0:0:0: [sda] SCSI WRITE_BUFFER FFU activated .bin rev=%s (%u bytes)\n",
+			       usb_sd_fw_rev, usb_sd_fw_stream.staged_len);
 			break;
 		}
 		sc.status = 0x02;
@@ -491,9 +472,9 @@ int usb_sd_init(void)
 {
 	int i;
 
-	fwupd_build_microcode(FWUPD_DEVID_USB_SCSI, "1.00",
-			      usb_sd_scsi_bounce, FWUPD_DEFAULT_PAYLOAD_SIZE,
-			      usb_sd_fw_sha256);
+	fwupd_build_bin_image("scsi", FWUPD_DEVID_USB_SCSI, FWUPD_GUID_USB_SCSI, "1.00",
+			      FWUPD_FLAG_SIGNED_PAYLOAD | FWUPD_FLAG_REMOVABLE,
+			      usb_sd_scsi_bounce, usb_sd_fw_sha256);
 
 	if (register_blkdev(SCSI_DISK_MAJOR, "sd", &usb_sd_fops)) {
 		printk("usb_sd: unable to register major %d\n", SCSI_DISK_MAJOR);

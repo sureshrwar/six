@@ -700,34 +700,39 @@ TESTS = [
     ),
     TestCase(
         name="fwupd.lvfs_nvme_and_scsi_ffu",
-        description="Firmware Update Manager (/bin/fwupdmgr) with nvme, ufs, and scsi plugins under applications/fwupd/plugins/",
+        description="Firmware Update Manager (/bin/fwupdmgr) with nvme, ufs, and scsi plugins and real-world .bin firmware support",
         cmd=(
             "fwupdmgr clear-history && "
             "fwupdmgr get-plugins && "
             "fwupdmgr refresh && "
             "fwupdmgr get-devices && "
             "fwupdmgr get-updates && "
-            "fwupdmgr examine /etc/fwupd/remotes.d/lvfs/packages/six-nvme-ssd-1.4.2.fw && "
+            "fwupdmgr examine /etc/fwupd/remotes.d/lvfs/packages/six-nvme-ssd-1.4.2.bin && "
             "fwupdmgr update && "
             "nvme fw-log /dev/nvme0 && "
             "fwupdmgr verify && "
+            "echo 'VENDOR_NVME_MICROCODE_BLOB_REV_1.5.0_PADDING_0123456789ABCDEF0123456789ABCDEF' > /tmp/vendor_nvme.bin && "
+            "fwupdmgr examine /tmp/vendor_nvme.bin && "
+            "fwupdmgr install-blob /tmp/vendor_nvme.bin SIX-NVME-SSD && "
+            "fwupdmgr verify SIX-NVME-SSD && "
+            "rm /tmp/vendor_nvme.bin && "
             "usbctl plug ext4 && "
             "fwupdmgr get-updates && "
             "fwupdmgr update SIX-USB-SCSI && "
             "usbctl unplug && "
-            "cp /etc/fwupd/remotes.d/lvfs/packages/six-nvme-ssd-1.4.0.fw /tmp/bad.fw && "
-            "dd if=/dev/zero of=/tmp/bad.fw bs=1 seek=200 count=16 && "
-            "(fwupdmgr install /tmp/bad.fw --allow-older || true) && "
-            "rm /tmp/bad.fw && "
+            "cp /etc/fwupd/remotes.d/lvfs/packages/six-nvme-ssd-1.4.0.bin /tmp/bad.bin && "
+            "dd if=/dev/zero of=/tmp/bad.bin bs=1 seek=200 count=16 && "
+            "(fwupdmgr install /tmp/bad.bin --allow-older || true) && "
+            "rm /tmp/bad.bin && "
             "fwupdmgr activate SIX-NVME-SSD 1 && "
-            "fwupdmgr install /etc/fwupd/remotes.d/lvfs/packages/six-ufs-flash-4.00.fw --allow-older && "
+            "fwupdmgr install /etc/fwupd/remotes.d/lvfs/packages/six-ufs-flash-4.00.bin --allow-older && "
             "fwupdmgr get-history"
         ),
         expected_substrings=[
             "nvme     [ENABLED]  NVM Express 1.4 Controller Firmware Update Plugin",
             "ufs      [ENABLED]  JEDEC UFS 4.0 Field Firmware Update (FFU) Plugin",
             "scsi     [ENABLED]  SPC-4 SCSI Field Firmware Update (FFU) Plugin",
-            "Successfully refreshed LVFS metadata (3 component releases, 6 signed capsules staged",
+            "Successfully refreshed LVFS metadata (3 component releases, 6 firmware .bin images staged",
             "Target GUID    : b585990a-003e-5270-89d5-3705a17f9a43",
             "[VALID SIGNATURE]",
             "[nvme] NVME_ADMIN_DOWNLOAD_FW (0x11): chunk 1/3 (512/1184 bytes, OFST=0 dwords)",
@@ -741,11 +746,14 @@ TESTS = [
             "frs2 : 1.4.2 [RW Updatable]",
             "Verified SIX Virtual NVMe SSD Controller (SIX-NVME-SSD, plugin=nvme, version=1.4.2):",
             "Verified SIX JEDEC UFS 4.0 Flash Controller (SIX-UFS-FLASH, plugin=ufs, version=4.10):",
+            "Raw Vendor Controller Microcode Binary (.bin)",
+            "Successfully updated SIX Virtual NVMe SSD Controller (SIX-NVME-SSD) from 1.4.2 to 1.5.0 [VERIFIED]",
+            "Verified SIX Virtual NVMe SSD Controller (SIX-NVME-SSD, plugin=nvme, version=1.5.0):",
             "[scsi] SCSI WRITE_BUFFER (0x3B, Mode 0x0E): chunk 1/3 (512/1184 bytes, offset=0x0000)",
             "[scsi] SCSI WRITE_BUFFER (0x3B, Mode 0x0F): deferred microcode verified & activated",
             "Successfully updated SIX USB Mass Storage SCSI Disk (SIX-USB-SCSI) from 1.00 to 1.10 [VERIFIED]",
             "[nvme] NVME_ADMIN_ACTIVATE_FW (0x10) REJECTED by controller (status=NVME_SC_FW_IMAGE_ERROR)",
-            "fwupdmgr: firmware update FAILED on SIX-NVME-SSD (hardware rejected image)",
+            "fwupdmgr: firmware update FAILED on SIX-NVME-SSD (hardware rejected .bin image)",
             "Switched SIX Virtual NVMe SSD Controller (SIX-NVME-SSD) active firmware slot to Slot 1 (version 1.4.0)",
             "Successfully updated SIX JEDEC UFS 4.0 Flash Controller (SIX-UFS-FLASH) from 4.10 to 4.00 [VERIFIED]",
             "status=failed-signature",

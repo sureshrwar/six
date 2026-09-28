@@ -35,7 +35,7 @@
 #include <asm/system.h>
 
 #define UFS_MAX_MINORS		4
-#define UFS_HDR_MAGIC		0x55465334U	/* "UFS4" */
+#define UFS_HDR_MAGIC		0x55465335U	/* "UFS5" (.bin full SHA-256) */
 
 struct ufs_persist_hdr {
 	unsigned int	magic;
@@ -107,8 +107,7 @@ static unsigned long ufs_rpmb_reads = 0;
 static unsigned long ufs_rpmb_auth_fails = 0;
 
 /* UFS Field Firmware Update (FFU via SCSI WRITE_BUFFER 0x3B) state */
-static unsigned char ufs_fw_staging[8192];
-static unsigned int ufs_fw_staged_len = 0;
+static struct fwupd_stream_state ufs_fw_stream;
 static char ufs_fw_rev[8] = "4.00";
 static unsigned short ufs_device_version = 0x0400;
 static unsigned char ufs_fw_sha256[32];
@@ -246,9 +245,9 @@ static void ufs_load_or_init_persist_hdr(void)
 			strcpy(ufs_hdr.fw_rev, "4.00");
 			ufs_hdr.device_version = 0x0400;
 			ufs_hdr.ffu_count = 0;
-			fwupd_build_microcode(FWUPD_DEVID_UFS, "4.00",
-					      ufs_bounce_buf, FWUPD_DEFAULT_PAYLOAD_SIZE,
-					      ufs_hdr.fw_sha256);
+			fwupd_build_bin_image("ufs", FWUPD_DEVID_UFS, FWUPD_GUID_UFS, "4.00",
+					      FWUPD_FLAG_SIGNED_PAYLOAD | FWUPD_FLAG_USABLE_DURING_UPDATE,
+					      ufs_bounce_buf, ufs_hdr.fw_sha256);
 		}
 		memset(ufs_fw_rev, 0, sizeof(ufs_fw_rev));
 		strncpy(ufs_fw_rev, ufs_hdr.fw_rev, 4);
@@ -598,57 +597,37 @@ static void ufs_exec_scsi_upiu(struct ufs_utrd_entry *e)
 
 		if (mode == SCSI_WB_MODE_DOWNLOAD_OFFSET_SAVE ||
 		    mode == SCSI_WB_MODE_DOWNLOAD_SAVE) {
-			if (!buf || param_len == 0 ||
-			    buf_off + param_len > sizeof(ufs_fw_staging)) {
+			if (fwupd_stream_write_chunk(&ufs_fw_stream, buf_off, buf, param_len) < 0) {
 				e->hdr.status = 0x02;
 				return;
 			}
-			if (buf_off == 0) {
-				memset(ufs_fw_staging, 0, sizeof(ufs_fw_staging));
-				ufs_fw_staged_len = 0;
-			}
-			memcpy(ufs_fw_staging + buf_off, buf, param_len);
-			if (buf_off + param_len > ufs_fw_staged_len)
-				ufs_fw_staged_len = buf_off + param_len;
 			if (mode == SCSI_WB_MODE_DOWNLOAD_OFFSET_SAVE)
 				return;
 		}
 
 		if (mode == SCSI_WB_MODE_ACTIVATE_DEFERRED ||
 		    mode == SCSI_WB_MODE_DOWNLOAD_SAVE) {
-			const struct fwupd_capsule_hdr *hdr;
-			unsigned char calc_sha256[32];
+			unsigned char full_sha256[32];
+			char detected_ver[8];
 
-			if (ufs_fw_staged_len < sizeof(struct fwupd_capsule_hdr)) {
-				e->hdr.status = 0x02;
-				return;
-			}
-			hdr = (const struct fwupd_capsule_hdr *)ufs_fw_staging;
-			if (hdr->magic != FWUPD_CAPSULE_MAGIC ||
-			    strcmp(hdr->device_id, FWUPD_DEVID_UFS) != 0 ||
-			    hdr->payload_len == 0 ||
-			    sizeof(*hdr) + hdr->payload_len > ufs_fw_staged_len) {
-				printk("ufshcd0: SCSI WRITE_BUFFER FFU REJECTED (invalid capsule header)\n");
-				e->hdr.status = 0x02;
-				return;
-			}
-			fwupd_sha256(ufs_fw_staging + sizeof(*hdr), hdr->payload_len, calc_sha256);
-			if (memcmp(calc_sha256, hdr->sha256, 32) != 0) {
-				printk("ufshcd0: SCSI WRITE_BUFFER FFU REJECTED (SHA-256 mismatch)\n");
+			memset(detected_ver, 0, sizeof(detected_ver));
+			if (fwupd_stream_validate_and_finalize(&ufs_fw_stream, FWUPD_DEVID_UFS,
+							       4, detected_ver, full_sha256) < 0) {
+				printk("ufshcd0: SCSI WRITE_BUFFER FFU REJECTED (.bin integrity / SHA-256 mismatch)\n");
 				e->hdr.status = 0x02;
 				return;
 			}
 			memset(ufs_fw_rev, ' ', 4);
 			ufs_fw_rev[4] = '\0';
-			strncpy(ufs_fw_rev, hdr->fw_version, 4);
+			strncpy(ufs_fw_rev, detected_ver, 4);
 			ufs_fw_rev[4] = '\0';
-			memcpy(ufs_fw_sha256, hdr->sha256, 32);
-			if (hdr->fw_version[0] >= '0' && hdr->fw_version[0] <= '9' &&
-			    hdr->fw_version[2] >= '0' && hdr->fw_version[2] <= '9') {
-				unsigned int maj = (unsigned int)(hdr->fw_version[0] - '0');
-				unsigned int min = (unsigned int)(hdr->fw_version[2] - '0');
-				unsigned int sub = (hdr->fw_version[3] >= '0' && hdr->fw_version[3] <= '9')
-						   ? (unsigned int)(hdr->fw_version[3] - '0') : 0;
+			memcpy(ufs_fw_sha256, full_sha256, 32);
+			if (detected_ver[0] >= '0' && detected_ver[0] <= '9' &&
+			    detected_ver[2] >= '0' && detected_ver[2] <= '9') {
+				unsigned int maj = (unsigned int)(detected_ver[0] - '0');
+				unsigned int min = (unsigned int)(detected_ver[2] - '0');
+				unsigned int sub = (detected_ver[3] >= '0' && detected_ver[3] <= '9')
+						   ? (unsigned int)(detected_ver[3] - '0') : 0;
 				ufs_device_version = (unsigned short)((maj << 8) | (min << 4) | sub);
 			}
 			ufs_ffu_count++;
@@ -658,8 +637,8 @@ static void ufs_exec_scsi_upiu(struct ufs_utrd_entry *e)
 			ufs_hdr.ffu_count = (unsigned short)ufs_ffu_count;
 			memcpy(ufs_hdr.fw_sha256, ufs_fw_sha256, 32);
 			ufs_save_persist_hdr();
-			printk("ufshcd0: SCSI WRITE_BUFFER FFU activated rev=%s (wDeviceVersion=0x%04x)\n",
-			       ufs_fw_rev, ufs_device_version);
+			printk("ufshcd0: SCSI WRITE_BUFFER FFU activated .bin rev=%s (%u bytes, wDeviceVersion=0x%04x)\n",
+			       ufs_fw_rev, ufs_fw_stream.staged_len, ufs_device_version);
 			return;
 		}
 
@@ -1367,9 +1346,9 @@ int ufs_init(void)
 	memset(&ufs_utrl, 0, sizeof(ufs_utrl));
 	ufs_utrl.depth = UFS_UTRL_DEPTH;
 
-	fwupd_build_microcode(FWUPD_DEVID_UFS, "4.00",
-			      ufs_bounce_buf, FWUPD_DEFAULT_PAYLOAD_SIZE,
-			      ufs_fw_sha256);
+	fwupd_build_bin_image("ufs", FWUPD_DEVID_UFS, FWUPD_GUID_UFS, "4.00",
+			      FWUPD_FLAG_SIGNED_PAYLOAD | FWUPD_FLAG_USABLE_DURING_UPDATE,
+			      ufs_bounce_buf, ufs_fw_sha256);
 
 	env_path = getenv("UFSDISKFILE");
 	if (env_path && env_path[0]) {

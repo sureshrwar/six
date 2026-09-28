@@ -5,7 +5,7 @@
  * Protocol: org.nvmexpress
  *   - Admin Identify Controller (opcode 0x06, CNS 0x01)
  *   - Admin Get Log Page: Firmware Slot Information (opcode 0x02, LID 0x03)
- *   - Admin Firmware Image Download (opcode 0x11, 512B chunks)
+ *   - Admin Firmware Image Download (opcode 0x11, 512B streaming chunks)
  *   - Admin Firmware Commit / Activate (opcode 0x10, CA=3 immediate / CA=2 slot switch)
  */
 
@@ -84,13 +84,14 @@ static int fu_nvme_plugin_probe(struct fwupd_device *devs, int max_devs)
 }
 
 static int fu_nvme_plugin_write_firmware(const struct fwupd_device *dev,
-					 const unsigned char *img,
-					 unsigned int img_len)
+					 int bin_fd,
+					 unsigned int bin_size)
 {
 	struct nvme_passthru_cmd cmd;
+	unsigned char chunk_buf[FWUPD_CHUNK_SIZE];
 	unsigned int offset = 0;
 	unsigned int chunk_idx = 0;
-	unsigned int total_chunks = (img_len + FWUPD_CHUNK_SIZE - 1) / FWUPD_CHUNK_SIZE;
+	unsigned int total_chunks = (bin_size + FWUPD_CHUNK_SIZE - 1) / FWUPD_CHUNK_SIZE;
 	int fd, rc;
 
 	fd = open(dev->dev_node, O_RDWR);
@@ -99,24 +100,31 @@ static int fu_nvme_plugin_write_firmware(const struct fwupd_device *dev,
 		return -1;
 	}
 
-	/* Step 1: Stream firmware capsule via NVME_ADMIN_DOWNLOAD_FW (opcode 0x11) */
-	while (offset < img_len) {
-		unsigned int chunk = img_len - offset;
+	lseek(bin_fd, 0L, 0);
+
+	/* Step 1: Stream .bin firmware image via NVME_ADMIN_DOWNLOAD_FW (opcode 0x11) */
+	while (offset < bin_size) {
+		unsigned int chunk = bin_size - offset;
 		unsigned int padded_chunk;
-		unsigned char chunk_buf[FWUPD_CHUNK_SIZE];
+		int nread;
 
 		if (chunk > FWUPD_CHUNK_SIZE)
 			chunk = FWUPD_CHUNK_SIZE;
 		padded_chunk = (chunk + 3U) & ~3U;
 		memset(chunk_buf, 0, sizeof(chunk_buf));
-		memcpy(chunk_buf, img + offset, chunk);
+		nread = read(bin_fd, chunk_buf, chunk);
+		if (nread <= 0) {
+			close(fd);
+			return -1;
+		}
 
 		memset(&cmd, 0, sizeof(cmd));
 		cmd.opcode = nvme_admin_download_fw;
 		cmd.addr = (unsigned long)chunk_buf;
-		cmd.data_len = padded_chunk;
+		cmd.data_len = (unsigned int)nread;
 		cmd.cdw10 = (padded_chunk / 4U) - 1U;	/* NUMD (0-based dwords) */
 		cmd.cdw11 = offset / 4U;		/* OFST (dword offset) */
+		cmd.cdw12 = (unsigned int)nread;
 
 		if (ioctl(fd, NVME_IOCTL_ADMIN_CMD, &cmd) < 0) {
 			fprintf(stderr, "fwupdmgr [nvme]: NVME_ADMIN_DOWNLOAD_FW failed at offset %u\n",
@@ -124,10 +132,15 @@ static int fu_nvme_plugin_write_firmware(const struct fwupd_device *dev,
 			close(fd);
 			return -1;
 		}
-		offset += chunk;
+		offset += (unsigned int)nread;
 		chunk_idx++;
-		printf("  [nvme] NVME_ADMIN_DOWNLOAD_FW (0x11): chunk %u/%u (%u/%u bytes, OFST=%u dwords)\n",
-		       chunk_idx, total_chunks, offset, img_len, cmd.cdw11);
+		if (total_chunks <= 8 || chunk_idx <= 2 || chunk_idx == total_chunks) {
+			printf("  [nvme] NVME_ADMIN_DOWNLOAD_FW (0x11): chunk %u/%u (%u/%u bytes, OFST=%u dwords)\n",
+			       chunk_idx, total_chunks, offset, bin_size, cmd.cdw11);
+		} else if (chunk_idx == 3) {
+			printf("  [nvme] NVME_ADMIN_DOWNLOAD_FW (0x11): streaming %u intermediate chunks...\n",
+			       total_chunks - 3);
+		}
 	}
 
 	/* Step 2: Commit & Activate in Slot 2 via NVME_ADMIN_ACTIVATE_FW (opcode 0x10, CA=3, FS=2) */

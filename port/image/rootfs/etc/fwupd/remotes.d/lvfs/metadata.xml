@@ -11,10 +11,11 @@
     <custom>
       <value key="LVFS::UpdateProtocol">org.nvmexpress</value>
       <value key="LVFS::Plugin">nvme</value>
+      <value key="LVFS::DeviceId">SIX-NVME-SSD</value>
     </custom>
     <releases>
-      <release version="1.4.2" timestamp="1790517600" urgency="high">
-        <location>file:///etc/fwupd/remotes.d/lvfs/packages/six-nvme-ssd-1.4.2.fw</location>
+      <release version="1.4.2" timestamp="1790517600" urgency="High">
+        <location>file:///etc/fwupd/remotes.d/lvfs/packages/six-nvme-ssd-1.4.2.bin</location>
         <description>
           <p>Optimize Admin/IO Queue doorbell latency and DSM/TRIM wear leveling</p>
         </description>
@@ -32,10 +33,11 @@
     <custom>
       <value key="LVFS::UpdateProtocol">org.jedec.ufs</value>
       <value key="LVFS::Plugin">ufs</value>
+      <value key="LVFS::DeviceId">SIX-UFS-FLASH</value>
     </custom>
     <releases>
-      <release version="4.10" timestamp="1790517600" urgency="medium">
-        <location>file:///etc/fwupd/remotes.d/lvfs/packages/six-ufs-flash-4.10.fw</location>
+      <release version="4.10" timestamp="1790517600" urgency="Medium">
+        <location>file:///etc/fwupd/remotes.d/lvfs/packages/six-ufs-flash-4.10.bin</location>
         <description>
           <p>Improve HS-Gear5 UniPro link stability and SLC WriteBooster flush policy</p>
         </description>
@@ -53,10 +55,11 @@
     <custom>
       <value key="LVFS::UpdateProtocol">org.t10.scsi.write_buffer</value>
       <value key="LVFS::Plugin">scsi</value>
+      <value key="LVFS::DeviceId">SIX-USB-SCSI</value>
     </custom>
     <releases>
-      <release version="1.10" timestamp="1790517600" urgency="medium">
-        <location>file:///etc/fwupd/remotes.d/lvfs/packages/six-usb-scsi-1.10.fw</location>
+      <release version="1.10" timestamp="1790517600" urgency="Medium">
+        <location>file:///etc/fwupd/remotes.d/lvfs/packages/six-usb-scsi-1.10.bin</location>
         <description>
           <p>Fix USB Mass Storage BOT SCSI sense reporting on hotplug transitions</p>
         </description>

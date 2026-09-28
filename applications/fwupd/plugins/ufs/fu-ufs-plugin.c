@@ -4,7 +4,7 @@
  * Target: /dev/ufs-bsg0 (SIX JEDEC UFS 4.0 Flash Controller)
  * Protocol: org.jedec.ufs / org.t10.scsi.write_buffer
  *   - UPIU Query Request (READ_DESC Device Descriptor IDN 0x00, READ_ATTR bBootLunID 0x00)
- *   - UFS SCSI INQUIRY (0x12) + Extended 32-byte active microcode SHA-256
+ *   - UFS SCSI INQUIRY (0x12) + Extended 32-byte active .bin SHA-256
  *   - UFS SCSI WRITE_BUFFER (0x3B, Mode 0x0E Download Microcode with Offsets)
  *   - UFS SCSI WRITE_BUFFER (0x3B, Mode 0x0F Activate Deferred Microcode)
  */
@@ -95,13 +95,14 @@ static int fu_ufs_plugin_probe(struct fwupd_device *devs, int max_devs)
 }
 
 static int fu_ufs_plugin_write_firmware(const struct fwupd_device *dev,
-					const unsigned char *img,
-					unsigned int img_len)
+					int bin_fd,
+					unsigned int bin_size)
 {
 	struct ufs_bsg_scsi_ioctl sc;
+	unsigned char chunk_buf[FWUPD_CHUNK_SIZE];
 	unsigned int offset = 0;
 	unsigned int chunk_idx = 0;
-	unsigned int total_chunks = (img_len + FWUPD_CHUNK_SIZE - 1) / FWUPD_CHUNK_SIZE;
+	unsigned int total_chunks = (bin_size + FWUPD_CHUNK_SIZE - 1) / FWUPD_CHUNK_SIZE;
 	int fd, rc;
 
 	fd = open(dev->dev_node, O_RDWR);
@@ -110,19 +111,29 @@ static int fu_ufs_plugin_write_firmware(const struct fwupd_device *dev,
 		return -1;
 	}
 
-	/* Step 1: Stream microcode via UFS SCSI WRITE_BUFFER (0x3B, Mode 0x0E: Download with Offsets) */
-	while (offset < img_len) {
-		unsigned int chunk = img_len - offset;
+	lseek(bin_fd, 0L, 0);
+
+	/* Step 1: Stream .bin microcode via UFS SCSI WRITE_BUFFER (0x3B, Mode 0x0E) */
+	while (offset < bin_size) {
+		unsigned int chunk = bin_size - offset;
+		int nread;
+
 		if (chunk > FWUPD_CHUNK_SIZE)
 			chunk = FWUPD_CHUNK_SIZE;
+		memset(chunk_buf, 0, sizeof(chunk_buf));
+		nread = read(bin_fd, chunk_buf, chunk);
+		if (nread <= 0) {
+			close(fd);
+			return -1;
+		}
 
 		memset(&sc, 0, sizeof(sc));
 		sc.lun = 0;
 		sc.opcode = UFS_SCSI_WRITE_BUFFER;
 		sc.rsvd = SCSI_WB_MODE_DOWNLOAD_OFFSET_SAVE;
 		sc.lba = offset;
-		sc.data_len = chunk;
-		sc.data_addr = (unsigned long)(img + offset);
+		sc.data_len = (unsigned int)nread;
+		sc.data_addr = (unsigned long)chunk_buf;
 
 		if (ioctl(fd, UFS_IOCTL_SCSI_CMD, &sc) < 0 || sc.status != 0x00) {
 			fprintf(stderr, "fwupdmgr [ufs]: WRITE_BUFFER (Mode 0x0E) failed at offset %u\n",
@@ -130,10 +141,15 @@ static int fu_ufs_plugin_write_firmware(const struct fwupd_device *dev,
 			close(fd);
 			return -1;
 		}
-		offset += chunk;
+		offset += (unsigned int)nread;
 		chunk_idx++;
-		printf("  [ufs] UFS FFU WRITE_BUFFER (0x3B, Mode 0x0E): chunk %u/%u (%u/%u bytes, offset=0x%04x)\n",
-		       chunk_idx, total_chunks, offset, img_len, sc.lba);
+		if (total_chunks <= 8 || chunk_idx <= 2 || chunk_idx == total_chunks) {
+			printf("  [ufs] UFS FFU WRITE_BUFFER (0x3B, Mode 0x0E): chunk %u/%u (%u/%u bytes, offset=0x%04x)\n",
+			       chunk_idx, total_chunks, offset, bin_size, sc.lba);
+		} else if (chunk_idx == 3) {
+			printf("  [ufs] UFS FFU WRITE_BUFFER (0x3B, Mode 0x0E): streaming %u intermediate chunks...\n",
+			       total_chunks - 3);
+		}
 	}
 
 	/* Step 2: Activate deferred microcode via UFS SCSI WRITE_BUFFER (0x3B, Mode 0x0F) */

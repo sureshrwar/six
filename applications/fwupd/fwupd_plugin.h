@@ -38,8 +38,8 @@ struct fwupd_plugin_ops {
 	const char	*protocol;
 	int (*probe)(struct fwupd_device *devs, int max_devs);
 	int (*write_firmware)(const struct fwupd_device *dev,
-			      const unsigned char *img,
-			      unsigned int img_len);
+			      int bin_fd,
+			      unsigned int bin_size);
 	int (*activate_slot)(const struct fwupd_device *dev,
 			     unsigned int slot);
 };
