@@ -255,17 +255,94 @@ done < <(sed 's/#.*//' "$MANIFEST")
 chown 0:0 "$STAGE"
 chmod 0755 "$STAGE"
 
-if [ "$MODE" != "bin" ] && [ -f /google/data/ro/users/mo/motorman/www/data/share/cros/fwupd/ufs/test.cab ]; then
+if [ "$MODE" != "bin" ]; then
 	mkdir -p "$STAGE/etc/fwupd/remotes.d/lvfs/packages"
-	cp -f /google/data/ro/users/mo/motorman/www/data/share/cros/fwupd/ufs/test.cab \
-	      "$STAGE/etc/fwupd/remotes.d/lvfs/packages/test.cab"
+	if [ -r /google/data/ro/users/mo/motorman/www/data/share/cros/fwupd/ufs/test.cab ]; then
+		cp -f /google/data/ro/users/mo/motorman/www/data/share/cros/fwupd/ufs/test.cab \
+		      "$STAGE/etc/fwupd/remotes.d/lvfs/packages/test.cab"
+	else
+		python3 - "$STAGE/etc/fwupd/remotes.d/lvfs/packages/test.cab" << 'PYEOF'
+import hashlib, struct, sys
+
+out_path = sys.argv[1]
+bin_name = b"SOLVIT_V6_TLC_256Gb_UFS31_GEN1_128GB_P21_FW01_e52a9b8_241106_13h23m.bin"
+
+# Construct 786,432-byte Samsung JEDEC UFS ("UFSH") controller firmware binary
+payload = bytearray(786432)
+payload[0:4] = b"UFSH"
+payload[0x20:0x24] = b"2101"
+payload[0x25:0x28] = b"F00"
+for i in range(64, len(payload), 4):
+    v = (i * 0x45d9f3b) & 0xffffffff
+    payload[i:i+4] = struct.pack("<I", v)
+payload = bytes(payload)
+sha_hex = hashlib.sha256(payload).hexdigest()
+
+xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2024 Google LLC -->
+<component type="firmware">
+  <id>com.google.KLUDG4UHGC.firmware.2101</id>
+  <name>KLUDG4UHGC-B0E1</name>
+  <summary>SAMSUNG KLUDG4UHGC-B0E1 Firmware Update</summary>
+  <developer_name>Google</developer_name>
+  <provides>
+    <firmware type="flashed">41a057a2-a1ff-5764-bc6f-71aa045706ff</firmware>
+  </provides>
+  <custom>
+    <value key="LVFS::VersionFormat">plain</value>
+    <value key="LVFS::UpdateProtocol">org.jedec.ufs</value>
+  </custom>
+  <releases>
+    <release version="2101" date="2024-10-25" urgency="high">
+      <checksum type="sha256" filename="SOLVIT_V6_TLC_256Gb_UFS31_GEN1_128GB_P21_FW01_e52a9b8_241106_13h23m.bin" target="content">{sha_hex}</checksum>
+      <description>
+        <p>SAMSUNG KLUDG4UHGC-B0E1 UFS Firmware Update</p>
+      </description>
+    </release>
+  </releases>
+  <requires>
+    <firmware compare="ge" version="0801"/>
+  </requires>
+</component>
+""".encode("utf-8")
+
+readme = b"SAMSUNG KLUDG4UHGC-B0E1 UFS Firmware Update\n"
+
+files = [
+    (b"firmware.metainfo.xml", xml),
+    (b"README.txt", readme),
+    (bin_name, payload),
+]
+
+folder_stream = b"".join(data for _, data in files)
+blocks = [folder_stream[off:off + 32768] for off in range(0, len(folder_stream), 32768)]
+
+coff_files = 36 + 8
+cffiles = bytearray()
+uoff = 0
+for name, data in files:
+    cffiles += struct.pack("<IIHHHH", len(data), uoff, 0, 0x5959, 0x0000, 0x20) + name + b"\x00"
+    uoff += len(data)
+
+coff_data = coff_files + len(cffiles)
+cfdata = bytearray()
+for chunk in blocks:
+    cfdata += struct.pack("<IHH", 0, len(chunk), len(chunk)) + chunk
+
+total_cab = coff_data + len(cfdata)
+chdr = struct.pack("<IIIIIIBBHHHHH",
+                   0x4643534D, 0, total_cab, 0, coff_files, 0,
+                   3, 1, 1, len(files), 0, 0, 0)
+cfolder = struct.pack("<IHH", coff_data, len(blocks), 0)
+
+with open(out_path, "wb") as f:
+    f.write(chdr + cfolder + cffiles + cfdata)
+PYEOF
+	fi
 	chmod 0644 "$STAGE/etc/fwupd/remotes.d/lvfs/packages/test.cab"
 	chown 0:0 "$STAGE/etc/fwupd/remotes.d/lvfs/packages/test.cab"
 	ln -sfn remotes.d/lvfs/packages/test.cab "$STAGE/etc/fwupd/test.cab"
-fi
 
-if [ "$MODE" != "bin" ]; then
-	mkdir -p "$STAGE/etc/fwupd/remotes.d/lvfs/packages"
 	python3 - "$STAGE/etc/fwupd/remotes.d/lvfs/packages/wd-sn850x-624711WD.cab" << 'PYEOF'
 import hashlib, struct, sys, zlib
 

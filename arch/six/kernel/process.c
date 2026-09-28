@@ -487,8 +487,6 @@ void copy_thread(int nr, unsigned long clone_flags, unsigned long esp, struct ta
 			}
 #endif
 		}
-		memcpy(&p->ucontext, &p->kcontext, sizeof(struct pt_regs));
-		six_fix_context(&p->ucontext);
 	}
 }       
 
@@ -610,7 +608,7 @@ void kernel_thread_start()
 	__asm__("mov %%g5, %0" : "=r" (fun)); 
 #endif
 	/* I'm the child, do the work - call the function */
-	sti();
+		
 	(*fun)(args);
 
 	/* work done - now prepare to call exit() */

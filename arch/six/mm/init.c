@@ -423,6 +423,7 @@ void set_proc_mappings()
 	 * 	are part of the kernel space. So no mappings.
 	 * }
 	 */
+	sti();
 	return;
 }
 #endif

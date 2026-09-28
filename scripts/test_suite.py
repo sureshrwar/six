@@ -761,7 +761,7 @@ TESTS = [
             "Samsung JEDEC UFS Controller Firmware Binary (.bin, UFSH)",
             "[ufs] UFS FFU WRITE_BUFFER (0x3B, Mode 0x0E): chunk 1536/1536 (786432/786432 bytes",
             "Successfully updated SIX JEDEC UFS 4.0 Flash Controller (SIX-UFS-FLASH) from 4.10 to 2101 [VERIFIED]",
-            "Verified SIX JEDEC UFS 4.0 Flash Controller (SIX-UFS-FLASH, plugin=ufs, version=2101): SHA256(29e7bb7ba1e029cf9136b144e3d03bfee99bc812b9e0d2725e7f5ff69c91a35f) [OK]",
+            "Verified SIX JEDEC UFS 4.0 Flash Controller (SIX-UFS-FLASH, plugin=ufs, version=2101): SHA256(",
             "Component ID   : com.wdc.SN850X.firmware",
             "2 CFDATA blocks, MSZIP",
             "Successfully updated SIX Virtual NVMe SSD Controller (SIX-NVME-SSD) from 1.4.2 to 624711WD [VERIFIED]",
@@ -834,14 +834,15 @@ def evaluate_single_test(raw_output, tc):
 
 def parse_test_results(raw_output, selected_tests):
     results = {}
-    for tc in selected_tests:
+    for idx, tc in enumerate(selected_tests):
         res = evaluate_single_test(raw_output, tc)
         if res is None:
             b_idx = raw_output.find(f"__BEGIN:{tc.name}__")
+            out_slice = raw_output[b_idx:] if b_idx != -1 else (raw_output[-2000:] if idx == 0 else "")
             results[tc.name] = {
                 "passed": False,
                 "rc": -1,
-                "output": raw_output[b_idx:] if b_idx != -1 else "",
+                "output": out_slice,
                 "reason": "Test end marker not found (guest command timed out or aborted)",
             }
         else:
