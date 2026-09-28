@@ -50,6 +50,7 @@ struct fwupd_plugin_ops {
 void fwupd_trim_spaces(const char *src, int max_len, char *dst);
 int fwupd_payload_read(int fd, unsigned int offset,
 		       unsigned char *buf, unsigned int len);
+const char *fwupd_get_target_version(void);
 
 /* Registered built-in plugins under applications/fwupd/plugins/ */
 extern const struct fwupd_plugin_ops fu_nvme_plugin_ops;

@@ -407,6 +407,15 @@ static void nvme_exec_admin_sqe(const struct nvme_command *cmd,
 			*out_status = NVME_SC_FW_IMAGE_ERROR;
 			return;
 		}
+		if (cmd->prp1_lo &&
+		    ((const struct fwupd_bin_hdr *)nvme_fw_stream.hdr_buf)->magic != FWUPD_BIN_MAGIC) {
+			const char *vh = (const char *)cmd->prp1_lo;
+			if (vh[0] >= 0x21 && vh[0] <= 0x7e) {
+				memset(detected_ver, 0, sizeof(detected_ver));
+				strncpy(detected_ver, vh, 8);
+				detected_ver[8] = '\0';
+			}
+		}
 
 		memset(nvme_fw_slots[fs - 1], ' ', 8);
 		vlen = (int)strlen(detected_ver);

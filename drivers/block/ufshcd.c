@@ -617,6 +617,15 @@ static void ufs_exec_scsi_upiu(struct ufs_utrd_entry *e)
 				e->hdr.status = 0x02;
 				return;
 			}
+			if (mode == SCSI_WB_MODE_ACTIVATE_DEFERRED && param_len > 0 && buf &&
+			    ((const struct fwupd_bin_hdr *)ufs_fw_stream.hdr_buf)->magic != FWUPD_BIN_MAGIC) {
+				const char *vh = (const char *)buf;
+				if (vh[0] >= 0x21 && vh[0] <= 0x7e) {
+					memset(detected_ver, 0, sizeof(detected_ver));
+					strncpy(detected_ver, vh, 4);
+					detected_ver[4] = '\0';
+				}
+			}
 			memset(ufs_fw_rev, ' ', 4);
 			ufs_fw_rev[4] = '\0';
 			strncpy(ufs_fw_rev, detected_ver, 4);

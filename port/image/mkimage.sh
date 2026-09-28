@@ -264,6 +264,78 @@ if [ "$MODE" != "bin" ] && [ -f /google/data/ro/users/mo/motorman/www/data/share
 	ln -sfn remotes.d/lvfs/packages/test.cab "$STAGE/etc/fwupd/test.cab"
 fi
 
+if [ "$MODE" != "bin" ]; then
+	mkdir -p "$STAGE/etc/fwupd/remotes.d/lvfs/packages"
+	python3 - "$STAGE/etc/fwupd/remotes.d/lvfs/packages/wd-sn850x-624711WD.cab" << 'PYEOF'
+import hashlib, struct, sys, zlib
+
+out_path = sys.argv[1]
+# 40,960-byte opaque/encrypted Western Digital NVMe controller microcode image
+# (no SFWM/UFSH magic and no ASCII version string inside the binary payload)
+payload = bytes(((i * 73 + 0xA5) & 0xFF) for i in range(40960))
+sha_hex = hashlib.sha256(payload).hexdigest()
+
+xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<component type="firmware">
+  <id>com.wdc.SN850X.firmware</id>
+  <name>WD_BLACK SN850X NVMe SSD</name>
+  <summary>Western Digital NVMe SSD Controller Firmware</summary>
+  <developer_name>Western Digital Technologies, Inc.</developer_name>
+  <provides>
+    <firmware type="flashed">c89408b5-6375-51c2-9b85-8f01e1a9d411</firmware>
+  </provides>
+  <custom>
+    <value key="LVFS::VersionFormat">plain</value>
+    <value key="LVFS::UpdateProtocol">org.nvmexpress</value>
+    <value key="LVFS::Plugin">nvme</value>
+  </custom>
+  <releases>
+    <release version="624711WD" date="2026-09-28" urgency="high">
+      <checksum type="sha256" filename="624711WD.fluf" target="content">{sha_hex}</checksum>
+    </release>
+  </releases>
+</component>
+""".encode("utf-8")
+
+files = [
+    (b"firmware.metainfo.xml", xml),
+    (b"624711WD.fluf", payload),
+]
+
+folder_stream = b"".join(data for _, data in files)
+# Split into 32,768-byte CFDATA blocks and compress each with MSZIP ("CK" + raw DEFLATE)
+blocks = []
+for off in range(0, len(folder_stream), 32768):
+    u_chunk = folder_stream[off:off + 32768]
+    c_obj = zlib.compressobj(6, zlib.DEFLATED, -15)
+    c_chunk = b"CK" + c_obj.compress(u_chunk) + c_obj.flush()
+    blocks.append((u_chunk, c_chunk))
+
+coff_files = 36 + 8
+cffiles = bytearray()
+uoff = 0
+for name, data in files:
+    cffiles += struct.pack("<IIHHHH", len(data), uoff, 0, 0x5d3c, 0x0800, 0x20) + name + b"\x00"
+    uoff += len(data)
+
+coff_data = coff_files + len(cffiles)
+cfdata = bytearray()
+for u_chunk, c_chunk in blocks:
+    cfdata += struct.pack("<IHH", 0, len(c_chunk), len(u_chunk)) + c_chunk
+
+total_cab = coff_data + len(cfdata)
+chdr = struct.pack("<IIIIIIBBHHHHH",
+                   0x4643534D, 0, total_cab, 0, coff_files, 0,
+                   3, 1, 1, len(files), 0, 0x5744, 0)
+cfolder = struct.pack("<IHH", coff_data, len(blocks), 1)  # typeCompress = 1 (MSZIP)
+
+with open(out_path, "wb") as f:
+    f.write(chdr + cfolder + cffiles + cfdata)
+PYEOF
+	chmod 0644 "$STAGE/etc/fwupd/remotes.d/lvfs/packages/wd-sn850x-624711WD.cab"
+	chown 0:0 "$STAGE/etc/fwupd/remotes.d/lvfs/packages/wd-sn850x-624711WD.cab"
+fi
+
 if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
 	find "$STAGE" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
 fi

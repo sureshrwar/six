@@ -143,11 +143,22 @@ static int fu_nvme_plugin_write_firmware(const struct fwupd_device *dev,
 	}
 
 	/* Step 2: Commit & Activate in Slot 2 via NVME_ADMIN_ACTIVATE_FW (opcode 0x10, CA=3, FS=2) */
-	memset(&cmd, 0, sizeof(cmd));
-	cmd.opcode = nvme_admin_activate_fw;
-	cmd.cdw10 = (3U << 3) | 2U; /* CA=011b (activate immediately), FS=2 (Slot 2) */
+	{
+		char ver_hint[16];
+		const char *tv = fwupd_get_target_version();
+		memset(ver_hint, 0, sizeof(ver_hint));
+		if (tv && tv[0])
+			strncpy(ver_hint, tv, sizeof(ver_hint) - 1);
 
-	rc = ioctl(fd, NVME_IOCTL_ADMIN_CMD, &cmd);
+		memset(&cmd, 0, sizeof(cmd));
+		cmd.opcode = nvme_admin_activate_fw;
+		cmd.cdw10 = (3U << 3) | 2U; /* CA=011b (activate immediately), FS=2 (Slot 2) */
+		if (ver_hint[0]) {
+			cmd.addr = (unsigned long)ver_hint;
+			cmd.data_len = sizeof(ver_hint);
+		}
+		rc = ioctl(fd, NVME_IOCTL_ADMIN_CMD, &cmd);
+	}
 	close(fd);
 	if (rc < 0) {
 		printf("  [nvme] NVME_ADMIN_ACTIVATE_FW (0x10) REJECTED by controller (status=NVME_SC_FW_IMAGE_ERROR)\n");

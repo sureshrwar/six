@@ -11,14 +11,17 @@
  *                                      Target: /dev/sda
  *
  * Firmware Archive (.cab) & Binary (.bin) Support:
- *   - Natively parses Microsoft Cabinet (MSCF v1.3 .cab) LVFS archives,
- *     extracting embedded AppStream `firmware.metainfo.xml`, validating the
- *     `<checksum type="sha256">` against the embedded `.bin` payload across
- *     `CFDATA` blocks, and streaming the `.bin` microcode directly to the
- *     target hardware plugin without temporary file extraction.
- *   - Also handles standalone controller `.bin` images and arbitrary real-world
- *     vendor firmware `.bin` files of any size (Samsung UFSH UFS images, ARM
- *     Cortex-R binaries, ELF32 images, raw microcode blobs).
+ *   - Natively parses Microsoft Cabinet (MSCF v1.3 .cab) LVFS archives
+ *     (both Uncompressed typeCompress=0 and MSZIP RFC 1951 DEFLATE
+ *     typeCompress=1), extracting embedded AppStream `firmware.metainfo.xml`,
+ *     validating the `<checksum type="sha256">` against the embedded `.bin`
+ *     payload across `CFDATA` blocks, and streaming the `.bin` microcode
+ *     directly to the target hardware plugin without temporary file extraction.
+ *   - Propagates the `<release version="...">` metadata from `firmware.metainfo.xml`
+ *     to the hardware plugin Commit/Activate step so any vendor's UFS, NVMe, or
+ *     SCSI `.cab` archive (Samsung, SK hynix, Micron, Kioxia, Western Digital,
+ *     Solidigm, Phison, etc.) activates with its authentic release version even
+ *     when the vendor `.bin` payload is encrypted or opaque.
  *
  * Supported Subcommands:
  *   fwupdmgr get-plugins              List registered fwupd hardware plugins
@@ -46,7 +49,7 @@
 #define MAX_DEVICES		8
 #define MAX_RELEASES		8
 #define CAB_MAX_FILES		8
-#define CAB_MAX_CFDATA		128
+#define CAB_MAX_CFDATA		512
 #define LVFS_PKG_DIR		"/etc/fwupd/remotes.d/lvfs/packages"
 #define LVFS_META_PATH		"/etc/fwupd/remotes.d/lvfs/metadata.xml"
 #define FWUPD_HISTORY_PATH	"/var/lib/fwupd/history.db"
@@ -134,6 +137,7 @@ struct cab_cfdata_map {
 	unsigned int	file_data_off;
 	unsigned int	uncomp_off;
 	unsigned short	cb_data;
+	unsigned short	cb_uncomp;
 };
 
 struct fwupd_cab_archive {
@@ -177,6 +181,7 @@ struct fwupd_cab_archive {
 };
 
 static struct fwupd_cab_archive active_cab;
+static char active_target_ver[16];
 static char xml_scratch_buf[4096];
 
 /*
@@ -189,6 +194,11 @@ static const struct fwupd_plugin_ops * const fwupd_plugins[] = {
 };
 
 #define NR_PLUGINS	(int)(sizeof(fwupd_plugins) / sizeof(fwupd_plugins[0]))
+
+const char *fwupd_get_target_version(void)
+{
+	return active_target_ver;
+}
 
 void fwupd_trim_spaces(const char *src, int max_len, char *dst)
 {
@@ -216,8 +226,335 @@ static void format_sha256_hex(const unsigned char sha256[32], char out_hex[65])
 	out_hex[64] = '\0';
 }
 
+/* =========================================================================
+ * Microsoft Cabinet MSZIP (typeCompress == 1) RFC 1951 DEFLATE Decompressor
+ * ========================================================================= */
+
+#define DEFLATE_MAX_BITS	15
+#define DEFLATE_MAX_SYMS	288
+
+struct deflate_huff {
+	unsigned short counts[DEFLATE_MAX_BITS + 1];
+	unsigned short symbols[DEFLATE_MAX_SYMS];
+};
+
+struct deflate_stream {
+	const unsigned char *in;
+	unsigned int in_len;
+	unsigned int in_pos;
+	unsigned int bit_buf;
+	int bit_cnt;
+};
+
+static unsigned int deflate_get_bits(struct deflate_stream *s, int n)
+{
+	unsigned int val;
+
+	while (s->bit_cnt < n) {
+		unsigned int b = (s->in_pos < s->in_len) ? s->in[s->in_pos++] : 0;
+		s->bit_buf |= (b << s->bit_cnt);
+		s->bit_cnt += 8;
+	}
+	val = s->bit_buf & ((1U << n) - 1U);
+	s->bit_buf >>= n;
+	s->bit_cnt -= n;
+	return val;
+}
+
+static void deflate_build_huff(struct deflate_huff *h,
+			       const unsigned char *lengths,
+			       int num_syms)
+{
+	unsigned short offs[DEFLATE_MAX_BITS + 1];
+	int i, len;
+
+	for (i = 0; i <= DEFLATE_MAX_BITS; i++)
+		h->counts[i] = 0;
+	for (i = 0; i < num_syms; i++) {
+		if (lengths[i] <= DEFLATE_MAX_BITS)
+			h->counts[lengths[i]]++;
+	}
+	h->counts[0] = 0;
+
+	offs[1] = 0;
+	for (len = 1; len < DEFLATE_MAX_BITS; len++)
+		offs[len + 1] = offs[len] + h->counts[len];
+
+	for (i = 0; i < num_syms; i++) {
+		if (lengths[i] != 0 && lengths[i] <= DEFLATE_MAX_BITS)
+			h->symbols[offs[lengths[i]]++] = (unsigned short)i;
+	}
+}
+
+static int deflate_decode_sym(struct deflate_stream *s,
+			      const struct deflate_huff *h)
+{
+	int code = 0, first = 0, index = 0, len;
+
+	for (len = 1; len <= DEFLATE_MAX_BITS; len++) {
+		int count;
+		code |= (int)deflate_get_bits(s, 1);
+		count = (int)h->counts[len];
+		if (code - count < first)
+			return (int)h->symbols[index + (code - first)];
+		index += count;
+		first += count;
+		first <<= 1;
+		code <<= 1;
+	}
+	return -1;
+}
+
 /*
- * Read uncompressed bytes from folder 0 across CFDATA blocks in a .cab file.
+ * Decompress a single MSZIP CFDATA block (2-byte "CK" signature followed by
+ * an RFC 1951 raw DEFLATE stream, up to 32,768 bytes uncompressed).
+ * Supports LZ77 lookback into the previous 32 KB block in the same folder.
+ */
+static int mszip_inflate_block(const unsigned char *in, unsigned int in_len,
+			       unsigned char *out, unsigned int out_max,
+			       const unsigned char *prev_dict, unsigned int prev_len)
+{
+	static const unsigned short len_base[29] = {
+		3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31,
+		35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258
+	};
+	static const unsigned char len_extra[29] = {
+		0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2,
+		3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0
+	};
+	static const unsigned short dist_base[30] = {
+		1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193,
+		257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145,
+		8193, 12289, 16385, 24577
+	};
+	static const unsigned char dist_extra[30] = {
+		0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6,
+		7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13
+	};
+	static const unsigned char cl_order[19] = {
+		16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15
+	};
+	struct deflate_stream s;
+	struct deflate_huff lit_huff, dist_huff, cl_huff;
+	unsigned char lengths[288 + 32];
+	unsigned int out_pos = 0;
+	int bfinal = 0;
+
+	if (in_len < 2 || in[0] != 'C' || in[1] != 'K')
+		return -1;
+
+	s.in = in + 2;
+	s.in_len = in_len - 2;
+	s.in_pos = 0;
+	s.bit_buf = 0;
+	s.bit_cnt = 0;
+
+	while (!bfinal && out_pos < out_max) {
+		int btype, i;
+
+		bfinal = (int)deflate_get_bits(&s, 1);
+		btype = (int)deflate_get_bits(&s, 2);
+
+		if (btype == 0) {
+			unsigned int blk_len, blk_nlen;
+			s.bit_buf = 0;
+			s.bit_cnt = 0;
+			if (s.in_pos + 4 > s.in_len)
+				return -1;
+			blk_len = (unsigned int)s.in[s.in_pos] |
+				  ((unsigned int)s.in[s.in_pos + 1] << 8);
+			blk_nlen = (unsigned int)s.in[s.in_pos + 2] |
+				   ((unsigned int)s.in[s.in_pos + 3] << 8);
+			s.in_pos += 4;
+			if ((blk_len ^ 0xffffU) != blk_nlen ||
+			    s.in_pos + blk_len > s.in_len ||
+			    out_pos + blk_len > out_max)
+				return -1;
+			memcpy(out + out_pos, s.in + s.in_pos, blk_len);
+			s.in_pos += blk_len;
+			out_pos += blk_len;
+			continue;
+		}
+
+		if (btype == 1) {
+			for (i = 0; i < 144; i++) lengths[i] = 8;
+			for (; i < 256; i++)      lengths[i] = 9;
+			for (; i < 280; i++)      lengths[i] = 7;
+			for (; i < 288; i++)      lengths[i] = 8;
+			deflate_build_huff(&lit_huff, lengths, 288);
+			for (i = 0; i < 32; i++)  lengths[i] = 5;
+			deflate_build_huff(&dist_huff, lengths, 32);
+		} else if (btype == 2) {
+			int hlit = (int)deflate_get_bits(&s, 5) + 257;
+			int hdist = (int)deflate_get_bits(&s, 5) + 1;
+			int hclen = (int)deflate_get_bits(&s, 4) + 4;
+			unsigned char cl_lens[19];
+
+			memset(cl_lens, 0, sizeof(cl_lens));
+			for (i = 0; i < hclen; i++)
+				cl_lens[cl_order[i]] = (unsigned char)deflate_get_bits(&s, 3);
+			deflate_build_huff(&cl_huff, cl_lens, 19);
+
+			memset(lengths, 0, sizeof(lengths));
+			i = 0;
+			while (i < hlit + hdist) {
+				int sym = deflate_decode_sym(&s, &cl_huff);
+				if (sym < 0)
+					return -1;
+				if (sym < 16) {
+					lengths[i++] = (unsigned char)sym;
+				} else {
+					unsigned char prev = 0;
+					int rep = 0;
+					if (sym == 16) {
+						if (i == 0) return -1;
+						prev = lengths[i - 1];
+						rep = 3 + (int)deflate_get_bits(&s, 2);
+					} else if (sym == 17) {
+						rep = 3 + (int)deflate_get_bits(&s, 3);
+					} else {
+						rep = 11 + (int)deflate_get_bits(&s, 7);
+					}
+					if (i + rep > hlit + hdist)
+						return -1;
+					while (rep-- > 0)
+						lengths[i++] = prev;
+				}
+			}
+			deflate_build_huff(&lit_huff, lengths, hlit);
+			deflate_build_huff(&dist_huff, lengths + hlit, hdist);
+		} else {
+			return -1;
+		}
+
+		for (;;) {
+			int sym = deflate_decode_sym(&s, &lit_huff);
+			if (sym < 0)
+				return -1;
+			if (sym < 256) {
+				if (out_pos >= out_max)
+					return -1;
+				out[out_pos++] = (unsigned char)sym;
+			} else if (sym == 256) {
+				break;
+			} else {
+				int lidx = sym - 257;
+				int didx;
+				unsigned int copy_len, dist, k;
+
+				if (lidx < 0 || lidx >= 29)
+					return -1;
+				copy_len = (unsigned int)len_base[lidx] +
+					   deflate_get_bits(&s, len_extra[lidx]);
+				didx = deflate_decode_sym(&s, &dist_huff);
+				if (didx < 0 || didx >= 30)
+					return -1;
+				dist = (unsigned int)dist_base[didx] +
+				       deflate_get_bits(&s, dist_extra[didx]);
+				if (out_pos + copy_len > out_max)
+					return -1;
+				for (k = 0; k < copy_len; k++) {
+					if (out_pos >= dist) {
+						out[out_pos] = out[out_pos - dist];
+					} else if (prev_dict && prev_len >= (dist - out_pos)) {
+						out[out_pos] = prev_dict[prev_len - (dist - out_pos)];
+					} else {
+						out[out_pos] = 0;
+					}
+					out_pos++;
+				}
+			}
+		}
+	}
+	return (int)out_pos;
+}
+
+/*
+ * Cached 32 KB CFDATA block buffers (supports both uncompressed and MSZIP
+ * CFDATA blocks, including cross-block LZ77 dictionary lookback).
+ */
+static unsigned char cab_comp_buf[36864];
+static unsigned char cab_uncomp_cur[32768];
+static unsigned char cab_uncomp_prev[32768];
+static int cab_cache_block_idx = -1;
+static unsigned int cab_cache_file_off = 0;
+static unsigned int cab_cache_cur_len = 0;
+static unsigned int cab_cache_prev_len = 0;
+
+static void cab_reset_block_cache(void)
+{
+	cab_cache_block_idx = -1;
+	cab_cache_file_off = 0;
+	cab_cache_cur_len = 0;
+	cab_cache_prev_len = 0;
+}
+
+static int cab_load_block(const struct fwupd_cab_archive *cab, int fd, int blk_idx)
+{
+	unsigned int comp_type = cab->type_compress & 0x000f;
+	int step_idx;
+
+	if (blk_idx < 0 || blk_idx >= cab->nr_blocks)
+		return -1;
+
+	if (cab_cache_block_idx == blk_idx &&
+	    cab_cache_file_off == cab->blocks[blk_idx].file_data_off)
+		return (int)cab_cache_cur_len;
+
+	if (comp_type == 0) {
+		unsigned int blen = cab->blocks[blk_idx].cb_data;
+		if (blen > sizeof(cab_uncomp_cur))
+			return -1;
+		if (lseek(fd, (long)cab->blocks[blk_idx].file_data_off, 0) < 0 ||
+		    read(fd, cab_uncomp_cur, (int)blen) != (int)blen)
+			return -1;
+		cab_cache_block_idx = blk_idx;
+		cab_cache_file_off = cab->blocks[blk_idx].file_data_off;
+		cab_cache_cur_len = blen;
+		return (int)blen;
+	}
+
+	if (comp_type == 1) {
+		int start_idx = 0;
+		if (cab_cache_block_idx >= 0 && cab_cache_block_idx < blk_idx &&
+		    cab_cache_file_off == cab->blocks[cab_cache_block_idx].file_data_off) {
+			start_idx = cab_cache_block_idx + 1;
+		} else {
+			cab_cache_prev_len = 0;
+		}
+
+		for (step_idx = start_idx; step_idx <= blk_idx; step_idx++) {
+			unsigned int c_len = cab->blocks[step_idx].cb_data;
+			unsigned int u_len = cab->blocks[step_idx].cb_uncomp;
+			int n_out;
+
+			if (c_len > sizeof(cab_comp_buf) || u_len > sizeof(cab_uncomp_cur))
+				return -1;
+			if (step_idx > 0 && cab_cache_cur_len > 0) {
+				memcpy(cab_uncomp_prev, cab_uncomp_cur, cab_cache_cur_len);
+				cab_cache_prev_len = cab_cache_cur_len;
+			}
+			if (lseek(fd, (long)cab->blocks[step_idx].file_data_off, 0) < 0 ||
+			    read(fd, cab_comp_buf, (int)c_len) != (int)c_len)
+				return -1;
+			n_out = mszip_inflate_block(cab_comp_buf, c_len,
+						    cab_uncomp_cur, u_len,
+						    cab_uncomp_prev, cab_cache_prev_len);
+			if (n_out < 0)
+				return -1;
+			cab_cache_block_idx = step_idx;
+			cab_cache_file_off = cab->blocks[step_idx].file_data_off;
+			cab_cache_cur_len = (unsigned int)n_out;
+		}
+		return (int)cab_cache_cur_len;
+	}
+
+	return -1;
+}
+
+/*
+ * Read uncompressed bytes from folder 0 across CFDATA blocks in a .cab file
+ * (supports both uncompressed typeCompress=0 and MSZIP typeCompress=1).
  */
 static int cab_read_folder_bytes(const struct fwupd_cab_archive *cab,
 				 int fd,
@@ -232,15 +569,15 @@ static int cab_read_folder_bytes(const struct fwupd_cab_archive *cab,
 		int found = 0;
 		for (i = 0; i < cab->nr_blocks; i++) {
 			unsigned int b_start = cab->blocks[i].uncomp_off;
-			unsigned int b_len = cab->blocks[i].cb_data;
+			unsigned int b_len = cab->blocks[i].cb_uncomp;
 			if (folder_off >= b_start && folder_off < b_start + b_len) {
 				unsigned int rel = folder_off - b_start;
 				unsigned int avail = b_len - rel;
 				unsigned int take = (len - done < avail) ? (len - done) : avail;
-				if (lseek(fd, (long)(cab->blocks[i].file_data_off + rel), 0) < 0)
+
+				if (cab_load_block(cab, fd, i) < (int)(rel + take))
 					return -1;
-				if (read(fd, dst + done, (int)take) != (int)take)
-					return -1;
+				memcpy(dst + done, cab_uncomp_cur + rel, take);
 				done += take;
 				folder_off += take;
 				found = 1;
@@ -448,6 +785,7 @@ static int parse_cab_archive(const char *cab_path, struct fwupd_cab_archive *cab
 	memset(cab, 0, sizeof(*cab));
 	cab->meta_file_idx = -1;
 	cab->payload_file_idx = -1;
+	cab_reset_block_cache();
 
 	fd = open(cab_path, O_RDONLY);
 	if (fd < 0)
@@ -487,9 +825,9 @@ static int parse_cab_archive(const char *cab_path, struct fwupd_cab_archive *cab
 
 	cab->c_cfdata = folder.c_cfdata;
 	cab->type_compress = folder.type_compress;
-	if ((folder.type_compress & 0x000f) != 0) {
+	if ((folder.type_compress & 0x000f) > 1) {
 		close(fd);
-		return -2; /* Unsupported compression type */
+		return -2; /* Unsupported compression type (only NONE=0 and MSZIP=1 supported) */
 	}
 
 	/* Map all CFDATA blocks in Folder 0 */
@@ -505,6 +843,7 @@ static int parse_cab_archive(const char *cab_path, struct fwupd_cab_archive *cab
 		cab->blocks[i].file_data_off = pos + (unsigned int)sizeof(dhdr) + cb_cfdata_rsvd;
 		cab->blocks[i].uncomp_off = uncomp_cursor;
 		cab->blocks[i].cb_data = dhdr.cb_data;
+		cab->blocks[i].cb_uncomp = dhdr.cb_uncomp;
 		cab->nr_blocks++;
 		uncomp_cursor += dhdr.cb_uncomp;
 		pos = cab->blocks[i].file_data_off + dhdr.cb_data;
@@ -540,7 +879,8 @@ static int parse_cab_archive(const char *cab_path, struct fwupd_cab_archive *cab
 
 		if (str_ends_with(name_buf, ".metainfo.xml") || str_ends_with(name_buf, ".xml"))
 			cab->meta_file_idx = i;
-		else if (str_ends_with(name_buf, ".bin") || str_ends_with(name_buf, ".fw"))
+		else if (str_ends_with(name_buf, ".bin") || str_ends_with(name_buf, ".fw") ||
+			 str_ends_with(name_buf, ".fluf") || str_ends_with(name_buf, ".img"))
 			cab->payload_file_idx = i;
 	}
 
@@ -1214,12 +1554,13 @@ static int install_package_on_device(const char *pkg_path,
 	int is_cab = 0, is_sfwm = 0, bin_fd, nr_devs, cmp, max_ver_len, rc;
 
 	active_cab.active = 0;
+	active_target_ver[0] = '\0';
 
 	if (is_cab_file(pkg_path)) {
 		is_cab = 1;
 		rc = parse_cab_archive(pkg_path, &active_cab);
 		if (rc == -2) {
-			fprintf(stderr, "fwupdmgr: cabinet '%s' uses compressed CFDATA; only uncompressed LVFS .cab is supported\n",
+			fprintf(stderr, "fwupdmgr: cabinet '%s' uses unsupported compression (only NONE and MSZIP are supported)\n",
 				pkg_path);
 			return 1;
 		}
@@ -1287,16 +1628,20 @@ static int install_package_on_device(const char *pkg_path,
 		strncpy(target_ver, active_cab.release_version, (size_t)max_ver_len);
 		target_ver[max_ver_len] = '\0';
 	}
+	memset(active_target_ver, 0, sizeof(active_target_ver));
+	strncpy(active_target_ver, target_ver, sizeof(active_target_ver) - 1);
 
 	cmp = compare_versions(target_ver, dev->version);
 	if (cmp == 0 && !allow_reinstall && (is_sfwm || is_cab)) {
 		active_cab.active = 0;
+		active_target_ver[0] = '\0';
 		fprintf(stderr, "fwupdmgr: %s is already at version %s (use --allow-reinstall)\n",
 			dev->device_id, dev->version);
 		return 1;
 	}
 	if (cmp < 0 && !allow_older && (is_sfwm || is_cab)) {
 		active_cab.active = 0;
+		active_target_ver[0] = '\0';
 		fprintf(stderr, "fwupdmgr: firmware version %s is older than installed %s on %s (use --allow-older)\n",
 			target_ver, dev->version, dev->device_id);
 		return 1;
@@ -1305,6 +1650,7 @@ static int install_package_on_device(const char *pkg_path,
 	plug = find_plugin(dev->plugin);
 	if (!plug) {
 		active_cab.active = 0;
+		active_target_ver[0] = '\0';
 		fprintf(stderr, "fwupdmgr: plugin '%s' not found\n", dev->plugin);
 		return 1;
 	}
@@ -1313,10 +1659,11 @@ static int install_package_on_device(const char *pkg_path,
 	format_sha256_hex(full_sha256, hex);
 
 	if (is_cab) {
+		const char *comp_str = ((active_cab.type_compress & 0x000f) == 1) ? "MSZIP" : "NONE";
 		printf("Decompressing & verifying LVFS cabinet archive %s...\n", pkg_path);
-		printf("  Cabinet Header: MSCF v%u.%u (%u bytes, %u files, %u CFDATA blocks)\n",
+		printf("  Cabinet Header: MSCF v%u.%u (%u bytes, %u files, %u CFDATA blocks, %s)\n",
 		       active_cab.ver_major, active_cab.ver_minor,
-		       active_cab.cb_cabinet, active_cab.c_files, active_cab.c_cfdata);
+		       active_cab.cb_cabinet, active_cab.c_files, active_cab.c_cfdata, comp_str);
 		if (active_cab.component_id[0]) {
 			printf("  AppStream ID  : %s (%s)\n",
 			       active_cab.component_id,
@@ -1339,15 +1686,18 @@ static int install_package_on_device(const char *pkg_path,
 		printf("  [WARN] Binary microcode SHA-256 mismatch detected in user-space; forwarding to controller to verify hardware rejection...\n");
 	}
 
+	cab_reset_block_cache();
 	bin_fd = open(pkg_path, O_RDONLY);
 	if (bin_fd < 0) {
 		active_cab.active = 0;
+		active_target_ver[0] = '\0';
 		return 1;
 	}
 
 	if (plug->write_firmware(dev, bin_fd, total_size) < 0) {
 		close(bin_fd);
 		active_cab.active = 0;
+		active_target_ver[0] = '\0';
 		record_history(dev->device_id, dev->guid, dev->plugin,
 			       old_ver, target_ver, full_sha256, "failed-signature");
 		printf("fwupdmgr: firmware update FAILED on %s (hardware rejected .bin image)\n",
@@ -1356,6 +1706,7 @@ static int install_package_on_device(const char *pkg_path,
 	}
 	close(bin_fd);
 	active_cab.active = 0;
+	active_target_ver[0] = '\0';
 
 	/* Re-probe device to verify the new version and hardware SHA-256 digest */
 	nr_devs = probe_all_devices(devs, MAX_DEVICES);
@@ -1539,18 +1890,20 @@ static int cmd_examine(const char *pkg_path)
 	}
 
 	if (is_cab_file(pkg_path)) {
+		const char *comp_str;
 		int rc = parse_cab_archive(pkg_path, &active_cab);
 		if (rc < 0) {
 			fprintf(stderr, "fwupdmgr examine: invalid or unsupported .cab archive '%s'\n",
 				pkg_path);
 			return 1;
 		}
+		comp_str = ((active_cab.type_compress & 0x000f) == 1) ? "MSZIP" : "NONE";
 		format_sha256_hex(active_cab.payload_sha256, full_hex);
 		printf("LVFS Cabinet Archive Inspection (%s):\n", pkg_path);
-		printf("  Archive Format : Microsoft Cabinet Archive (MSCF v%u.%u, %u bytes, %u folder, %u files, %u CFDATA blocks)\n",
+		printf("  Archive Format : Microsoft Cabinet Archive (MSCF v%u.%u, %u bytes, %u folder, %u files, %u CFDATA blocks, %s)\n",
 		       active_cab.ver_major, active_cab.ver_minor,
 		       active_cab.cb_cabinet, active_cab.c_folders,
-		       active_cab.c_files, active_cab.c_cfdata);
+		       active_cab.c_files, active_cab.c_cfdata, comp_str);
 		for (i = 0; i < active_cab.nr_files; i++) {
 			printf("  %s [%d] %s (%u bytes @ folder+0x%x)\n",
 			       (i == 0) ? "Cabinet Files  :" : "                ",

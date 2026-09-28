@@ -129,15 +129,24 @@ static int fu_scsi_plugin_write_firmware(const struct fwupd_device *dev,
 	}
 
 	/* Step 2: Activate deferred microcode via SCSI WRITE_BUFFER (0x3B, Mode 0x0F) */
-	memset(&sc, 0, sizeof(sc));
-	sc.lun = 0;
-	sc.opcode = UFS_SCSI_WRITE_BUFFER;
-	sc.rsvd = SCSI_WB_MODE_ACTIVATE_DEFERRED;
-	sc.lba = 0;
-	sc.data_len = 0;
-	sc.data_addr = 0;
+	{
+		char ver_hint[16];
+		const char *tv = fwupd_get_target_version();
+		memset(ver_hint, 0, sizeof(ver_hint));
+		if (tv && tv[0])
+			strncpy(ver_hint, tv, sizeof(ver_hint) - 1);
 
-	rc = ioctl(fd, UFS_IOCTL_SCSI_CMD, &sc);
+		memset(&sc, 0, sizeof(sc));
+		sc.lun = 0;
+		sc.opcode = UFS_SCSI_WRITE_BUFFER;
+		sc.rsvd = SCSI_WB_MODE_ACTIVATE_DEFERRED;
+		sc.lba = 0;
+		if (ver_hint[0]) {
+			sc.data_addr = (unsigned long)ver_hint;
+			sc.data_len = sizeof(ver_hint);
+		}
+		rc = ioctl(fd, UFS_IOCTL_SCSI_CMD, &sc);
+	}
 	close(fd);
 	if (rc < 0 || sc.status != 0x00) {
 		printf("  [scsi] SCSI WRITE_BUFFER (0x3B, Mode 0x0F) REJECTED by target (status=0x%02x CHECK_CONDITION)\n",

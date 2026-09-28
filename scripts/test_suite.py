@@ -717,6 +717,9 @@ TESTS = [
             "fwupdmgr examine /etc/fwupd/remotes.d/lvfs/packages/test.cab && "
             "fwupdmgr install /etc/fwupd/remotes.d/lvfs/packages/test.cab && "
             "fwupdmgr verify SIX-UFS-FLASH && "
+            "fwupdmgr examine /etc/fwupd/remotes.d/lvfs/packages/wd-sn850x-624711WD.cab && "
+            "fwupdmgr install /etc/fwupd/remotes.d/lvfs/packages/wd-sn850x-624711WD.cab && "
+            "fwupdmgr verify SIX-NVME-SSD && "
             "echo 'VENDOR_NVME_MICROCODE_BLOB_REV_1.5.0_PADDING_0123456789ABCDEF0123456789ABCDEF' > /tmp/vendor_nvme.bin && "
             "fwupdmgr examine /tmp/vendor_nvme.bin && "
             "fwupdmgr install-blob /tmp/vendor_nvme.bin SIX-NVME-SSD && "
@@ -759,8 +762,12 @@ TESTS = [
             "[ufs] UFS FFU WRITE_BUFFER (0x3B, Mode 0x0E): chunk 1536/1536 (786432/786432 bytes",
             "Successfully updated SIX JEDEC UFS 4.0 Flash Controller (SIX-UFS-FLASH) from 4.10 to 2101 [VERIFIED]",
             "Verified SIX JEDEC UFS 4.0 Flash Controller (SIX-UFS-FLASH, plugin=ufs, version=2101): SHA256(29e7bb7ba1e029cf9136b144e3d03bfee99bc812b9e0d2725e7f5ff69c91a35f) [OK]",
+            "Component ID   : com.wdc.SN850X.firmware",
+            "2 CFDATA blocks, MSZIP",
+            "Successfully updated SIX Virtual NVMe SSD Controller (SIX-NVME-SSD) from 1.4.2 to 624711WD [VERIFIED]",
+            "Verified SIX Virtual NVMe SSD Controller (SIX-NVME-SSD, plugin=nvme, version=624711WD):",
             "Raw Vendor Controller Microcode Binary (.bin)",
-            "Successfully updated SIX Virtual NVMe SSD Controller (SIX-NVME-SSD) from 1.4.2 to 1.5.0 [VERIFIED]",
+            "Successfully updated SIX Virtual NVMe SSD Controller (SIX-NVME-SSD) from 624711WD to 1.5.0 [VERIFIED]",
             "Verified SIX Virtual NVMe SSD Controller (SIX-NVME-SSD, plugin=nvme, version=1.5.0):",
             "[scsi] SCSI WRITE_BUFFER (0x3B, Mode 0x0E): chunk 1/3 (512/1184 bytes, offset=0x0000)",
             "[scsi] SCSI WRITE_BUFFER (0x3B, Mode 0x0F): deferred microcode verified & activated",

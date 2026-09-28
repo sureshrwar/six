@@ -370,6 +370,15 @@ static int usb_sd_handle_scsi_ioctl(unsigned long arg)
 				sc.status = 0x02;
 				break;
 			}
+			if (mode == SCSI_WB_MODE_ACTIVATE_DEFERRED && xfer_len > 0 &&
+			    ((const struct fwupd_bin_hdr *)usb_sd_fw_stream.hdr_buf)->magic != FWUPD_BIN_MAGIC) {
+				const char *vh = (const char *)usb_sd_scsi_bounce;
+				if (vh[0] >= 0x21 && vh[0] <= 0x7e) {
+					memset(detected_ver, 0, sizeof(detected_ver));
+					strncpy(detected_ver, vh, 4);
+					detected_ver[4] = '\0';
+				}
+			}
 			memset(usb_sd_fw_rev, ' ', 4);
 			usb_sd_fw_rev[4] = '\0';
 			strncpy(usb_sd_fw_rev, detected_ver, 4);
