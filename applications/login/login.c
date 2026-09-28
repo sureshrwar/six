@@ -353,6 +353,19 @@ char *argv[];
 	if (chdir(pwd->pw_dir) < 0)
 		chdir("/");
 
+	/* Transition SELinux security context for login session */
+	{
+		int se_fd = open("/proc/self/attr/current", O_WRONLY);
+		if (se_fd >= 0) {
+			const char *sectx = "u:r:untrusted_app:s0";
+			if (pwd->pw_uid == 0)
+				sectx = "u:r:su:s0";
+			else if (strcmp(pwd->pw_name, "shell") == 0 || pwd->pw_uid == 2000)
+				sectx = "u:r:shell:s0";
+			write(se_fd, sectx, strlen(sectx));
+			close(se_fd);
+		}
+	}
 
 	/* Reset signals to default values. */
 	sa.sa_handler = SIG_DFL;

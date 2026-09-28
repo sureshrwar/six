@@ -1,0 +1,11 @@
+# system/sepolicy/private/service_contexts
+# Core ServiceManager service_contexts (installed to /system/etc/selinux/plat_service_contexts)
+
+power                       u:object_r:power_service:s0
+sysinfo                     u:object_r:sysinfo_service:s0
+vold                        u:object_r:vold_service:s0
+mount                       u:object_r:mount_service:s0
+suspend                     u:object_r:suspend_service:s0
+media.provider              u:object_r:mediaprovider_service:s0
+externalstorage             u:object_r:externalstorage_service:s0
+*                           u:object_r:default_android_service:s0

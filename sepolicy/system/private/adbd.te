@@ -1,0 +1,24 @@
+# system/sepolicy/private/adbd.te
+# Android Debug Bridge Daemon (/bin/adbd), httpd (/bin/httpd), and telnetd (/bin/telnetd)
+@tier private
+
+allow adbd self:capability { setuid setgid dac_override dac_read_search net_bind_service };
+allow adbd adb_device:chr_file rw_file_perms;
+allow adbd shell_exec:file rx_file_perms;
+domain_auto_trans(adbd, shell_exec, shell)
+allow adbd tmpfs:dir create_dir_perms;
+allow adbd tmpfs:file create_file_perms;
+allow adbd media_rw_data_file:dir create_dir_perms;
+allow adbd media_rw_data_file:file create_file_perms;
+allow adbd proc_net:file r_file_perms;
+
+allow httpd self:capability { net_bind_service setuid setgid };
+allow httpd proc_net:file r_file_perms;
+allow httpd user_home_file:dir r_dir_perms;
+allow httpd user_home_file:file r_file_perms;
+allow httpd tmpfs:dir create_dir_perms;
+allow httpd tmpfs:file create_file_perms;
+
+allow telnetd self:capability { net_bind_service setuid setgid chown dac_override };
+allow telnetd proc_net:file r_file_perms;
+domain_auto_trans(telnetd, shell_exec, shell)

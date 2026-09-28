@@ -1,0 +1,28 @@
+# system/sepolicy/private/mediaprovider.te
+# Android MediaProvider FUSE Scoped Storage Daemon (/bin/mediaproviderd)
+@tier private
+
+allow mediaprovider self:capability { sys_admin dac_override dac_read_search chown fowner };
+allow mediaprovider fuse_device:chr_file rw_file_perms;
+allow mediaprovider binder_device:chr_file rw_file_perms;
+allow mediaprovider servicemanager:binder { call transfer };
+allow mediaprovider domain:binder { call transfer };
+
+allow mediaprovider mediaprovider_service:service_manager { add find };
+allow mediaprovider mount_service:service_manager find;
+allow mediaprovider externalstorage_service:service_manager find;
+
+# Access underlying /mnt/media_rw/<vol> (vfat, ntfs) and mount FUSE at /storage/<vol>
+allow mediaprovider mnt_media_rw_file:dir { create_dir_perms mounton unmount };
+allow mediaprovider mnt_media_rw_file:file create_file_perms;
+allow mediaprovider media_rw_data_file:dir { create_dir_perms mounton unmount };
+allow mediaprovider media_rw_data_file:file create_file_perms;
+allow mediaprovider system_data_file:dir create_dir_perms;
+allow mediaprovider system_data_file:file create_file_perms;
+allow mediaprovider app_data_file:dir create_dir_perms;
+allow mediaprovider app_data_file:file create_file_perms;
+allow mediaprovider rootfs:dir rw_dir_perms;
+allow mediaprovider vfat:dir create_dir_perms;
+allow mediaprovider vfat:file create_file_perms;
+allow mediaprovider ntfs:dir create_dir_perms;
+allow mediaprovider ntfs:file create_file_perms;

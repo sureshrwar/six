@@ -1,0 +1,27 @@
+# system/sepolicy/private/storaged.te
+# Android Desktop Storage Metric & System Power Daemon (/bin/storaged)
+@tier private
+
+allow storaged self:capability { sys_admin dac_override dac_read_search };
+allow storaged binder_device:chr_file rw_file_perms;
+allow storaged servicemanager:binder { call transfer };
+allow storaged domain:binder { call transfer };
+
+# ServiceManager registration & lookup
+allow storaged power_service:service_manager { add find };
+allow storaged sysinfo_service:service_manager { add find };
+allow storaged system_suspend_control_service:service_manager { add find };
+allow storaged mount_service:service_manager { add find };
+allow storaged vold_service:service_manager find;
+
+# Storage I/O telemetry (/proc/diskstats, /proc/nvme, /proc/ufs, /proc/<pid>/io)
+allow storaged proc_diskstats:file r_file_perms;
+allow storaged domain:dir r_dir_perms;
+allow storaged domain:file r_file_perms;
+
+# Power management & wakeup tracking (/sys/power/*, /dev/power, /sys/fs/pstore)
+allow storaged { sysfs_power sysfs_wake_lock }:{ file chr_file } rw_file_perms;
+allow storaged power_device:chr_file rw_file_perms;
+allow storaged pstorefs:dir r_dir_perms;
+allow storaged pstorefs:file r_file_perms;
+allow storaged { system_data_file media_rw_data_file rootfs }:dir rw_dir_perms;

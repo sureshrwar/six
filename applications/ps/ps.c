@@ -159,6 +159,7 @@ static void usage(void)
 	printf("  -a            Select all processes on a terminal\n");
 	printf("  -f            Full-format listing (UID, PID, PPID, C, STIME, TTY, TIME, CMD)\n");
 	printf("  -l            Long format (F, S, UID, PID, PPID, PRI, NI, SZ, WCHAN, TTY, TIME, CMD)\n");
+	printf("  -Z            Display SELinux security context (LABEL)\n");
 	printf("  -H, --forest  ASCII process tree hierarchy\n");
 	printf("  -p <pid>      Select by PID\n");
 	printf("  aux, u, x     BSD user-oriented format (%CPU, %MEM, VSZ, RSS, STAT, START, COMMAND)\n");
@@ -171,6 +172,7 @@ int main(int argc, char *argv[])
 	int opt_long = 0;
 	int opt_bsd_u = 0;
 	int opt_forest = 0;
+	int opt_selinux = 0;
 	int filter_pid = -1;
 	int i, k;
 	struct six_proc s;
@@ -216,6 +218,9 @@ int main(int argc, char *argv[])
 				opt_bsd_u = 1;
 				opt_all = 1;
 				break;
+			case 'Z':
+				opt_selinux = 1;
+				break;
 			case 'H':
 				opt_forest = 1;
 				break;
@@ -240,6 +245,8 @@ int main(int argc, char *argv[])
 	if (opt_forest)
 		sort_for_forest();
 
+	if (opt_selinux)
+		printf("%-28s ", "LABEL");
 	if (opt_bsd_u) {
 		printf("USER       PID %%CPU %%MEM    VSZ   RSS TTY      STAT START   TIME COMMAND\n");
 	} else if (opt_long) {
@@ -279,6 +286,10 @@ int main(int argc, char *argv[])
 		/* 32768 KB total RAM */
 		mem_tenths = (unsigned int)((p->rss_kb * 1000UL) / 32768UL);
 
+		if (opt_selinux) {
+			printf("%-28s ",
+			       p->secontext[0] ? p->secontext : "u:r:kernel:s0");
+		}
 		if (opt_bsd_u) {
 			printf("%-8s %5d %2u.%u %2u.%u %6lu %5lu %-8s %-4s %-5s %6s %s\n",
 			       uid_to_name(p->uid),

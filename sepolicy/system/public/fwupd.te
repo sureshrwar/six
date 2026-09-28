@@ -1,0 +1,9 @@
+# system/sepolicy/public/fwupd.te
+# Public declaration of fwupd domain & executable (b/467820671, ag/41847641)
+# Declared in system/public so system/public/domain.te can exempt fwupd in:
+#   neverallow { domain -kernel -init -vold -fwupd } self:capability sys_rawio;
+# while concrete hardware & vendor rules live in sepolicy/vendor/fwupd.te.
+@tier public
+
+type fwupd, domain;
+type fwupd_exec, exec_type, file_type, vendor_file_type;

@@ -28,6 +28,7 @@ struct six_proc {
 	unsigned long wchan_addr;
 	char wchan[32];
 	char args[128];
+	char secontext[64];
 };
 
 #endif

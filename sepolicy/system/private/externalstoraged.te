@@ -1,0 +1,24 @@
+# system/sepolicy/private/externalstoraged.te
+# Android Storage Access Framework (SAF) ExternalStorageProvider Daemon
+@tier private
+
+allow externalstoraged self:capability { dac_override dac_read_search };
+allow externalstoraged binder_device:chr_file rw_file_perms;
+allow externalstoraged servicemanager:binder { call transfer };
+allow externalstoraged domain:binder { call transfer };
+
+allow externalstoraged externalstorage_service:service_manager { add find };
+allow externalstoraged mediaprovider_service:service_manager find;
+allow externalstoraged mount_service:service_manager find;
+allow externalstoraged vold_service:service_manager find;
+
+allow externalstoraged mnt_media_rw_file:dir create_dir_perms;
+allow externalstoraged mnt_media_rw_file:file create_file_perms;
+allow externalstoraged media_rw_data_file:dir create_dir_perms;
+allow externalstoraged media_rw_data_file:file create_file_perms;
+allow externalstoraged system_data_file:dir create_dir_perms;
+allow externalstoraged system_data_file:file create_file_perms;
+allow externalstoraged vfat:dir create_dir_perms;
+allow externalstoraged vfat:file create_file_perms;
+allow externalstoraged ntfs:dir create_dir_perms;
+allow externalstoraged ntfs:file create_file_perms;

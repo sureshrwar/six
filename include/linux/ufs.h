@@ -373,4 +373,8 @@ struct ufs_rpmb_frame {
 #define UFS_IOCTL_RPMB			0x5542
 #define UFS_IOCTL_RESET			0x5543
 
+#ifndef SG_IO
+#define SG_IO				0x2285
+#endif
+
 #endif /* _LINUX_UFS_H */

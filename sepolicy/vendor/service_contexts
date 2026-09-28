@@ -1,0 +1,4 @@
+# sepolicy/vendor/service_contexts
+# Vendor ServiceManager service_contexts (installed to /vendor/etc/selinux/vendor_service_contexts)
+
+fwupd                       u:object_r:fwupd_service:s0

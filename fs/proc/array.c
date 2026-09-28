@@ -1112,6 +1112,10 @@ static int get_root_array(char * page, int type, char **start, off_t offset, int
 			extern int get_ufs_proc_info(char *buf);
 			return get_ufs_proc_info(page);
 		}
+		case PROC_SELINUX: {
+			extern int get_selinux_proc_info(char *buf);
+			return get_selinux_proc_info(page);
+		}
 	}
 	return -EBADF;
 }
@@ -1129,6 +1133,25 @@ static int get_process_array(char * page, int pid, int type)
 			return get_stat(pid, page);
 		case PROC_PID_STATM:
 			return get_statm(pid, page);
+		case PROC_PID_ATTR_CURRENT: {
+			extern int selinux_task_get_context(struct task_struct *tsk, char *buf, int maxlen);
+			struct task_struct **p = get_task(pid);
+			char ctx[64];
+			if (!p || !*p)
+				return 0;
+			selinux_task_get_context(*p, ctx, sizeof(ctx));
+			return sprintf(page, "%s\n", ctx);
+		}
+		case PROC_PID_ATTR_EXEC: {
+			extern int selinux_task_get_exec_context(struct task_struct *tsk, char *buf, int maxlen);
+			struct task_struct **p = get_task(pid);
+			char ctx[64];
+			if (!p || !*p)
+				return 0;
+			if (selinux_task_get_exec_context(*p, ctx, sizeof(ctx)) <= 0)
+				return 0;
+			return sprintf(page, "%s\n", ctx);
+		}
 	}
 	return -EBADF;
 }
@@ -1194,10 +1217,34 @@ static int array_read(struct inode * inode, struct file * file,char * buf, int c
 	return count;
 }
 
+static int array_write(struct inode *inode, struct file *file, const char *buf, int count)
+{
+	extern int selinux_task_set_context(struct task_struct *tsk, const char *ctx, int is_exec);
+	unsigned int type = inode->i_ino & 0x0000ffff;
+	unsigned int pid = inode->i_ino >> 16;
+	struct task_struct **p;
+	char kbuf[64];
+	int n, rc;
+
+	(void)file;
+	if (type != PROC_PID_ATTR_CURRENT && type != PROC_PID_ATTR_EXEC)
+		return -EIO;
+	if (count <= 0)
+		return 0;
+	p = get_task((int)pid);
+	if (!p || !*p)
+		return -ESRCH;
+	n = (count < (int)sizeof(kbuf) - 1) ? count : ((int)sizeof(kbuf) - 1);
+	memcpy_fromfs(kbuf, buf, n);
+	kbuf[n] = '\0';
+	rc = selinux_task_set_context(*p, kbuf, (type == PROC_PID_ATTR_EXEC) ? 1 : 0);
+	return rc ? rc : count;
+}
+
 static struct file_operations proc_array_operations = {
 	NULL,		/* array_lseek */
 	array_read,
-	NULL,		/* array_write */
+	array_write,	/* array_write */
 	NULL,		/* array_readdir */
 	NULL,		/* array_select */
 	NULL,		/* array_ioctl */

@@ -1,0 +1,43 @@
+# system/sepolicy/private/vold.te
+# Android Volume Daemon (/bin/vold)
+# Includes setuid/setgid capabilities for dropping to AID_MEDIA_RW (1023) before
+# executing /bin/ntfs-3g, and automatic domain transition to ntfs_3g (ag/41792131, ag/41271392).
+@tier private
+
+allow vold self:capability { chown dac_override dac_read_search fowner fsetid setuid setgid sys_admin sys_rawio mknod };
+allow vold binder_device:chr_file rw_file_perms;
+allow vold fuse_device:chr_file rw_file_perms;
+allow vold servicemanager:binder { call transfer };
+allow vold domain:binder { call transfer };
+allow vold vold_service:service_manager { add find };
+allow vold mount_service:service_manager { add find };
+
+# Block device management & formatting
+allow vold { device block_device vold_device }:dir create_dir_perms;
+allow vold { block_device root_block_device swap_block_device vold_device sdx_block_device nvme_device }:blk_file rw_file_perms;
+allow vold { ufs_dev ufs_rpmb_device nvme_device sysfs_power sysfs_wake_lock power_device }:chr_file rw_file_perms;
+allow vold { sysfs_power sysfs_wake_lock }:file rw_file_perms;
+allowxperm vold sdx_block_device:blk_file ioctl { 0x1260 0x2285 0x5540-0x5543 };
+
+# Mountpoints & storage directories
+allow vold mnt_media_rw_stub_file:dir rw_dir_perms;
+allow vold mnt_media_rw_file:dir { create_dir_perms mounton unmount };
+allow vold mnt_media_rw_file:file create_file_perms;
+allow vold media_rw_data_file:dir { create_dir_perms mounton unmount };
+allow vold media_rw_data_file:file create_file_perms;
+allow vold system_data_file:dir { create_dir_perms mounton unmount };
+allow vold system_data_file:file create_file_perms;
+allow vold rootfs:dir { create_dir_perms mounton unmount };
+allow vold tmpfs:dir { create_dir_perms mounton unmount };
+allow vold tmpfs:file create_file_perms;
+allow vold vfat:dir { create_dir_perms mounton unmount };
+allow vold vfat:file create_file_perms;
+allow vold ntfs:dir { create_dir_perms mounton unmount };
+allow vold ntfs:file create_file_perms;
+allow vold proc_diskstats:file r_file_perms;
+
+# Execute fsck/mkdosfs in vold domain
+allow vold fsck_exec:file rx_file_perms;
+
+# Transition to confined ntfs_3g domain when executing /bin/ntfs-3g, /bin/ntfsfix, /bin/mkntfs
+domain_auto_trans(vold, ntfs_3g_exec, ntfs_3g)

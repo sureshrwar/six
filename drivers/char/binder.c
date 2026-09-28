@@ -35,6 +35,7 @@
 #include <linux/fs.h>
 #include <linux/major.h>
 #include <linux/binder.h>
+#include <linux/selinux.h>
 #include <asm/segment.h>
 #include <asm/system.h>
 
@@ -71,6 +72,7 @@ struct binder_svc_entry {
 	int handle;
 	int owner_pid;
 	int owner_uid;
+	char owner_secontext[64];
 	struct binder_proc *owner_proc;
 	unsigned int txn_count;
 	char name[BINDER_MAX_NAME_LEN];
@@ -96,6 +98,19 @@ extern void usb_sd_set_online(int online, const char *label, const char *uuid,
 			      const char *fstype);
 extern void usb_sd_get_meta(int *online, char *label, char *uuid, char *fstype,
 			    unsigned long *sectors);
+
+static struct task_struct *binder_find_task_by_pid(int pid)
+{
+	int i;
+
+	if (pid <= 0)
+		return NULL;
+	for (i = 0; i < NR_TASKS; i++) {
+		if (task[i] && task[i]->pid == pid)
+			return task[i];
+	}
+	return NULL;
+}
 
 static struct binder_proc *binder_get_proc(struct file *filp)
 {
@@ -137,16 +152,22 @@ static int binder_register_service_internal(struct binder_proc *proc,
 					    int owner_uid)
 {
 	struct binder_svc_entry *svc;
+	char cur_ctx[64];
 	int i;
 
 	if (!name || !name[0])
 		return -EINVAL;
+
+	memset(cur_ctx, 0, sizeof(cur_ctx));
+	selinux_task_get_context(current, cur_ctx, sizeof(cur_ctx));
 
 	/* Update existing service if re-registered */
 	svc = binder_find_svc_by_name(name);
 	if (svc) {
 		svc->owner_pid = owner_pid ? owner_pid : (proc ? proc->pid : current->pid);
 		svc->owner_uid = owner_uid ? owner_uid : (proc ? proc->uid : current->euid);
+		strncpy(svc->owner_secontext, cur_ctx, sizeof(svc->owner_secontext) - 1);
+		svc->owner_secontext[sizeof(svc->owner_secontext) - 1] = '\0';
 		if (proc)
 			svc->owner_proc = proc;
 		if (descriptor && descriptor[0]) {
@@ -164,6 +185,8 @@ static int binder_register_service_internal(struct binder_proc *proc,
 			svc->handle = next_svc_handle++;
 			svc->owner_pid = owner_pid ? owner_pid : (proc ? proc->pid : current->pid);
 			svc->owner_uid = owner_uid ? owner_uid : (proc ? proc->uid : current->euid);
+			strncpy(svc->owner_secontext, cur_ctx, sizeof(svc->owner_secontext) - 1);
+			svc->owner_secontext[sizeof(svc->owner_secontext) - 1] = '\0';
 			svc->owner_proc = proc;
 			strncpy(svc->name, name, BINDER_MAX_NAME_LEN - 1);
 			svc->name[BINDER_MAX_NAME_LEN - 1] = '\0';
@@ -297,6 +320,7 @@ static int binder_do_transact(struct binder_proc *sender,
 	struct binder_proc *target = NULL;
 	struct binder_svc_entry *svc = NULL;
 	struct binder_txn *txn;
+	struct task_struct *target_task;
 	int err;
 
 	err = verify_area(VERIFY_WRITE, umsg, sizeof(struct binder_ipc_msg));
@@ -304,24 +328,35 @@ static int binder_do_transact(struct binder_proc *sender,
 		return err;
 	memcpy_fromfs(&kmsg, umsg, sizeof(kmsg));
 
-	/* Kernel stamps unforgeable caller identity */
+	/* Kernel stamps unforgeable caller identity + SELinux context */
 	kmsg.sender_pid = current->pid;
 	kmsg.sender_euid = current->euid;
+	memset(kmsg.sender_secontext, 0, sizeof(kmsg.sender_secontext));
+	selinux_task_get_context(current, kmsg.sender_secontext, sizeof(kmsg.sender_secontext));
 	kmsg.status = 0;
 
 	if (kmsg.target_handle == BINDER_CONTEXT_MGR_HANDLE) {
 		target = binder_context_mgr;
-		/*
-		 * Also update the kernel service table for SVC_MGR_ADD_SERVICE
-		 * so the newly allocated handle points directly to the caller's
-		 * binder_proc!
-		 */
 		if (kmsg.code == SVC_MGR_ADD_SERVICE && kmsg.data_size > 0) {
-			int h = binder_register_service_internal(
+			int h;
+			err = selinux_service_check(NULL, kmsg.data, "add");
+			if (err)
+				return err;
+			h = binder_register_service_internal(
 				sender, kmsg.data, kmsg.interface_token,
 				kmsg.sender_pid, kmsg.sender_euid);
 			if (h > 0)
 				kmsg.reply_handle = h;
+		} else if ((kmsg.code == SVC_MGR_GET_SERVICE ||
+			    kmsg.code == SVC_MGR_CHECK_SERVICE) &&
+			   kmsg.data_size > 0) {
+			err = selinux_service_check(NULL, kmsg.data, "find");
+			if (err)
+				return err;
+		} else if (kmsg.code == SVC_MGR_LIST_SERVICES) {
+			err = selinux_service_check(NULL, "*", "list");
+			if (err)
+				return err;
 		}
 	} else {
 		svc = binder_find_svc_by_handle(kmsg.target_handle);
@@ -339,6 +374,14 @@ static int binder_do_transact(struct binder_proc *sender,
 	/* Prevent self-deadlock if a process synchronously calls itself */
 	if (target == sender && !(kmsg.flags & TF_ONE_WAY))
 		return -EDEADLK;
+
+	/* Enforce SELinux binder:call from current domain to target domain */
+	target_task = binder_find_task_by_pid(target->pid);
+	if (target_task) {
+		err = selinux_binder_transaction(current, target_task);
+		if (err)
+			return err;
+	}
 
 	txn = (struct binder_txn *)kmalloc(sizeof(struct binder_txn), GFP_KERNEL);
 	if (!txn)
@@ -495,6 +538,9 @@ static int binder_ioctl(struct inode *inode, struct file *filp,
 	case BINDER_SET_CONTEXT_MGR:
 		if (current->euid != 0)
 			return -EPERM;
+		err = selinux_binder_set_context_mgr(current);
+		if (err)
+			return err;
 		if (binder_context_mgr != NULL && binder_context_mgr != proc)
 			return -EBUSY;
 		binder_context_mgr = proc;
@@ -519,6 +565,17 @@ static int binder_ioctl(struct inode *inode, struct file *filp,
 		if (err)
 			return err;
 		memcpy_fromfs(&info, (void *)arg, sizeof(info));
+		err = selinux_service_check(NULL, info.name, "add");
+		if (err)
+			return err;
+		if (binder_context_mgr && binder_context_mgr != proc) {
+			struct task_struct *mgr_task = binder_find_task_by_pid(binder_context_mgr->pid);
+			if (mgr_task) {
+				err = selinux_binder_transaction(current, mgr_task);
+				if (err)
+					return err;
+			}
+		}
 		h = binder_register_service_internal(
 			proc, info.name, info.descriptor,
 			current->pid, current->euid);
@@ -527,6 +584,8 @@ static int binder_ioctl(struct inode *inode, struct file *filp,
 		info.handle = h;
 		info.owner_pid = current->pid;
 		info.owner_uid = current->euid;
+		memset(info.owner_secontext, 0, sizeof(info.owner_secontext));
+		selinux_task_get_context(current, info.owner_secontext, sizeof(info.owner_secontext));
 		memcpy_tofs((void *)arg, &info, sizeof(info));
 		return 0;
 	}
@@ -544,9 +603,13 @@ static int binder_ioctl(struct inode *inode, struct file *filp,
 		      binder_find_svc_by_handle(info.handle);
 		if (!svc)
 			return -ENOENT;
+		err = selinux_service_check(NULL, svc->name, "find");
+		if (err)
+			return err;
 		info.handle = svc->handle;
 		info.owner_pid = svc->owner_pid;
 		info.owner_uid = svc->owner_uid;
+		strcpy(info.owner_secontext, svc->owner_secontext);
 		info.txn_count = svc->txn_count;
 		strcpy(info.name, svc->name);
 		strcpy(info.descriptor, svc->descriptor);
@@ -561,6 +624,9 @@ static int binder_ioctl(struct inode *inode, struct file *filp,
 		err = verify_area(VERIFY_WRITE, (void *)arg, sizeof(info));
 		if (err)
 			return err;
+		err = selinux_service_check(NULL, "*", "list");
+		if (err)
+			return err;
 		memcpy_fromfs(&info, (void *)arg, sizeof(info));
 		idx = info.handle; /* Caller passes 0-based index in `handle` */
 		if (idx < 0)
@@ -572,6 +638,7 @@ static int binder_ioctl(struct inode *inode, struct file *filp,
 				info.handle = binder_svcs[i].handle;
 				info.owner_pid = binder_svcs[i].owner_pid;
 				info.owner_uid = binder_svcs[i].owner_uid;
+				strcpy(info.owner_secontext, binder_svcs[i].owner_secontext);
 				info.txn_count = binder_svcs[i].txn_count;
 				strcpy(info.name, binder_svcs[i].name);
 				strcpy(info.descriptor, binder_svcs[i].descriptor);

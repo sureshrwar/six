@@ -21,6 +21,7 @@
 #include <linux/malloc.h>
 #include <linux/ldt.h>
 #include <linux/smp.h>
+#include <linux/selinux.h>
 
 #include <asm/segment.h>
 #include <asm/system.h>
@@ -406,6 +407,7 @@ int sys_sixps(struct six_proc *sp)
 		strncpy(sp->args, p->comm, sizeof(sp->args) - 1);
 	}
 
+	selinux_task_get_context(p, sp->secontext, sizeof(sp->secontext));
 	sp->index = index + 1;
 	return 0;
 }
@@ -449,6 +451,7 @@ int do_fork(unsigned long clone_flags, unsigned long usp, struct pt_regs *regs)
 	}
 #endif
 	 *p = *current;
+	selinux_task_fork(current, p, !current->user_mode);
         if (p->exec_domain && p->exec_domain->use_count)
                 (*p->exec_domain->use_count)++;
         if (p->binfmt && p->binfmt->use_count)

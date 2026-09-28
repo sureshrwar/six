@@ -1,0 +1,42 @@
+# sepolicy/vendor/fwupd.te
+# Vendor Firmware Update Daemon (/vendor/bin/fwupd) SELinux Policy
+# Mirrors Android Desktop vendor fwupd policy (b/467820671, ag/41847641, arsp/9037735)
+@tier vendor
+
+typeattribute fwupd vendordomain, mlstrustedsubject;
+
+# UFS Field Firmware Update (FFU) via SCSI WRITE BUFFER (0x3B) / SG_IO (0x2285)
+# and NVMe Firmware Download/Commit require CAP_SYS_RAWIO
+allow fwupd self:capability { sys_rawio sys_admin dac_override dac_read_search };
+
+# Entrypoint & vendor libraries/executables
+allow fwupd fwupd_exec:file { read open getattr execute execute_no_trans entrypoint };
+allow fwupd vendor_file:dir r_dir_perms;
+allow fwupd vendor_file:file rx_file_perms;
+allow fwupd vendor_configs_file:dir r_dir_perms;
+allow fwupd vendor_configs_file:file r_file_perms;
+
+# Binder IPC: register "fwupd" [org.freedesktop.fwupd.IFwupd] with servicemanager
+# and accept AIDL/Binder requests from fwupdmgr (shell / su)
+allow fwupd binder_device:chr_file rw_file_perms;
+allow fwupd servicemanager:binder { call transfer };
+allow fwupd { shell su }:binder { call transfer };
+allow fwupd fwupd_service:service_manager { add find };
+
+# UFS block device (/dev/ufsa -> sdx_block_device) + explicit SG_IO (0x2285) allowxperm
+allow fwupd sdx_block_device:blk_file rw_file_perms;
+allowxperm fwupd sdx_block_device:blk_file ioctl { 0x1260 0x2285 0x5540-0x5543 };
+
+# UFS BSG (/dev/ufs-bsg0 -> ufs_dev), RPMB (/dev/ufs-rpmb0), NVMe (/dev/nvme0*), and USB-SCSI
+allow fwupd { ufs_dev ufs_rpmb_device nvme_device }:chr_file rw_file_perms;
+allow fwupd { nvme_device vold_device }:blk_file rw_file_perms;
+
+# Vendor firmware state & cab staging in /data/vendor/fwupd, /var/lib/fwupd, /etc/fwupd, /tmp
+allow fwupd vendor_data_file:dir create_dir_perms;
+allow fwupd vendor_data_file:file create_file_perms;
+allow fwupd vendor_data_file:lnk_file create_file_perms;
+allow fwupd tmpfs:dir create_dir_perms;
+allow fwupd tmpfs:file create_file_perms;
+allow fwupd proc_diskstats:file r_file_perms;
+allow fwupd { sysfs sysfs_ufs sysfs_nvme sysfs_devices_block }:dir r_dir_perms;
+allow fwupd { sysfs sysfs_ufs sysfs_nvme sysfs_devices_block }:file r_file_perms;

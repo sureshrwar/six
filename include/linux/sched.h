@@ -389,6 +389,8 @@ struct task_struct {
 #else
 	long dummy; /* for now! */
 #endif
+	unsigned short sec_sid;
+	unsigned short sec_exec_sid;
 #endif
 #ifdef __SMP__
 #if (!SIX)
@@ -516,7 +518,9 @@ struct task_struct {
 /* _sigreturn */	0, \
 /* osp	*/		0, \
 /* nsp	*/		0, \
-/* dummy or obp	*/	0 \
+/* dummy or obp	*/	0, \
+/* sec_sid */		1, \
+/* sec_exec_sid */	0 \
 }
 
 extern unsigned long volatile jiffies;

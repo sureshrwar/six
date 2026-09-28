@@ -26,6 +26,7 @@
 #include <linux/blk.h>
 #include <linux/ufs.h>
 #include <linux/fwupd.h>
+#include <linux/selinux.h>
 #include <asm/segment.h>
 #include <asm/system.h>
 
@@ -315,6 +316,10 @@ static int usb_sd_handle_scsi_ioctl(unsigned long arg)
 
 	is_write = (sc.opcode == UFS_SCSI_WRITE_10 ||
 		    sc.opcode == UFS_SCSI_WRITE_BUFFER);
+	if (sc.opcode == UFS_SCSI_WRITE_BUFFER) {
+		if (!suser_cap(CAP_SYS_RAWIO))
+			return -EPERM;
+	}
 	if (xfer_len > 0 && sc.data_addr && is_write) {
 		err = verify_area(VERIFY_READ, (void *)sc.data_addr, xfer_len);
 		if (err)
@@ -425,6 +430,10 @@ static int usb_sd_ioctl(struct inode *inode, struct file *file,
 		return -ENODEV;
 
 	switch (cmd) {
+	case SG_IO:
+		if (!suser_cap(CAP_SYS_RAWIO))
+			return -EPERM;
+		return usb_sd_handle_scsi_ioctl(arg);
 	case UFS_IOCTL_SCSI_CMD:
 		return usb_sd_handle_scsi_ioctl(arg);
 	case BLKGETSIZE:

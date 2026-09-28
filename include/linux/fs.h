@@ -297,6 +297,7 @@ struct inode {
         unsigned char i_seek;
         unsigned char i_update;
         unsigned short i_writecount;
+        unsigned short i_sec_sid;
         union {
                 struct pipe_inode_info pipe_i;
 		struct socket socket_i;

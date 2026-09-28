@@ -546,9 +546,12 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 	}
 
 	if (request == PTRACE_ATTACH) {
+		extern int selinux_task_ptrace(struct task_struct *victim);
 		if (child == current)
 			return -EPERM;
 		if (child->flags & PF_PTRACED)
+			return -EPERM;
+		if (selinux_task_ptrace(child) != 0)
 			return -EPERM;
 		child->flags |= PF_PTRACED;
 		if (child->p_pptr != current) {

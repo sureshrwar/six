@@ -1,0 +1,55 @@
+# system/sepolicy/public/file.te
+# Core filesystem, executable, data, and proc/sysfs types
+@tier public
+
+type unlabeled, file_type;
+type rootfs, file_type;
+type system_file, file_type, system_file_type, exec_type;
+type sepolicy_file, file_type, system_file_type;
+
+type vendor_file, file_type, vendor_file_type, exec_type;
+type vendor_configs_file, file_type, vendor_file_type;
+type vendor_data_file, file_type, data_file_type;
+
+type system_data_file, file_type, data_file_type;
+type app_data_file, file_type, data_file_type;
+type media_rw_data_file, file_type, data_file_type;
+type mnt_media_rw_file, file_type;
+type mnt_media_rw_stub_file, file_type;
+type tmpfs, file_type;
+type user_home_file, file_type, data_file_type;
+type shadow_file, file_type, system_file_type;
+
+type vfat, file_type;
+type ntfs, file_type;
+type pstorefs, file_type;
+type selinuxfs, file_type;
+
+type proc, file_type, proc_type;
+type proc_meminfo, file_type, proc_type;
+type proc_stat, file_type, proc_type;
+type proc_version, file_type, proc_type;
+type proc_cmdline, file_type, proc_type;
+type proc_diskstats, file_type, proc_type;
+type proc_sysrq, file_type, proc_type;
+type proc_net, file_type, proc_type;
+type debugfs_tracing, file_type, proc_type;
+
+type sysfs, file_type, sysfs_type;
+type sysfs_power, file_type, sysfs_type;
+type sysfs_wake_lock, file_type, sysfs_type;
+type sysfs_devices_block, file_type, sysfs_type;
+type sysfs_ufs, file_type, sysfs_type;
+type sysfs_nvme, file_type, sysfs_type;
+
+# Public executable entrypoint types
+type init_exec, file_type, system_file_type, exec_type;
+type servicemanager_exec, file_type, system_file_type, exec_type;
+type vold_exec, file_type, system_file_type, exec_type;
+type storaged_exec, file_type, system_file_type, exec_type;
+type mediaprovider_exec, file_type, system_file_type, exec_type;
+type externalstoraged_exec, file_type, system_file_type, exec_type;
+type adbd_exec, file_type, system_file_type, exec_type;
+type shell_exec, file_type, system_file_type, exec_type;
+type su_exec, file_type, system_file_type, exec_type;
+type fsck_exec, file_type, system_file_type, exec_type;

@@ -1,0 +1,18 @@
+# system/sepolicy/public/attributes
+# Core SELinux type attributes shared across system/public, system/private, and vendor
+
+attribute domain;
+attribute coredomain;
+attribute appdomain;
+attribute vendordomain;
+attribute mlstrustedsubject;
+
+attribute file_type;
+attribute system_file_type;
+attribute vendor_file_type;
+attribute exec_type;
+attribute dev_type;
+attribute sysfs_type;
+attribute proc_type;
+attribute data_file_type;
+attribute service_manager_type;

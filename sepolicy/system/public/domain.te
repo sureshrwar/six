@@ -1,0 +1,60 @@
+# system/sepolicy/public/domain.te
+# Public domain declarations & core neverallow assertions (Android Desktop / AOSP)
+@tier public
+
+type kernel, domain, coredomain, mlstrustedsubject;
+type init, domain, coredomain, mlstrustedsubject;
+type servicemanager, domain, coredomain, mlstrustedsubject;
+type vold, domain, coredomain, mlstrustedsubject;
+type storaged, domain, coredomain, mlstrustedsubject;
+type mediaprovider, domain, coredomain, mlstrustedsubject;
+type externalstoraged, domain, coredomain, mlstrustedsubject;
+type adbd, domain, coredomain, mlstrustedsubject;
+type shell, domain, coredomain;
+type untrusted_app, domain, coredomain, appdomain;
+type su, domain, coredomain, mlstrustedsubject;
+
+# Baseline rules shared across all domains
+allow domain self:process { fork sigchld sigkill sigstop signal getsched setsched getpgid setpgid getcap setcap setrlimit };
+allow domain self:fd use;
+allow domain self:dir r_dir_perms;
+allow domain self:{ file lnk_file } r_file_perms;
+allow domain self:fifo_file rw_file_perms;
+allow domain init:fd use;
+allow domain init:process sigchld;
+allow domain rootfs:dir { read open getattr search };
+allow domain system_file:dir r_dir_perms;
+allow domain system_file:{ file lnk_file } rx_file_perms;
+allow domain { null_device zero_device random_device tty_device console_device }:chr_file rw_file_perms;
+allow domain proc:dir r_dir_perms;
+allow domain { proc_meminfo proc_stat proc_version proc_cmdline }:file r_file_perms;
+allow domain selinuxfs:dir r_dir_perms;
+allow domain selinuxfs:{ file chr_file } r_file_perms;
+
+# =====================================================================
+# Global Neverallow Assertions (AOSP system/sepolicy/public/domain.te)
+# =====================================================================
+
+# 1. CAP_SYS_RAWIO is strictly restricted to kernel, init, vold, and fwupd
+#    (b/467820671 / ag/41847641 UFS firmware update architecture)
+neverallow { domain -kernel -init -su -vold -fwupd } self:capability sys_rawio;
+
+# 2. Only kernel and init may read/open raw /dev/kmsg (other domains write-only)
+neverallow { domain -kernel -init -su } kmsg_device:chr_file { read open };
+
+# 3. Only init (and su) may load SELinux policy or toggle enforcing mode
+neverallow { domain -kernel -init -su } security:security { load_policy setenforce };
+
+# 4. Vendor domains cannot read/write core /data/system files outside /data/vendor
+neverallow { vendordomain } system_data_file:file { write create unlink append };
+
+# 5. Untrusted apps are strictly barred from raw block devices, UFS BSG, NVMe, and /mnt/media_rw
+neverallow untrusted_app { block_device root_block_device swap_block_device vold_device sdx_block_device }:blk_file { read write open ioctl };
+neverallow untrusted_app { ufs_dev ufs_rpmb_device nvme_device }:chr_file { read write open ioctl };
+neverallow untrusted_app mnt_media_rw_file:dir { read write open search };
+
+# 6. No domain (except kernel/init/su) may execute files directly from /data (W^X enforcement)
+neverallow { domain -kernel -init -su } { system_data_file app_data_file media_rw_data_file vendor_data_file }:file { execute execute_no_trans };
+
+# 7. Restricted SG_IO (0x2285) and UFS SCSI pass-through (0x5540-0x5543) ioctls on UFS block devices
+neverallowxperm { domain -kernel -init -vold -fwupd -su } sdx_block_device:blk_file ioctl { 0x2285 0x5540-0x5543 };

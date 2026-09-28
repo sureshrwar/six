@@ -1,0 +1,25 @@
+# system/sepolicy/public/device.te
+# Public device node types (/dev/*)
+@tier public
+
+type device, dev_type;
+type null_device, dev_type;
+type zero_device, dev_type;
+type random_device, dev_type;
+type kmsg_device, dev_type;
+type kmem_device, dev_type;
+type console_device, dev_type;
+type tty_device, dev_type;
+type binder_device, dev_type;
+type fuse_device, dev_type;
+type adb_device, dev_type;
+type power_device, dev_type;
+
+type block_device, dev_type;
+type root_block_device, dev_type;
+type swap_block_device, dev_type;
+type vold_device, dev_type;
+type sdx_block_device, dev_type;
+type ufs_dev, dev_type;
+type ufs_rpmb_device, dev_type;
+type nvme_device, dev_type;

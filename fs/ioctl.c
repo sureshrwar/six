@@ -101,6 +101,12 @@ asmlinkage int sys_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg)
                         return 0;
 
                 default:
+                        {
+                                extern int selinux_file_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
+                                int se_rc = selinux_file_ioctl(filp, cmd, arg);
+                                if (se_rc)
+                                        return se_rc;
+                        }
                         if (filp->f_inode && S_ISREG(filp->f_inode->i_mode))
                                 return file_ioctl(filp, cmd, arg);
 

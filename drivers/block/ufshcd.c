@@ -31,6 +31,7 @@
 #include <linux/blk.h>
 #include <linux/ufs.h>
 #include <linux/fwupd.h>
+#include <linux/selinux.h>
 #include <asm/segment.h>
 #include <asm/system.h>
 
@@ -978,6 +979,12 @@ static int ufs_handle_scsi_ioctl(unsigned long arg)
 		    sc.opcode == UFS_SCSI_WRITE_BUFFER ||
 		    sc.opcode == UFS_SCSI_SECURITY_PROT_OUT);
 
+	if (sc.opcode == UFS_SCSI_WRITE_BUFFER ||
+	    sc.opcode == UFS_SCSI_SECURITY_PROT_OUT) {
+		if (!suser_cap(CAP_SYS_RAWIO))
+			return -EPERM;
+	}
+
 	if (xfer_len > 0 && sc.data_addr && is_write) {
 		err = verify_area(VERIFY_READ, (void *)sc.data_addr, xfer_len);
 		if (err)
@@ -1141,6 +1148,11 @@ static int ufs_common_ioctl(struct inode *inode, struct file *file,
 	case UFS_IOCTL_QUERY:
 		return ufs_handle_query_ioctl(arg);
 
+	case SG_IO:
+		if (!suser_cap(CAP_SYS_RAWIO))
+			return -EPERM;
+		return ufs_handle_scsi_ioctl(arg);
+
 	case UFS_IOCTL_SCSI_CMD:
 		return ufs_handle_scsi_ioctl(arg);
 
@@ -1148,8 +1160,8 @@ static int ufs_common_ioctl(struct inode *inode, struct file *file,
 		return ufs_handle_rpmb_ioctl(arg);
 
 	case UFS_IOCTL_RESET:
-		if (!suser())
-			return -EACCES;
+		if (!suser_cap(CAP_SYS_ADMIN))
+			return -EPERM;
 		ufs_utrl.head = 0;
 		ufs_utrl.tail = 0;
 		ufs_hdr.power_cycles++;

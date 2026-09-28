@@ -105,6 +105,7 @@ asmlinkage int sys_llseek(unsigned int fd, unsigned long offset_high,
 
 asmlinkage int sys_read(unsigned int fd,char * buf,int count)
 {
+        extern int selinux_file_io(struct file *filp, int is_write);
         int error;
         struct file * file;
         struct inode * inode;
@@ -117,6 +118,9 @@ asmlinkage int sys_read(unsigned int fd,char * buf,int count)
                 return -EINVAL;
         if (count <= 0) 
                 return 0;       
+        error = selinux_file_io(file, 0);
+        if (error)
+                return error;
         error = locks_verify_area(FLOCK_VERIFY_READ,inode,file,file->f_pos,count);                              
         if (error)
                 return error;
@@ -131,6 +135,7 @@ asmlinkage int sys_read(unsigned int fd,char * buf,int count)
 
 asmlinkage int sys_write(unsigned int fd,char * buf,unsigned int count)
 {       
+        extern int selinux_file_io(struct file *filp, int is_write);
         int error;
         struct file * file;
         struct inode * inode;
@@ -144,6 +149,9 @@ asmlinkage int sys_write(unsigned int fd,char * buf,unsigned int count)
                 return -EINVAL;
         if (!count)
                 return 0;
+        error = selinux_file_io(file, 1);
+        if (error)
+                return error;
         error = locks_verify_area(FLOCK_VERIFY_WRITE,inode,file,file->f_pos,count);
         if (error)
                 return error;

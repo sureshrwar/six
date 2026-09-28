@@ -316,7 +316,7 @@ int main(int argc, char **argv)
 			/* Built-in ISystemInfoService */
 			if (msg.code == 1) {
 				snprintf(msg.data, sizeof(msg.data),
-					 "SIX 1.0 (Linux 2.0.11 + ext4 + dm-verity + overlayfs + binder) caller_pid=%d",
+					 "SIX 1.0 (Linux 2.0.11 + ext4 + dm-verity + overlayfs + binder + selinux) caller_pid=%d",
 					 msg.sender_pid);
 				msg.data_size = strlen(msg.data) + 1;
 				msg.status = 0;
@@ -343,7 +343,7 @@ int main(int argc, char **argv)
 					 "SYSTEM INFO SERVICE (dumpsys sysinfo)\n"
 					 "  OS: SIX 1.0 (Linux 2.0.11 i386)\n"
 					 "  Uptime (/proc/uptime): %s\n"
-					 "  Subsystems: ext4, erofs, dm-verity, dm-crypt, overlayfs, fuse, binder, nvme, ufs\n"
+					 "  Subsystems: ext4, erofs, dm-verity, dm-crypt, overlayfs, fuse, binder, nvme, ufs, selinux\n"
 					 "  Registered Binder Services: %d",
 					 uptime_str[0] ? uptime_str : "0.00 0.00",
 					 svc_cnt);

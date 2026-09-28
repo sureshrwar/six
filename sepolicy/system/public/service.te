@@ -1,0 +1,13 @@
+# system/sepolicy/public/service.te
+# Public ServiceManager Binder service types
+@tier public
+
+type default_android_service, service_manager_type;
+type power_service, service_manager_type;
+type sysinfo_service, service_manager_type;
+type vold_service, service_manager_type;
+type mount_service, service_manager_type;
+type suspend_service, service_manager_type;
+type mediaprovider_service, service_manager_type;
+type externalstorage_service, service_manager_type;
+type fwupd_service, service_manager_type;

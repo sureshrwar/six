@@ -1,0 +1,7 @@
+# sepolicy/vendor/file.te
+# Vendor file and data types (/vendor/*, /data/vendor/*)
+@tier vendor
+
+typeattribute vendor_file vendor_file_type;
+typeattribute vendor_configs_file vendor_file_type;
+typeattribute vendor_data_file data_file_type;

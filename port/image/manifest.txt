@@ -45,12 +45,20 @@ dir   /usr/include/android/content 0755
 dir   /usr/include/android/system 0755
 dir   /usr/include/android/system/suspend 0755
 dir   /var                  0755
+dir   /var/db               0755
+dir   /var/lib              0755
+dir   /var/lib/fwupd        0755
 dir   /var/overlay          0755
 dir   /var/overlay/bin      0755
 dir   /var/games            0777
 dir   /var/mail             0777
 dir   /var/spool            0755
 dir   /var/spool/mail       0777
+dir   /dev/block            0755
+dir   /dev/block/vold       0755
+dir   /mnt                  0755
+dir   /mnt/media_rw         0755
+dir   /mnt/expand           0755
 dir   /sys                  0755
 dir   /sys/power            0755
 node  /sys/power/state          0666  c  60  0
@@ -63,6 +71,16 @@ dir   /sys/fs               0755
 dir   /sys/fs/pstore        0755
 file  /sys/fs/hangman       0666  port/image/rootfs/sys/fs/hangman
 sym   /pstore               -     /sys/fs/pstore
+dir   /sys/fs/selinux       0755
+node  /sys/fs/selinux/enforce      0644  c  56  0
+node  /sys/fs/selinux/status       0444  c  56  1
+node  /sys/fs/selinux/access       0666  c  56  2
+node  /sys/fs/selinux/load         0600  c  56  3
+node  /sys/fs/selinux/policy       0444  c  56  4
+node  /sys/fs/selinux/context      0666  c  56  5
+node  /sys/fs/selinux/checkreqprot 0644  c  56  6
+node  /sys/fs/selinux/avc          0666  c  56  7
+node  /sys/fs/selinux/null         0666  c  56  8
 
 # --- /bin (all 23 programs from the SPARC root disk + vi & advent) ----------
 file  /bin/advent           0755  applications/advent/advent
@@ -218,6 +236,16 @@ file  /bin/nvme             0755  applications/nvme/nvme
 file  /bin/ufs              0755  applications/ufs/ufs
 file  /bin/fwupdmgr         0755  applications/fwupd/fwupdmgr
 sym   /bin/fwupdtool        -     fwupdmgr
+file  /bin/selinux          0755  applications/selinux/selinux
+sym   /bin/getenforce       -     selinux
+sym   /bin/setenforce       -     selinux
+sym   /bin/chcon            -     selinux
+sym   /bin/restorecon       -     selinux
+sym   /bin/runcon           -     selinux
+sym   /bin/load_policy      -     selinux
+sym   /bin/audit2allow      -     selinux
+sym   /bin/seinfo           -     selinux
+sym   /bin/sestatus         -     selinux
 file  /bin/mkfs.ext2        0755  applications/mkfs/mkfs.ext2
 sym   /bin/mke2fs           -     mkfs.ext2
 file  /bin/mount_all        0755  port/image/rootfs/bin/mount_all
@@ -227,8 +255,55 @@ file  /bin/clear_d          0755  port/image/rootfs/bin/clear_d
 file  /bin/hang_and_panic   0755  port/image/rootfs/bin/hang_and_panic
 dir   /home                 0755
 dir   /data                 0755
+dir   /data/vendor          0755
+dir   /data/vendor/fwupd    0755
+dir   /system               0755
+sym   /system/bin           -     /bin
+dir   /system/etc           0755
+dir   /system/etc/selinux   0755
+dir   /system/etc/selinux/public  0755
+dir   /system/etc/selinux/private 0755
+file  /system/etc/selinux/public/attributes   0644  sepolicy/system/public/attributes
+file  /system/etc/selinux/public/domain.te    0644  sepolicy/system/public/domain.te
+file  /system/etc/selinux/public/file.te      0644  sepolicy/system/public/file.te
+file  /system/etc/selinux/public/device.te    0644  sepolicy/system/public/device.te
+file  /system/etc/selinux/public/service.te   0644  sepolicy/system/public/service.te
+file  /system/etc/selinux/public/fwupd.te     0644  sepolicy/system/public/fwupd.te
+file  /system/etc/selinux/private/coredomain.te       0644  sepolicy/system/private/coredomain.te
+file  /system/etc/selinux/private/init.te             0644  sepolicy/system/private/init.te
+file  /system/etc/selinux/private/servicemanager.te   0644  sepolicy/system/private/servicemanager.te
+file  /system/etc/selinux/private/vold.te             0644  sepolicy/system/private/vold.te
+file  /system/etc/selinux/private/ntfs_3g.te          0644  sepolicy/system/private/ntfs_3g.te
+file  /system/etc/selinux/private/storaged.te         0644  sepolicy/system/private/storaged.te
+file  /system/etc/selinux/private/mediaprovider.te    0644  sepolicy/system/private/mediaprovider.te
+file  /system/etc/selinux/private/externalstoraged.te 0644  sepolicy/system/private/externalstoraged.te
+file  /system/etc/selinux/private/adbd.te             0644  sepolicy/system/private/adbd.te
+file  /system/etc/selinux/private/shell.te            0644  sepolicy/system/private/shell.te
+file  /system/etc/selinux/private/untrusted_app.te    0644  sepolicy/system/private/untrusted_app.te
+file  /system/etc/selinux/plat_file_contexts          0644  sepolicy/system/private/file_contexts
+file  /system/etc/selinux/plat_service_contexts       0644  sepolicy/system/private/service_contexts
+dir   /vendor               0755
+dir   /vendor/bin           0755
+file  /vendor/bin/fwupd     0755  applications/fwupd/fwupdmgr
+sym   /vendor/bin/fwupdmgr  -     fwupd
+dir   /vendor/etc           0755
+dir   /vendor/etc/selinux   0755
+file  /vendor/etc/selinux/file.te                 0644  sepolicy/vendor/file.te
+file  /vendor/etc/selinux/device.te               0644  sepolicy/vendor/device.te
+file  /vendor/etc/selinux/service.te              0644  sepolicy/vendor/service.te
+file  /vendor/etc/selinux/fwupd.te                0644  sepolicy/vendor/fwupd.te
+file  /vendor/etc/selinux/vendor_file_contexts    0644  sepolicy/vendor/file_contexts
+file  /vendor/etc/selinux/vendor_service_contexts 0644  sepolicy/vendor/service_contexts
+dir   /etc/selinux          0755
+sym   /etc/selinux/plat_file_contexts      -  /system/etc/selinux/plat_file_contexts
+sym   /etc/selinux/plat_service_contexts   -  /system/etc/selinux/plat_service_contexts
+sym   /etc/selinux/vendor_file_contexts    -  /vendor/etc/selinux/vendor_file_contexts
+sym   /etc/selinux/vendor_service_contexts -  /vendor/etc/selinux/vendor_service_contexts
 dir   /ufs                  0755
 dir   /storage              0755
+dir   /storage/emulated     0755
+dir   /storage/emulated/0   0755
+sym   /sdcard               -     /storage/emulated/0
 dir   /aux                  0755
 dir   /aux/storage-1        0755
 dir   /aux/linear           0755
@@ -243,6 +318,7 @@ dir   /etc/fwupd                  0755
 file  /etc/fwupd/daemon.conf      0644  port/image/rootfs/etc/fwupd/daemon.conf
 dir   /etc/fwupd/remotes.d        0755
 dir   /etc/fwupd/remotes.d/lvfs   0755
+dir   /etc/fwupd/remotes.d/lvfs/packages 0755
 file  /etc/fwupd/remotes.d/lvfs/metadata.xml 0644 port/image/rootfs/etc/fwupd/remotes.d/lvfs/metadata.xml
 dir   /etc/demos                  0755
 file  /etc/demos/hello.c          0644  applications/tcc/test_hello.c
@@ -348,12 +424,14 @@ file  /usr/include/linux/dm.h          0644  include/linux/dm.h
 file  /usr/include/linux/nvme.h        0644  include/linux/nvme.h
 file  /usr/include/linux/ufs.h         0644  include/linux/ufs.h
 file  /usr/include/linux/binder.h      0644  include/linux/binder.h
+file  /usr/include/linux/selinux.h     0644  include/linux/selinux.h
 
 file  /usr/include/android/os/IServiceManager.h       0644  library/include/android/os/IServiceManager.h
 file  /usr/include/android/os/IPowerManager.h         0644  library/include/android/os/IPowerManager.h
 file  /usr/include/android/os/ISystemInfoService.h    0644  library/include/android/os/ISystemInfoService.h
 file  /usr/include/android/os/IVold.h                 0644  library/include/android/os/IVold.h
 file  /usr/include/android/os/IVoldListener.h         0644  library/include/android/os/IVoldListener.h
+file  /usr/include/android/os/IFwupd.h                0644  library/include/android/os/IFwupd.h
 file  /usr/include/android/os/storage/IStorageManager.h 0644 library/include/android/os/storage/IStorageManager.h
 file  /usr/include/android/system/suspend/ISystemSuspend.h 0644 library/include/android/system/suspend/ISystemSuspend.h
 file  /usr/include/android/content/IMediaProvider.h   0644  library/include/android/content/IMediaProvider.h
@@ -405,6 +483,7 @@ node  /dev/zero              0666  c  1  5
 node  /dev/full              0666  c  1  7
 node  /dev/random            0666  c  1  8
 node  /dev/urandom           0666  c  1  9
+node  /dev/kmsg              0644  c  1  11
 
 # --- /dev (char major 10 = MISC_MAJOR, 57 = UFS_CHR_MAJOR, 59 = NVME_CHR_MAJOR, 61 = SADB_MAJOR, 63 = BINDER_MAJOR)
 node  /dev/fuse              0666  c  10 229

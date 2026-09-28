@@ -14,6 +14,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
 #include <sys/ioctl.h>
 #include <linux/ufs.h>
 #include "../../fwupd_plugin.h"
@@ -107,13 +108,17 @@ static int fu_ufs_plugin_write_firmware(const struct fwupd_device *dev,
 	unsigned int total_chunks = (bin_size + FWUPD_CHUNK_SIZE - 1) / FWUPD_CHUNK_SIZE;
 	int fd, rc;
 
-	fd = open(dev->dev_node, O_RDWR);
+	/* Open /dev/ufsa (sdx_block_device) for SG_IO (0x2285) SCSI WRITE_BUFFER FFU */
+	fd = open("/dev/ufsa", O_RDWR);
+	if (fd < 0 && errno == ENOENT)
+		fd = open(dev->dev_node, O_RDWR);
 	if (fd < 0) {
-		fprintf(stderr, "fwupdmgr [ufs]: cannot open %s\n", dev->dev_node);
+		fprintf(stderr, "fwupdmgr [ufs]: cannot open /dev/ufsa (%s)\n",
+			strerror(errno));
 		return -1;
 	}
 
-	/* Step 1: Stream .bin microcode via UFS SCSI WRITE_BUFFER (0x3B, Mode 0x0E) */
+	/* Step 1: Stream .bin microcode via UFS SCSI WRITE_BUFFER (0x3B, Mode 0x0E) over SG_IO (0x2285) */
 	while (offset < bin_size) {
 		unsigned int chunk = bin_size - offset;
 		int nread;
@@ -135,9 +140,9 @@ static int fu_ufs_plugin_write_firmware(const struct fwupd_device *dev,
 		sc.data_len = (unsigned int)nread;
 		sc.data_addr = (unsigned long)chunk_buf;
 
-		if (ioctl(fd, UFS_IOCTL_SCSI_CMD, &sc) < 0 || sc.status != 0x00) {
-			fprintf(stderr, "fwupdmgr [ufs]: WRITE_BUFFER (Mode 0x0E) failed at offset %u\n",
-				offset);
+		if (ioctl(fd, SG_IO, &sc) < 0 || sc.status != 0x00) {
+			fprintf(stderr, "fwupdmgr [ufs]: SG_IO (0x2285) WRITE_BUFFER (Mode 0x0E) failed at offset %u: %s\n",
+				offset, strerror(errno));
 			close(fd);
 			return -1;
 		}
@@ -152,7 +157,7 @@ static int fu_ufs_plugin_write_firmware(const struct fwupd_device *dev,
 		}
 	}
 
-	/* Step 2: Activate deferred microcode via UFS SCSI WRITE_BUFFER (0x3B, Mode 0x0F) */
+	/* Step 2: Activate deferred microcode via UFS SCSI WRITE_BUFFER (0x3B, Mode 0x0F) over SG_IO (0x2285) */
 	{
 		char ver_hint[16];
 		const char *tv = fwupd_get_target_version();
@@ -169,7 +174,7 @@ static int fu_ufs_plugin_write_firmware(const struct fwupd_device *dev,
 			sc.data_addr = (unsigned long)ver_hint;
 			sc.data_len = sizeof(ver_hint);
 		}
-		rc = ioctl(fd, UFS_IOCTL_SCSI_CMD, &sc);
+		rc = ioctl(fd, SG_IO, &sc);
 	}
 	close(fd);
 	if (rc < 0 || sc.status != 0x00) {

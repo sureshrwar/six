@@ -1,0 +1,13 @@
+# system/sepolicy/private/coredomain.te
+# Treble coredomain separation & system_executes_vendor_violators enforcement
+@tier private
+
+type httpd, domain, coredomain, mlstrustedsubject;
+type httpd_exec, file_type, system_file_type, exec_type;
+type telnetd, domain, coredomain, mlstrustedsubject;
+type telnetd_exec, file_type, system_file_type, exec_type;
+
+# Treble Neverallow: Core system domains must NEVER execute binaries from
+# /vendor/bin (vendor_file_type) without a domain transition (execute_no_trans).
+# Inter-domain communication between coredomain and vendordomain must go over Binder IPC.
+neverallow { coredomain -kernel -init -shell -su } { vendor_file fwupd_exec }:file execute_no_trans;

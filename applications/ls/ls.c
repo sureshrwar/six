@@ -94,7 +94,7 @@ void *reallocate(void *a, size_t n)
 	return a;
 }
 
-char allowed[] = "acdfgilnqrstu1ACFLMRTX";
+char allowed[] = "acdfgilnqrstu1ACFLMRTXZ";
 char flags[sizeof(allowed)];
 
 char arg0flag[] = "cfmrtx";	/* These in argv[0] go to upper case. */
@@ -235,6 +235,7 @@ int field = 0;	/* (used to be) Fields that must be printed. */
 #define F_MARK		0x200	/* -F */
 #define F_TYPE		0x400	/* -T */
 #define F_DIR		0x800	/* -d */
+#define F_SELINUX	0x1000	/* -Z */
 
 struct file {		/* A file plus stat(2) information. */
 	struct file	*next;	/* Lists are made of them. */
@@ -249,10 +250,51 @@ struct file {		/* A file plus stat(2) information. */
 	time_t		mtime;
 	time_t		atime;
 	time_t		ctime;
+	char		sectx[64];
 #if ST_BLOCKS
 	long		blocks;
 #endif
 };
+
+static void lookup_selinux_ctx(const char *relpath, char *out, int maxlen)
+{
+	char abspath[256], cwd[192], cmd[300];
+	int fd, n;
+
+	strcpy(out, "u:object_r:unlabeled:s0");
+	if (!relpath || !relpath[0])
+		return;
+	if (relpath[0] == '/') {
+		strncpy(abspath, relpath, sizeof(abspath) - 1);
+		abspath[sizeof(abspath) - 1] = '\0';
+	} else {
+		if (getcwd(cwd, sizeof(cwd)) == NULL)
+			strcpy(cwd, "/");
+		if (!strcmp(relpath, ".")) {
+			strncpy(abspath, cwd, sizeof(abspath) - 1);
+			abspath[sizeof(abspath) - 1] = '\0';
+		} else if (!strcmp(cwd, "/")) {
+			sprintf(abspath, "/%s", relpath);
+		} else {
+			sprintf(abspath, "%s/%s", cwd, relpath);
+		}
+	}
+
+	fd = open("/sys/fs/selinux/context", O_RDWR);
+	if (fd < 0)
+		return;
+	sprintf(cmd, "get %s", abspath);
+	if (write(fd, cmd, strlen(cmd)) > 0) {
+		lseek(fd, 0, SEEK_SET);
+		n = read(fd, out, maxlen - 1);
+		if (n > 0) {
+			out[n] = '\0';
+			while (n > 0 && (out[n - 1] == '\n' || out[n - 1] == '\r'))
+				out[--n] = '\0';
+		}
+	}
+	close(fd);
+}
 
 void setstat(struct file *f, struct stat *stp)
 {
@@ -266,6 +308,9 @@ void setstat(struct file *f, struct stat *stp)
 	f->mtime=	stp->st_mtime;
 	f->atime=	stp->st_atime;
 	f->ctime=	stp->st_ctime;
+	f->sectx[0]=	'\0';
+	if (field & F_SELINUX)
+		lookup_selinux_ctx(path, f->sectx, sizeof(f->sectx));
 #if ST_BLOCKS
 	f->blocks=	stp->st_blocks;
 #endif
@@ -752,6 +797,13 @@ void print1(struct file *f, int col, int doit)
 			width += (field & F_GROUP) ? 34 : 43;
 		}
 	}
+	if (field & F_SELINUX) {
+		if (doit) {
+			printf("%-32s ", f->sectx[0] ? f->sectx : "u:object_r:unlabeled:s0");
+		} else {
+			width += 33;
+		}
+	}
 	n= strlen(f->name);
 	if (doit) {
 		printname(f->name);
@@ -992,7 +1044,7 @@ int main(int argc, char **argv)
 		setflags(lsflags);
 	}
 
-	if (!present('1') && !present('C') && !present('l')
+	if (!present('1') && !present('C') && !present('l') && !present('Z')
 		&& (istty || present('M') || present('X') || present('F'))
 	) setflags("C");
 
@@ -1012,6 +1064,7 @@ int main(int argc, char **argv)
 	if (present('F')) field|= F_MARK;
 	if (present('T')) field|= F_TYPE;
 	if (present('d')) field|= F_DIR;
+	if (present('Z')) field|= F_SELINUX;
 
 #ifdef S_IFLNK
 	status= present('L') ? stat : lstat;

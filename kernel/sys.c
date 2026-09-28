@@ -243,13 +243,14 @@ void ctrl_alt_del(void)
  */
 asmlinkage int sys_setregid(gid_t rgid, gid_t egid)
 {
+        extern int suser_cap(int cap);
         int old_rgid = current->gid;
         int old_egid = current->egid;
  
         if (rgid != (gid_t) -1) {
                 if ((old_rgid == rgid) ||
                     (current->egid==rgid) ||
-                    suser())
+                    suser_cap(6)) /* CAP_SETGID */
                         current->gid = rgid;
                 else
                         return(-EPERM);
@@ -258,7 +259,7 @@ asmlinkage int sys_setregid(gid_t rgid, gid_t egid)
                 if ((old_rgid == egid) ||
                     (current->egid == egid) ||
                     (current->sgid == egid) ||
-                    suser())
+                    suser_cap(6)) /* CAP_SETGID */
                         current->fsgid = current->egid = egid;
                 else {
                         current->gid = old_rgid;
@@ -279,9 +280,10 @@ asmlinkage int sys_setregid(gid_t rgid, gid_t egid)
  */
 asmlinkage int sys_setgid(gid_t gid)
 {
+        extern int suser_cap(int cap);
         int old_egid = current->egid;
 
-        if (suser())
+        if (suser_cap(6)) /* CAP_SETGID */
                 current->gid = current->egid = current->sgid = current->fsgid = gid;
         else if ((gid == current->gid) || (gid == current->sgid))
                 current->egid = current->fsgid = gid;
@@ -454,13 +456,14 @@ asmlinkage int sys_old_syscall(void)
  */
 asmlinkage int sys_setreuid(uid_t ruid, uid_t euid)
 {
+        extern int suser_cap(int cap);
         int old_ruid = current->uid;
         int old_euid = current->euid;
 
         if (ruid != (uid_t) -1) {
                 if ((old_ruid == ruid) ||
                     (current->euid==ruid) ||
-                    suser())
+                    suser_cap(7)) /* CAP_SETUID */
                         current->uid = ruid;
                 else
                         return(-EPERM);
@@ -469,7 +472,7 @@ asmlinkage int sys_setreuid(uid_t ruid, uid_t euid)
                 if ((old_ruid == euid) ||
                     (current->euid == euid) ||
                     (current->suid == euid) ||
-                    suser())
+                    suser_cap(7)) /* CAP_SETUID */
                         current->fsuid = current->euid = euid;
                 else {
                         current->uid = old_ruid;
@@ -499,9 +502,10 @@ asmlinkage int sys_setreuid(uid_t ruid, uid_t euid)
  */
 asmlinkage int sys_setuid(uid_t uid)
 {
+        extern int suser_cap(int cap);
         int old_euid = current->euid;
         
-        if (suser())
+        if (suser_cap(7)) /* CAP_SETUID */
                 current->uid = current->euid = current->suid = current->fsuid = uid;            
         else if ((uid == current->uid) || (uid == current->suid))
                 current->fsuid = current->euid = uid;
@@ -521,10 +525,11 @@ asmlinkage int sys_setuid(uid_t uid)
  */     
 asmlinkage int sys_setfsuid(uid_t uid)
 {               
+        extern int suser_cap(int cap);
         int old_fsuid = current->fsuid;
                 
         if (uid == current->uid || uid == current->euid ||
-            uid == current->suid || uid == current->fsuid || suser())
+            uid == current->suid || uid == current->fsuid || suser_cap(7))
                 current->fsuid = uid;
         if (current->fsuid != old_fsuid)
                 current->dumpable = 0;
@@ -533,14 +538,15 @@ asmlinkage int sys_setfsuid(uid_t uid)
 
 
 /*
- * Samma på svenska..
+ * Samma pa svenska..
  */
 asmlinkage int sys_setfsgid(gid_t gid)
 {
+        extern int suser_cap(int cap);
         int old_fsgid = current->fsgid;
 
         if (gid == current->gid || gid == current->egid ||
-            gid == current->sgid || gid == current->fsgid || suser())
+            gid == current->sgid || gid == current->fsgid || suser_cap(6))
                 current->fsgid = gid;
         if (current->fsgid != old_fsgid)
                 current->dumpable = 0;
@@ -698,9 +704,10 @@ asmlinkage int sys_getgroups(int gidsetsize, gid_t *grouplist)
 
 asmlinkage int sys_setgroups(int gidsetsize, gid_t *grouplist)
 {
+        extern int suser_cap(int cap);
         int     i;
 
-        if (!suser())
+        if (!suser_cap(6)) /* CAP_SETGID */
                 return -EPERM;
         if (gidsetsize > NGROUPS)
                 return -EINVAL;

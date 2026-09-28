@@ -53,7 +53,8 @@ enum root_directory_inos {
 	PROC_SADB,
 	PROC_WAKELOCKS,
 	PROC_NVME,
-	PROC_UFS
+	PROC_UFS,
+	PROC_SELINUX
 };
 
 enum pid_directory_inos {
@@ -68,7 +69,10 @@ enum pid_directory_inos {
 	PROC_PID_CMDLINE,
 	PROC_PID_STAT,
 	PROC_PID_STATM,
-	PROC_PID_MAPS
+	PROC_PID_MAPS,
+	PROC_PID_ATTR,
+	PROC_PID_ATTR_CURRENT,
+	PROC_PID_ATTR_EXEC
 };
 
 enum pid_subdirectory_inos {

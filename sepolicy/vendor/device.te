@@ -1,0 +1,8 @@
+# sepolicy/vendor/device.te
+# Vendor storage & firmware update hardware device types (/dev/ufsa, /dev/ufs-bsg0, /dev/nvme0*)
+@tier vendor
+
+typeattribute sdx_block_device dev_type;
+typeattribute ufs_dev dev_type;
+typeattribute ufs_rpmb_device dev_type;
+typeattribute nvme_device dev_type;

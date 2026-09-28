@@ -1,0 +1,25 @@
+# system/sepolicy/private/untrusted_app.te
+# Unprivileged Application / Regular User Domain (u:r:untrusted_app:s0)
+@tier private
+
+allow untrusted_app binder_device:chr_file rw_file_perms;
+allow untrusted_app servicemanager:binder { call transfer };
+allow untrusted_app { storaged mediaprovider externalstoraged }:binder { call transfer };
+
+# Untrusted apps can only find public app-facing services (NOT vold_service or fwupd_service!)
+allow untrusted_app { power_service sysinfo_service mount_service mediaprovider_service externalstorage_service }:service_manager find;
+
+# Scoped storage (/storage/*, /data/media/*), app data (/data/app/*), /tmp, and /home
+allow untrusted_app app_data_file:dir create_dir_perms;
+allow untrusted_app app_data_file:file create_file_perms;
+allow untrusted_app media_rw_data_file:dir create_dir_perms;
+allow untrusted_app media_rw_data_file:file create_file_perms;
+allow untrusted_app user_home_file:dir create_dir_perms;
+allow untrusted_app user_home_file:file create_file_perms;
+allow untrusted_app tmpfs:dir create_dir_perms;
+allow untrusted_app tmpfs:file create_file_perms;
+allow untrusted_app mnt_media_rw_stub_file:dir { search getattr };
+allow untrusted_app system_data_file:dir { search getattr };
+
+# Transition to /bin/su authentication gatekeeper when user invokes su
+domain_auto_trans(untrusted_app, su_exec, su)

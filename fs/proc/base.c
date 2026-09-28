@@ -81,6 +81,14 @@ struct proc_dir_entry proc_pid = {
 	NULL, &proc_root, NULL
 };
 
+struct proc_dir_entry proc_pid_attr = {
+	PROC_PID_ATTR, 4, "attr",
+	S_IFDIR | S_IRUGO | S_IXUGO, 2, 0, 0,
+	0, &proc_base_inode_operations,
+	NULL, proc_pid_fill_inode,
+	NULL, &proc_pid, NULL
+};
+
 void proc_base_init(void)
 {
 	proc_register(&proc_pid, &(struct proc_dir_entry) {
@@ -147,6 +155,19 @@ void proc_base_init(void)
 		PROC_PID_MAPS, 4, "maps",
 		S_IFIFO | S_IRUGO, 1, 0, 0,
 		0, &proc_arraylong_inode_operations,
+		NULL, proc_pid_fill_inode,
+	});
+	proc_register(&proc_pid, &proc_pid_attr);
+	proc_register(&proc_pid_attr, &(struct proc_dir_entry) {
+		PROC_PID_ATTR_CURRENT, 7, "current",
+		S_IFREG | S_IRUGO | S_IWUGO, 1, 0, 0,
+		0, &proc_array_inode_operations,
+		NULL, proc_pid_fill_inode,
+	});
+	proc_register(&proc_pid_attr, &(struct proc_dir_entry) {
+		PROC_PID_ATTR_EXEC, 4, "exec",
+		S_IFREG | S_IRUGO | S_IWUGO, 1, 0, 0,
+		0, &proc_array_inode_operations,
 		NULL, proc_pid_fill_inode,
 	});
 };

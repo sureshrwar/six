@@ -18,6 +18,7 @@
 #include <linux/fcntl.h>
 #include <linux/stat.h>
 #include <linux/mm.h>
+#include <linux/selinux.h>
 
 #define ACC_MODE(x) ("\000\004\002\006"[(x)&O_ACCMODE])
 
@@ -101,21 +102,39 @@ void putname(char * name)
 int permission(struct inode * inode,int mask)
 {
         int mode = inode->i_mode;
+        int dac_ok = 0;
 
-        if (inode->i_op && inode->i_op->permission)
-                return inode->i_op->permission(inode, mask);
-        else if ((mask & S_IWOTH) && IS_RDONLY(inode) &&
+        if (inode->i_op && inode->i_op->permission) {
+                int err = inode->i_op->permission(inode, mask);
+                if (err)
+                        return err;
+                return selinux_inode_permission(inode, mask);
+        }
+        if ((mask & S_IWOTH) && IS_RDONLY(inode) &&
                  (S_ISREG(mode) || S_ISDIR(mode) || S_ISLNK(mode)))
                 return -EROFS; /* Nobody gets write access to a read-only fs */
-        else if ((mask & S_IWOTH) && IS_IMMUTABLE(inode))
+        if ((mask & S_IWOTH) && IS_IMMUTABLE(inode))
                 return -EACCES; /* Nobody gets write access to an immutable file */
-        else if (current->fsuid == inode->i_uid)
+        if (current->fsuid == inode->i_uid)
                 mode >>= 6;
         else if (in_group_p(inode->i_gid))
                 mode >>= 3;
-        if (((mode & mask & 0007) == mask) || fsuser())
-                return 0;
-        return -EACCES;
+        if ((mode & mask & 0007) == mask) {
+                dac_ok = 1;
+        } else if (current->fsuid == 0) {
+                if (selinux_capable(CAP_DAC_OVERRIDE) == 0) {
+                        current->flags |= PF_SUPERPRIV;
+                        dac_ok = 1;
+                } else if ((mask == MAY_EXEC || mask == MAY_READ || mask == (MAY_READ | MAY_EXEC)) &&
+                           (S_ISDIR(inode->i_mode) || !(mask & MAY_EXEC)) &&
+                           selinux_capable(CAP_DAC_READ_SEARCH) == 0) {
+                        current->flags |= PF_SUPERPRIV;
+                        dac_ok = 1;
+                }
+        }
+        if (!dac_ok)
+                return -EACCES;
+        return selinux_inode_permission(inode, mask);
 }
 
 
@@ -160,7 +179,10 @@ int lookup(struct inode * dir,const char * name, int len,
            struct inode ** result)
 {
         struct super_block * sb;
-        int perm;
+        int perm, ret;
+        unsigned short dir_dev;
+        unsigned long dir_ino;
+        unsigned short dir_sid;
 
         *result = NULL;
         if (!dir)
@@ -193,7 +215,13 @@ int lookup(struct inode * dir,const char * name, int len,
                 *result = dir;
                 return 0;
         }
-        return dir->i_op->lookup(dir, name, len, result);
+        dir_dev = (unsigned short)dir->i_dev;
+        dir_ino = dir->i_ino;
+        dir_sid = selinux_inode_sid(dir);
+        ret = dir->i_op->lookup(dir, name, len, result);
+        if (ret == 0 && *result)
+                selinux_d_instantiate(dir_dev, dir_ino, dir_sid, name, len, *result);
+        return ret;
 }
 
 
@@ -383,11 +411,17 @@ int open_namei(const char * pathname, int flag, int mode,
                         error = -EACCES;
                 else if ((error = permission(dir,MAY_WRITE | MAY_EXEC)) != 0)
                         ;       /* error is already set! */
+                else if ((error = selinux_inode_create(dir, basename, mode)) != 0)
+                        ;
                 else {
                         dir->i_count++;         /* create eats the dir */
                         if (dir->i_sb && dir->i_sb->dq_op)
                                 dir->i_sb->dq_op->initialize(dir, -1);
                         error = dir->i_op->create(dir, basename, namelen, mode, res_inode);
+                        if (!error && *res_inode) {
+                                selinux_label_new_inode(dir, *res_inode, basename);
+                                selinux_label_inode_path(*res_inode, pathname);
+                        }
                         up(&dir->i_sem);
                         iput(dir);
                         return error;
@@ -407,6 +441,10 @@ int open_namei(const char * pathname, int flag, int mode,
                 return -EISDIR;
         }
         if ((error = permission(inode,ACC_MODE(flag))) != 0) {
+                iput(inode);
+                return error;
+        }
+        if ((error = selinux_file_open(inode, flag, pathname)) != 0) {
                 iput(inode);
                 return error;
         }
@@ -571,7 +609,7 @@ static int do_mkdir(const char * pathname, int mode)
 {
         const char * basename;
         int namelen, error;
-        struct inode * dir;
+        struct inode * dir, * inode;
 
         error = dir_namei(pathname, &namelen, &basename, NULL, &dir);
         if (error)
@@ -580,11 +618,21 @@ static int do_mkdir(const char * pathname, int mode)
                 iput(dir);
                 return -ENOENT;
         }
+        dir->i_count++;
+        if (lookup(dir, basename, namelen, &inode) == 0) {
+                iput(inode);
+                iput(dir);
+                return -EEXIST;
+        }
         if (IS_RDONLY(dir)) {
                 iput(dir);
                 return -EROFS;
         }
         if ((error = permission(dir,MAY_WRITE | MAY_EXEC)) != 0) {
+                iput(dir);
+                return error;
+        }
+        if ((error = selinux_inode_mkdir(dir, basename, mode)) != 0) {
                 iput(dir);
                 return error;
         }
@@ -598,6 +646,14 @@ static int do_mkdir(const char * pathname, int mode)
         down(&dir->i_sem);
         error = dir->i_op->mkdir(dir, basename, namelen, mode & 0777 & ~current->fs->umask);
         up(&dir->i_sem);
+        if (!error) {
+                dir->i_count++;
+                if (lookup(dir, basename, namelen, &inode) == 0) {
+                        selinux_label_new_inode(dir, inode, basename);
+                        selinux_label_inode_path(inode, pathname);
+                        iput(inode);
+                }
+        }
         iput(dir);
         return error;
 }
@@ -634,6 +690,10 @@ static int do_rmdir(const char * name)
                 return -EROFS;
         }
         if ((error = permission(dir,MAY_WRITE | MAY_EXEC)) != 0) {
+                iput(dir);
+                return error;
+        }
+        if ((error = selinux_inode_rmdir(dir, NULL, basename)) != 0) {
                 iput(dir);
                 return error;
         }
@@ -688,6 +748,10 @@ static int do_unlink(const char * name)
                 iput(dir);
                 return error;
         }
+        if ((error = selinux_inode_unlink(dir, NULL, basename)) != 0) {
+                iput(dir);
+                return error;
+        }
         /*
          * A file cannot be removed from an append-only directory
          */
@@ -719,7 +783,7 @@ asmlinkage int sys_unlink(const char * pathname)
 
 static int do_symlink(const char * oldname, const char * newname)
 {
-        struct inode * dir;
+        struct inode * dir, * inode;
         const char * basename;
         int namelen, error;
 
@@ -729,6 +793,12 @@ static int do_symlink(const char * oldname, const char * newname)
         if (!namelen) {
                 iput(dir);
                 return -ENOENT;
+        }
+        dir->i_count++;
+        if (lookup(dir, basename, namelen, &inode) == 0) {
+                iput(inode);
+                iput(dir);
+                return -EEXIST;
         }
         if (IS_RDONLY(dir)) {
                 iput(dir);
@@ -900,6 +970,11 @@ static int do_rename(const char * oldname, const char * newname, int must_be_dir
                 iput(old_dir);
                 iput(new_dir);
                 return -EPERM;
+        }
+        if ((error = selinux_inode_rename(old_dir, NULL, new_dir, new_base)) != 0) {
+                iput(old_dir);
+                iput(new_dir);
+                return error;
         }
         new_dir->i_count++;
         if (new_dir->i_sb && new_dir->i_sb->dq_op)

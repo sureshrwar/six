@@ -32,6 +32,7 @@
 #include <linux/blk.h>
 #include <linux/nvme.h>
 #include <linux/fwupd.h>
+#include <linux/selinux.h>
 #include <asm/segment.h>
 #include <asm/system.h>
 
@@ -820,6 +821,14 @@ static int nvme_handle_passthru_ioctl(struct nvme_queue *q, unsigned long arg)
 	if (err)
 		return err;
 	memcpy_fromfs(&ucmd, (void *)arg, sizeof(ucmd));
+
+	if (q->qid == 0 &&
+	    (ucmd.opcode == nvme_admin_download_fw ||
+	     ucmd.opcode == nvme_admin_activate_fw ||
+	     ucmd.opcode == nvme_admin_format_nvm)) {
+		if (!suser_cap(CAP_SYS_RAWIO))
+			return -EPERM;
+	}
 
 	xfer_len = ucmd.data_len;
 	if (xfer_len > sizeof(nvme_admin_bounce))

@@ -1,0 +1,39 @@
+# system/sepolicy/private/ntfs_3g.te
+# Confined NTFS FUSE driver domain (/bin/ntfs-3g, /bin/ntfsfix, /bin/mkntfs)
+# Mirrors Android Desktop system/sepolicy/private/ntfs_3g.te (ag/41792131, ag/41271392)
+@tier private
+
+type ntfs_3g, domain, coredomain;
+type ntfs_3g_exec, file_type, system_file_type, exec_type;
+
+# Inherit open file descriptors from vold (and shell/su for direct CLI testing)
+allow ntfs_3g vold:fd use;
+allow ntfs_3g vold:process sigchld;
+allow ntfs_3g shell:fd use;
+allow ntfs_3g shell:process sigchld;
+allow ntfs_3g su:fd use;
+allow ntfs_3g su:process sigchld;
+
+# Capabilities required for mounting FUSE and managing ownership on external media
+allow ntfs_3g self:capability { sys_admin dac_override dac_read_search setuid setgid chown fowner };
+
+# Entrypoint and helper execution (/bin/ntfs-3g, /bin/ntfsfix, /bin/mkntfs)
+allow ntfs_3g ntfs_3g_exec:file { read open getattr execute execute_no_trans entrypoint };
+
+# Access /dev/fuse and external block devices (USB/SCSI/Vold/UFS)
+allow ntfs_3g fuse_device:chr_file rw_file_perms;
+allow ntfs_3g { vold_device block_device root_block_device sdx_block_device }:blk_file rw_file_perms;
+
+# Mount and serve FUSE filesystem on /mnt/media_rw/<vol>
+allow ntfs_3g mnt_media_rw_stub_file:dir r_dir_perms;
+allow ntfs_3g mnt_media_rw_file:dir { create_dir_perms mounton unmount };
+allow ntfs_3g mnt_media_rw_file:file create_file_perms;
+allow ntfs_3g media_rw_data_file:dir { create_dir_perms mounton unmount };
+allow ntfs_3g media_rw_data_file:file create_file_perms;
+allow ntfs_3g tmpfs:dir { create_dir_perms mounton unmount };
+allow ntfs_3g tmpfs:file create_file_perms;
+allow ntfs_3g ntfs:dir { create_dir_perms mounton unmount };
+allow ntfs_3g ntfs:file create_file_perms;
+
+# Note: ntfs_3g is strictly denied access to /data/system (system_data_file),
+# /data/app (app_data_file), /etc/shadow (shadow_file), and Binder IPC!

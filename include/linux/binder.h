@@ -83,6 +83,7 @@ struct binder_ipc_msg {
 	unsigned int flags;		/* 0 = synchronous RPC, TF_ONE_WAY = async */
 	int sender_pid;			/* Filled by kernel (unforgeable) */
 	int sender_euid;		/* Filled by kernel (unforgeable) */
+	char sender_secontext[64];	/* Filled by kernel (unforgeable SELinux context) */
 	int status;			/* Reply status (0 = OK, <0 = error) */
 	int reply_handle;		/* Returned service handle (if applicable) */
 	unsigned int txn_id;		/* Kernel transaction ID for matching reply */
@@ -95,6 +96,7 @@ struct binder_service_info {
 	int handle;
 	int owner_pid;
 	int owner_uid;
+	char owner_secontext[64];
 	unsigned int txn_count;
 	char name[BINDER_MAX_NAME_LEN];
 	char descriptor[BINDER_MAX_DESC_LEN];

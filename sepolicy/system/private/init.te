@@ -1,0 +1,23 @@
+# system/sepolicy/private/init.te
+# PID 1 (init) & boot script policy
+@tier private
+
+domain_auto_trans(kernel, init_exec, init)
+
+allow init self:capability { chown dac_override dac_read_search fowner fsetid kill setgid setuid net_bind_service net_admin net_raw sys_rawio sys_chroot sys_ptrace sys_admin sys_boot sys_nice sys_resource sys_time mknod };
+allow init self:process { transition setcurrent setexec dyntransition execmem };
+allow init domain:process { transition dyntransition sigkill sigstop signal sigchld getpgid setpgid };
+allow init security:security { compute_av compute_create load_policy setenforce setcheckreqprot check_context };
+allow init kernel:system { ipc_info syslog_read syslog_mod syslog_console module_request };
+
+# Automatic domain transitions when init starts system & vendor daemons
+domain_auto_trans(init, servicemanager_exec, servicemanager)
+domain_auto_trans(init, vold_exec, vold)
+domain_auto_trans(init, storaged_exec, storaged)
+domain_auto_trans(init, mediaprovider_exec, mediaprovider)
+domain_auto_trans(init, externalstoraged_exec, externalstoraged)
+domain_auto_trans(init, adbd_exec, adbd)
+domain_auto_trans(init, httpd_exec, httpd)
+domain_auto_trans(init, telnetd_exec, telnetd)
+domain_auto_trans(init, fwupd_exec, fwupd)
+domain_auto_trans(init, su_exec, su)

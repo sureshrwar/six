@@ -658,6 +658,7 @@ void force_umount_dev(kdev_t dev)
 
 asmlinkage int sys_umount(char * name)
 {
+        extern int selinux_sb_umount(struct inode *mounted_inode);
         struct inode * inode;
         kdev_t dev;
         int retval;
@@ -670,6 +671,11 @@ asmlinkage int sys_umount(char * name)
                 retval = lnamei(name, &inode);
                 if (retval)
                         return retval;
+        }
+        retval = selinux_sb_umount(inode);
+        if (retval) {
+                iput(inode);
+                return retval;
         }
         if (S_ISBLK(inode->i_mode)) {
                 dev = inode->i_rdev;
@@ -722,6 +728,8 @@ asmlinkage int sys_umount(char * name)
 
 int do_mount(kdev_t dev, const char * dev_name, const char * dir_name, const char * type, int flags, void * data)
 {
+        extern int selinux_sb_mount(const char *dev_name, struct inode *dir_inode, const char *type);
+        extern void selinux_label_inode_path(struct inode *inode, const char *pathname);
         struct inode * dir_i;
         struct super_block * sb;
         struct vfsmount *vfsmnt;
@@ -733,6 +741,11 @@ int do_mount(kdev_t dev, const char * dev_name, const char * dir_name, const cha
         error = namei(dir_name, &dir_i);
         if (error)
                 return error;
+        error = selinux_sb_mount(dev_name, dir_i, type);
+        if (error) {
+                iput(dir_i);
+                return error;
+        }
         if ((dir_i->i_count != 1 &&
              !(dir_i->i_sb && dir_i == dir_i->i_sb->s_mounted && dir_i->i_count == 2)) ||
             dir_i->i_mount) {
@@ -763,6 +776,8 @@ int do_mount(kdev_t dev, const char * dev_name, const char * dir_name, const cha
         }
         sb->s_covered = dir_i;
         dir_i->i_mount = sb->s_mounted;
+        if (sb->s_mounted && dir_name)
+                selinux_label_inode_path(sb->s_mounted, dir_name);
         return 0;               /* we don't iput(dir_i) - see umount */
 }
 

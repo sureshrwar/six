@@ -217,12 +217,16 @@ void force_sig(unsigned long sig, struct task_struct * p)
 
 int send_sig(unsigned long sig,struct task_struct * p,int priv)
 {
+        extern int suser_cap(int cap);
+        extern int selinux_task_kill(struct task_struct *victim, int sig);
         if (!p || sig > 32)
                 return -EINVAL;
         if (!priv && ((sig != SIGCONT) || (current->session != p->session)) &&
             (current->euid ^ p->suid) && (current->euid ^ p->uid) &&
             (current->uid ^ p->suid) && (current->uid ^ p->uid) &&
-            !suser())
+            !suser_cap(5)) /* CAP_KILL */
+                return -EPERM;
+        if (!priv && selinux_task_kill(p, (int)sig) != 0)
                 return -EPERM;
         if (!sig)
                 return 0;

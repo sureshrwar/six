@@ -521,7 +521,7 @@ TESTS = [
             "Reading symbols from /bin/servicemanager... done",
             "at applications/servicemanager/servicemanager.c:118",
             "Detaching from program: /bin/servicemanager, process ",
-            "Found 7 services:",
+            "Found 8 services:",
         ],
     ),
     TestCase(
@@ -1039,6 +1039,64 @@ TESTS = [
             "/dev/ttyp",
             "TELNET_LOOPBACK_PTY_OK",
             "Connection closed by foreign host.",
+        ],
+    ),
+    TestCase(
+        name="selinux.enforcing_domains_and_neverallow",
+        description="3-tier Android Desktop SELinux (system/public, system/private, vendor), neverallow/neverallowxperm enforcement, ntfs_3g domain transition, and fwupd vendor Binder IPC vs direct rawio block",
+        cmd=(
+            "getenforce && "
+            "sestatus && "
+            "ps -efZ && "
+            "ls -Z /bin/ntfs-3g /vendor/bin/fwupd /dev/ufsa /dev/ufs-bsg0 /dev/nvme0 /dev/binder && "
+            "dumpsys fwupd && "
+            "load_policy && "
+            "(load_policy -e 'allow shell self:capability sys_rawio;' || echo NEVERALLOW_RAWIO_BLOCKED_OK) && "
+            "(load_policy -e 'allowxperm storaged sdx_block_device:blk_file ioctl 0x2285;' || echo NEVERALLOWXPERM_SGIO_BLOCKED_OK) && "
+            "(load_policy -e 'allow fwupd system_data_file:file write;' || echo NEVERALLOW_TREBLE_DATA_BLOCKED_OK) && "
+            "echo '@tier vendor' > /tmp/bad_vendor.te && "
+            "echo 'allow fwupd ntfs_3g:process sigchld;' >> /tmp/bad_vendor.te && "
+            "(load_policy /tmp/bad_vendor.te || echo TIER_PRIVATE_VISIBILITY_BLOCKED_OK) && "
+            "rm /tmp/bad_vendor.te && "
+            "audit2allow -c && "
+            "runcon u:r:shell:s0 fwupdmgr get-devices && "
+            "(runcon u:r:shell:s0 fwupdmgr --direct update || echo SHELL_DIRECT_FWUPD_BLOCKED_OK) && "
+            "(runcon u:r:untrusted_app:s0 fwupdmgr get-devices || echo UNTRUSTED_APP_FWUPD_SVC_BLOCKED_OK) && "
+            "audit2allow && "
+            "touch /tmp/selinux_ctx_test && "
+            "chcon -v u:object_r:vendor_data_file:s0 /tmp/selinux_ctx_test && "
+            "ls -Z /tmp/selinux_ctx_test && "
+            "restorecon -v /tmp/selinux_ctx_test && "
+            "rm /tmp/selinux_ctx_test"
+        ),
+        expected_substrings=[
+            "Enforcing",
+            "sepolicy_v1 (3-tier: system/public, system/private, vendor)",
+            "u:r:servicemanager:s0",
+            "u:r:vold:s0",
+            "u:r:storaged:s0",
+            "u:r:ntfs_3g:s0",
+            "u:r:fwupd:s0",
+            "u:object_r:ntfs_3g_exec:s0",
+            "u:object_r:fwupd_exec:s0",
+            "u:object_r:sdx_block_device:s0",
+            "u:object_r:ufs_dev:s0",
+            "VENDOR FWUPD SERVICE (dumpsys fwupd)",
+            "SELinux Domain: u:r:fwupd:s0",
+            "Capabilities: CAP_SYS_RAWIO, CAP_SYS_ADMIN (SG_IO 0x2285 allowxperm)",
+            "SELinux: Loaded 3-tier policy (system/public + system/private + vendor).",
+            "NEVERALLOW_RAWIO_BLOCKED_OK",
+            "NEVERALLOWXPERM_SGIO_BLOCKED_OK",
+            "NEVERALLOW_TREBLE_DATA_BLOCKED_OK",
+            "3-tier violation: vendor policy references system/private type 'ntfs_3g'",
+            "TIER_PRIVATE_VISIBILITY_BLOCKED_OK",
+            "SIX JEDEC UFS 4.0 Flash Controller:",
+            "SHELL_DIRECT_FWUPD_BLOCKED_OK",
+            "fwupdmgr: SELinux ServiceManager denied access to service 'fwupd'",
+            "UNTRUSTED_APP_FWUPD_SVC_BLOCKED_OK",
+            "#============= shell ==============",
+            "changing security context of '/tmp/selinux_ctx_test' to 'u:object_r:vendor_data_file:s0'",
+            "Relabeling /tmp/selinux_ctx_test from u:object_r:vendor_data_file:s0 to u:object_r:tmpfs:s0.",
         ],
     ),
 ]

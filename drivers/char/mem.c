@@ -278,20 +278,29 @@ static struct file_operations full_fops = {
 
 static int memory_open(struct inode * inode, struct file * filp)
 {
+        extern int selinux_capable(int cap);
         switch (MINOR(inode->i_rdev)) {
                 case 0:
+                        if (selinux_capable(17) != 0) /* CAP_SYS_RAWIO */
+                                return -EPERM;
                         filp->f_op = &ram_fops;
                         break;
                 case 1:
+                        if (selinux_capable(17) != 0) /* CAP_SYS_RAWIO */
+                                return -EPERM;
                         filp->f_op = &mem_fops;
                         break;
                 case 2:
+                        if (selinux_capable(17) != 0) /* CAP_SYS_RAWIO */
+                                return -EPERM;
                         filp->f_op = &kmem_fops;
                         break;
                 case 3:
                         filp->f_op = &null_fops;
                         break;
                 case 4:
+                        if (selinux_capable(17) != 0) /* CAP_SYS_RAWIO */
+                                return -EPERM;
                         filp->f_op = &port_fops;
                         break;
                 case 5:
@@ -337,9 +346,11 @@ int chr_dev_init(void)
         rand_initialize();
         tty_init();
         {
+                extern void selinux_init(void);
                 extern int binder_init(void);
                 extern int sadb_dev_init(void);
                 extern int power_dev_init(void);
+                selinux_init();
                 binder_init();
                 sadb_dev_init();
                 power_dev_init();

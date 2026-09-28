@@ -1,0 +1,32 @@
+# system/sepolicy/private/shell.te
+# ADB & Console Shell Domain (u:r:shell:s0)
+@tier private
+
+allow shell binder_device:chr_file rw_file_perms;
+allow shell servicemanager:binder { call transfer };
+allow shell domain:binder { call transfer };
+
+# Shell can discover & invoke system and vendor Binder services (e.g. fwupdmgr -> fwupd)
+allow shell { power_service sysinfo_service vold_service mount_service system_suspend_control_service mediaprovider_service externalstorage_service fwupd_service }:service_manager { find list };
+
+allow shell tmpfs:dir create_dir_perms;
+allow shell tmpfs:file create_file_perms;
+allow shell user_home_file:dir create_dir_perms;
+allow shell user_home_file:file create_file_perms;
+allow shell media_rw_data_file:dir create_dir_perms;
+allow shell media_rw_data_file:file create_file_perms;
+allow shell app_data_file:dir create_dir_perms;
+allow shell app_data_file:file create_file_perms;
+allow shell { proc_diskstats proc_net }:file r_file_perms;
+allow shell pstorefs:dir r_dir_perms;
+allow shell pstorefs:file r_file_perms;
+allow shell sepolicy_file:dir r_dir_perms;
+allow shell sepolicy_file:file r_file_perms;
+allow shell vendor_configs_file:dir r_dir_perms;
+allow shell vendor_configs_file:file r_file_perms;
+allow shell vendor_file:dir r_dir_perms;
+allow shell vendor_file:file r_file_perms;
+allow shell domain:dir r_dir_perms;
+allow shell domain:file r_file_perms;
+
+domain_auto_trans(shell, su_exec, su)

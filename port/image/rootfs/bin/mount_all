@@ -26,3 +26,12 @@ esac
 
 # Mount all auto entries from /etc/fstab (/proc, /tmp, /dev/nvme0n1 -> /data, /dev/hdb -> /aux/storage-1)
 mount -a
+
+# Android init post-fs-data directory initialization on /data (/dev/nvme0n1)
+mkdir /data/vendor 2>/dev/null
+mkdir /data/vendor/fwupd 2>/dev/null
+mkdir /data/misc 2>/dev/null
+mkdir /data/misc/vold 2>/dev/null
+mkdir /data/media 2>/dev/null
+mkdir /data/media/0 2>/dev/null
+restorecon -R /data/vendor /data/media /data/misc >/dev/null 2>&1

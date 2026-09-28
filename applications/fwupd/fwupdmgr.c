@@ -43,7 +43,11 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
+#include <linux/binder.h>
+#include <android/os/IFwupd.h>
 #include "fwupd_plugin.h"
 
 #define MAX_DEVICES		8
@@ -1229,9 +1233,9 @@ static void ensure_lvfs_repository(int force_rebuild)
 	mkdir("/var", 0755);
 	mkdir("/var/lib", 0755);
 	mkdir("/var/lib/fwupd", 0755);
-	mkdir("/data/misc", 0755);
-	mkdir("/data/misc/fwupd", 0755);
-	symlink("/data/misc/fwupd/history.db", FWUPD_HISTORY_PATH);
+	mkdir("/data/vendor", 0755);
+	mkdir("/data/vendor/fwupd", 0755);
+	symlink("/data/vendor/fwupd/history.db", FWUPD_HISTORY_PATH);
 
 	parse_lvfs_metadata_xml();
 
@@ -1400,7 +1404,7 @@ static void save_installed_digest(const char *device_id, const char *ver,
 	char path[80];
 	int fd;
 
-	sprintf(path, "/data/misc/fwupd/digest-%s.bin", device_id);
+	sprintf(path, "/data/vendor/fwupd/digest-%s.bin", device_id);
 	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	if (fd < 0)
 		return;
@@ -1415,7 +1419,7 @@ static int load_installed_digest(const char *device_id, const char *ver,
 	char path[80], saved_ver[16];
 	int fd;
 
-	sprintf(path, "/data/misc/fwupd/digest-%s.bin", device_id);
+	sprintf(path, "/data/vendor/fwupd/digest-%s.bin", device_id);
 	fd = open(path, O_RDONLY);
 	if (fd < 0)
 		return -1;
@@ -1472,6 +1476,11 @@ static int cmd_get_devices(void)
 	int nr = probe_all_devices(devs, MAX_DEVICES);
 	int i;
 
+	if (nr == 0) {
+		fprintf(stderr, "fwupdmgr: permission denied probing hardware devices (SELinux blocked direct hardware access)\n");
+		return 1;
+	}
+
 	printf("SIX Virtual Platform\n");
 	for (i = 0; i < nr; i++) {
 		char hex[65];
@@ -1510,6 +1519,11 @@ static int cmd_get_updates(void)
 	struct fwupd_device devs[MAX_DEVICES];
 	int nr = probe_all_devices(devs, MAX_DEVICES);
 	int i, updates_found = 0;
+
+	if (nr == 0) {
+		fprintf(stderr, "fwupdmgr: permission denied probing hardware devices (SELinux blocked direct hardware access)\n");
+		return 1;
+	}
 
 	printf("Devices with available firmware updates:\n");
 	for (i = 0; i < nr; i++) {
@@ -1732,6 +1746,11 @@ static int cmd_update(const char *target_query)
 	int nr = probe_all_devices(devs, MAX_DEVICES);
 	int i, updated = 0, rc = 0;
 
+	if (nr == 0) {
+		fprintf(stderr, "fwupdmgr: permission denied probing hardware devices (SELinux blocked direct hardware access)\n");
+		return 1;
+	}
+
 	for (i = 0; i < nr; i++) {
 		const struct fwupd_device *d = &devs[i];
 		const struct lvfs_release *r;
@@ -1868,9 +1887,9 @@ static int cmd_get_history(void)
 
 static int cmd_clear_history(void)
 {
-	unlink("/data/misc/fwupd/history.db");
+	unlink("/data/vendor/fwupd/history.db");
 	unlink(FWUPD_HISTORY_PATH);
-	symlink("/data/misc/fwupd/history.db", FWUPD_HISTORY_PATH);
+	symlink("/data/vendor/fwupd/history.db", FWUPD_HISTORY_PATH);
 	printf("Cleared firmware update history (%s).\n", FWUPD_HISTORY_PATH);
 	return 0;
 }
@@ -1989,7 +2008,7 @@ static int cmd_examine(const char *pkg_path)
 static void usage(void)
 {
 	printf("fwupdmgr 1.9.24 (SIX Firmware Update Manager — nvme, ufs & scsi plugins)\n"
-	       "Usage: fwupdmgr <command> [options]\n\n"
+	       "Usage: fwupdmgr [--direct] <command> [options]\n\n"
 	       "Commands:\n"
 	       "  get-plugins                            List built-in hardware plugins (nvme, ufs, scsi)\n"
 	       "  get-devices                            Probe hardware and list updatable devices\n"
@@ -2006,11 +2025,9 @@ static void usage(void)
 	       "  clear-history                          Clear firmware update history\n");
 }
 
-int main(int argc, char **argv)
+static int dispatch_fwupd_local(int argc, char **argv)
 {
 	const char *sub;
-
-	ensure_lvfs_repository(0);
 
 	if (argc < 2) {
 		usage();
@@ -2071,4 +2088,286 @@ int main(int argc, char **argv)
 	fprintf(stderr, "fwupdmgr: unknown command '%s'\n", sub);
 	usage();
 	return 1;
+}
+
+#define FWUPD_RPC_OUT_PATH "/tmp/.fwupd_rpc.out"
+
+static int run_fwupd_binder_daemon(void)
+{
+	int bfd;
+	struct binder_service_info sinfo;
+	char self_ctx[64];
+	int cfd;
+
+	ensure_lvfs_repository(0);
+
+	memset(self_ctx, 0, sizeof(self_ctx));
+	cfd = open("/proc/self/attr/current", O_RDONLY);
+	if (cfd >= 0) {
+		int n = read(cfd, self_ctx, sizeof(self_ctx) - 1);
+		if (n > 0)
+			self_ctx[n] = '\0';
+		close(cfd);
+	}
+
+	bfd = open("/dev/binder", O_RDWR);
+	if (bfd < 0) {
+		fprintf(stderr, "fwupd: cannot open /dev/binder: %s\n", strerror(errno));
+		return 1;
+	}
+
+	memset(&sinfo, 0, sizeof(sinfo));
+	strcpy(sinfo.name, IFWUPD_SERVICE_NAME);
+	strcpy(sinfo.descriptor, IFWUPD_DESCRIPTOR);
+	if (ioctl(bfd, BINDER_IOC_REGISTER_SVC, &sinfo) < 0) {
+		fprintf(stderr, "fwupd: failed to register service '%s': %s\n",
+			IFWUPD_SERVICE_NAME, strerror(errno));
+		close(bfd);
+		return 1;
+	}
+
+	printf("[fwupd] Vendor Firmware Update Service ready (pid=%d, handle=%d, context=%s)\n",
+	       getpid(), sinfo.handle, self_ctx[0] ? self_ctx : "u:r:fwupd:s0");
+	fflush(stdout);
+
+	while (1) {
+		struct binder_ipc_msg msg;
+		int rc;
+
+		memset(&msg, 0, sizeof(msg));
+		if (ioctl(bfd, BINDER_IOC_RECV, &msg) < 0)
+			continue;
+
+		if (msg.code == PING_TRANSACTION) {
+			msg.status = 0;
+			strcpy(msg.data, "PONG");
+			msg.data_size = 5;
+		} else if (msg.code == DUMP_TRANSACTION) {
+			struct fwupd_device devs[MAX_DEVICES];
+			int nr = probe_all_devices(devs, MAX_DEVICES);
+			int i, pos = 0;
+
+			pos += snprintf(msg.data + pos, sizeof(msg.data) - pos,
+					"VENDOR FWUPD SERVICE (dumpsys fwupd)\n"
+					"  Interface: %s\n"
+					"  SELinux Domain: %s\n"
+					"  Capabilities: CAP_SYS_RAWIO, CAP_SYS_ADMIN (SG_IO 0x2285 allowxperm)\n"
+					"  Plugins (%d): nvme, ufs, scsi\n"
+					"  Updatable Hardware Devices (%d):\n",
+					IFWUPD_DESCRIPTOR,
+					self_ctx[0] ? self_ctx : "u:r:fwupd:s0",
+					NR_PLUGINS, nr);
+			for (i = 0; i < nr && pos + 160 < (int)sizeof(msg.data); i++) {
+				pos += snprintf(msg.data + pos, sizeof(msg.data) - pos,
+						"    [%d] %s (id=%s, plugin=%s, node=%s, version=%s)\n",
+						i + 1, devs[i].name, devs[i].device_id,
+						devs[i].plugin, devs[i].dev_node, devs[i].version);
+			}
+			msg.data_size = (unsigned int)(pos + 1);
+			msg.status = 0;
+		} else {
+			char cmdbuf[512];
+			char *rpc_argv[16];
+			int rpc_argc = 0;
+			char *p;
+			int saved_out, saved_err, out_fd;
+
+			memset(cmdbuf, 0, sizeof(cmdbuf));
+			if (msg.data_size > 0 && msg.data[0]) {
+				strncpy(cmdbuf, msg.data, sizeof(cmdbuf) - 1);
+			} else {
+				switch (msg.code) {
+				case IFWUPD_GET_PLUGINS:   strcpy(cmdbuf, "get-plugins"); break;
+				case IFWUPD_GET_DEVICES:   strcpy(cmdbuf, "get-devices"); break;
+				case IFWUPD_REFRESH:       strcpy(cmdbuf, "refresh"); break;
+				case IFWUPD_GET_UPDATES:   strcpy(cmdbuf, "get-updates"); break;
+				case IFWUPD_UPDATE:        strcpy(cmdbuf, "update"); break;
+				case IFWUPD_VERIFY:        strcpy(cmdbuf, "verify"); break;
+				case IFWUPD_GET_HISTORY:   strcpy(cmdbuf, "get-history"); break;
+				case IFWUPD_CLEAR_HISTORY: strcpy(cmdbuf, "clear-history"); break;
+				default:                   strcpy(cmdbuf, "get-devices"); break;
+				}
+			}
+
+			rpc_argv[rpc_argc++] = "fwupdmgr";
+			p = cmdbuf;
+			while (*p && rpc_argc < 15) {
+				while (*p == ' ' || *p == '\t')
+					*p++ = '\0';
+				if (!*p)
+					break;
+				rpc_argv[rpc_argc++] = p;
+				while (*p && *p != ' ' && *p != '\t')
+					p++;
+			}
+			rpc_argv[rpc_argc] = NULL;
+
+			unlink(FWUPD_RPC_OUT_PATH);
+			out_fd = open(FWUPD_RPC_OUT_PATH, O_CREAT | O_TRUNC | O_RDWR, 0666);
+			saved_out = dup(1);
+			saved_err = dup(2);
+			if (out_fd >= 0) {
+				dup2(out_fd, 1);
+				dup2(out_fd, 2);
+			}
+
+			rc = dispatch_fwupd_local(rpc_argc, rpc_argv);
+			fflush(stdout);
+			fflush(stderr);
+
+			if (saved_out >= 0) {
+				dup2(saved_out, 1);
+				close(saved_out);
+			}
+			if (saved_err >= 0) {
+				dup2(saved_err, 2);
+				close(saved_err);
+			}
+
+			msg.data[0] = '\0';
+			msg.data_size = 0;
+			if (out_fd >= 0) {
+				int n;
+				lseek(out_fd, 0, SEEK_SET);
+				n = read(out_fd, msg.data, sizeof(msg.data) - 1);
+				if (n > 0) {
+					msg.data[n] = '\0';
+					msg.data_size = (unsigned int)(n + 1);
+				}
+				close(out_fd);
+			}
+			msg.status = rc;
+		}
+
+		if (!(msg.flags & TF_ONE_WAY))
+			ioctl(bfd, BINDER_IOC_REPLY, &msg);
+	}
+	close(bfd);
+	return 0;
+}
+
+static unsigned int subcmd_to_binder_code(const char *sub)
+{
+	if (!strcmp(sub, "get-plugins") || !strcmp(sub, "plugins"))
+		return IFWUPD_GET_PLUGINS;
+	if (!strcmp(sub, "get-devices") || !strcmp(sub, "devices"))
+		return IFWUPD_GET_DEVICES;
+	if (!strcmp(sub, "refresh"))
+		return IFWUPD_REFRESH;
+	if (!strcmp(sub, "get-updates") || !strcmp(sub, "updates"))
+		return IFWUPD_GET_UPDATES;
+	if (!strcmp(sub, "update") || !strcmp(sub, "upgrade"))
+		return IFWUPD_UPDATE;
+	if (!strcmp(sub, "install") || !strcmp(sub, "install-blob"))
+		return IFWUPD_INSTALL;
+	if (!strcmp(sub, "activate") || !strcmp(sub, "switch-slot"))
+		return IFWUPD_ACTIVATE;
+	if (!strcmp(sub, "verify"))
+		return IFWUPD_VERIFY;
+	if (!strcmp(sub, "examine") || !strcmp(sub, "inspect"))
+		return IFWUPD_EXAMINE;
+	if (!strcmp(sub, "get-history") || !strcmp(sub, "history"))
+		return IFWUPD_GET_HISTORY;
+	if (!strcmp(sub, "clear-history"))
+		return IFWUPD_CLEAR_HISTORY;
+	return IFWUPD_EXEC_CMD;
+}
+
+int main(int argc, char **argv)
+{
+	const char *prog = strrchr(argv[0], '/');
+	int direct_mode = 0;
+	int i;
+
+	prog = prog ? (prog + 1) : argv[0];
+
+	if (strcmp(prog, "fwupd") == 0 ||
+	    (argc >= 2 && strcmp(argv[1], "--daemon") == 0)) {
+		return run_fwupd_binder_daemon();
+	}
+
+	if (argc >= 2 && strcmp(argv[1], "--direct") == 0) {
+		direct_mode = 1;
+		for (i = 1; i < argc - 1; i++)
+			argv[i] = argv[i + 1];
+		argc--;
+	}
+
+	if (argc < 2) {
+		usage();
+		return 1;
+	}
+	if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0 ||
+	    strcmp(argv[1], "help") == 0) {
+		usage();
+		return 0;
+	}
+
+	/*
+	 * Unless --direct is specified, talk to the vendor fwupd daemon
+	 * ("fwupd" [org.freedesktop.fwupd.IFwupd]) over Binder IPC.
+	 */
+	if (!direct_mode) {
+		int bfd = open("/dev/binder", O_RDWR);
+		if (bfd >= 0) {
+			struct binder_service_info sinfo;
+			int rc;
+			memset(&sinfo, 0, sizeof(sinfo));
+			strcpy(sinfo.name, IFWUPD_SERVICE_NAME);
+			rc = ioctl(bfd, BINDER_IOC_LOOKUP_SVC, &sinfo);
+			if (rc < 0 && (errno == EACCES || errno == EPERM)) {
+				fprintf(stderr,
+					"fwupdmgr: SELinux ServiceManager denied access to service '%s' (%s)\n",
+					IFWUPD_SERVICE_NAME, strerror(errno));
+				close(bfd);
+				return 1;
+			}
+			if (rc == 0 && sinfo.handle > 0) {
+				struct binder_ipc_msg msg;
+				int pos = 0;
+				int out_fd;
+
+				memset(&msg, 0, sizeof(msg));
+				msg.target_handle = sinfo.handle;
+				msg.code = subcmd_to_binder_code(argv[1]);
+				strcpy(msg.interface_token, IFWUPD_DESCRIPTOR);
+				for (i = 1; i < argc; i++) {
+					int alen = strlen(argv[i]);
+					if (pos > 0 && pos + 1 < (int)sizeof(msg.data))
+						msg.data[pos++] = ' ';
+					if (pos + alen < (int)sizeof(msg.data) - 1) {
+						memcpy(msg.data + pos, argv[i], alen);
+						pos += alen;
+					}
+				}
+				msg.data[pos] = '\0';
+				msg.data_size = (unsigned int)(pos + 1);
+
+				if (ioctl(bfd, BINDER_IOC_TRANSACT, &msg) < 0) {
+					fprintf(stderr,
+						"fwupdmgr: Binder IPC transaction to '%s' failed: %s\n",
+						IFWUPD_SERVICE_NAME, strerror(errno));
+					close(bfd);
+					return 1;
+				}
+				close(bfd);
+
+				out_fd = open(FWUPD_RPC_OUT_PATH, O_RDONLY);
+				if (out_fd >= 0) {
+					char rbuf[1024];
+					int n;
+					while ((n = read(out_fd, rbuf, sizeof(rbuf))) > 0)
+						write(1, rbuf, n);
+					close(out_fd);
+				} else if (msg.data_size > 0 && msg.data[0]) {
+					printf("%s", msg.data);
+				}
+				return (msg.status == 0) ? 0 : 1;
+			}
+			close(bfd);
+		}
+	}
+
+	ensure_lvfs_repository(0);
+	return dispatch_fwupd_local(argc, argv);
 }

@@ -1,0 +1,5 @@
+# sepolicy/vendor/service.te
+# Vendor Binder service declarations
+@tier vendor
+
+typeattribute fwupd_service service_manager_type;

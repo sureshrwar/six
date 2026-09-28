@@ -1,0 +1,16 @@
+# system/sepolicy/private/servicemanager.te
+# Android Binder Context Manager (/bin/servicemanager)
+@tier private
+
+allow servicemanager binder_device:chr_file rw_file_perms;
+allow servicemanager self:binder set_context_mgr;
+allow servicemanager domain:binder { call transfer };
+allow servicemanager domain:dir { search read open getattr };
+allow servicemanager domain:file { read open getattr };
+allow servicemanager selinuxfs:dir r_dir_perms;
+allow servicemanager selinuxfs:{ file chr_file } rw_file_perms;
+allow servicemanager sepolicy_file:dir r_dir_perms;
+allow servicemanager sepolicy_file:file r_file_perms;
+allow servicemanager vendor_configs_file:dir r_dir_perms;
+allow servicemanager vendor_configs_file:file r_file_perms;
+allow servicemanager security:security { compute_av check_context };

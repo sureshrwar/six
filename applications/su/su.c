@@ -193,6 +193,19 @@ main(int argc, char **argv)
 		sh_argv[1] = NULL;
 	}
 
+	{
+		FILE *se_fp = fopen("/proc/self/attr/current", "w");
+		if (se_fp) {
+			const char *sectx = "u:r:untrusted_app:s0";
+			if (pw->pw_uid == 0)
+				sectx = "u:r:su:s0";
+			else if (strcmp(pw->pw_name, "shell") == 0 || pw->pw_uid == 2000)
+				sectx = "u:r:shell:s0";
+			fwrite(sectx, 1, strlen(sectx), se_fp);
+			fclose(se_fp);
+		}
+	}
+
 	execve(sh_buf, sh_argv, new_env);
 	if (strcmp(sh_buf, "/bin/sh") != 0) {
 		strcpy(sh_buf, "/bin/sh");

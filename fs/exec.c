@@ -612,9 +612,12 @@ int search_binary_handler(struct linux_binprm *bprm, struct pt_regs *regs)
  */
 int do_execve(char * filename, char ** argv, char ** envp, struct pt_regs * regs)
 {       
+        extern int selinux_bprm_transition(struct inode *exec_inode, const char *filename);
         struct linux_binprm bprm;
         int retval;
         int i;
+        unsigned short old_sec_sid = current->sec_sid;
+        unsigned short old_sec_exec_sid = current->sec_exec_sid;
 #if (SIX)
 		char **hand;
 		char *ch;
@@ -643,6 +646,8 @@ int do_execve(char * filename, char ** argv, char ** envp, struct pt_regs * regs
                 return bprm.envc;
                 
         retval = prepare_binprm(&bprm);
+        if (retval >= 0)
+                retval = selinux_bprm_transition(bprm.inode, bprm.filename);
                 
 	if(retval>=0) {
                 bprm.p = copy_strings(1, &bprm.filename, bprm.page, bprm.p, 2);
@@ -704,7 +709,9 @@ int do_execve(char * filename, char ** argv, char ** envp, struct pt_regs * regs
                 /* execve success */
                 return retval;
 
-        /* Something went wrong, return the inode and free the argument pages*/
+        /* Something went wrong, restore SELinux context, return the inode and free the argument pages*/
+        current->sec_sid = old_sec_sid;
+        current->sec_exec_sid = old_sec_exec_sid;
         if(!bprm.dont_iput)
                 iput(bprm.inode);
         for (i=0 ; i<MAX_ARG_PAGES ; i++)
