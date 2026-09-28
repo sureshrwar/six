@@ -259,9 +259,9 @@ if [ "$MODE" != "bin" ]; then
 	mkdir -p "$STAGE/etc/fwupd/remotes.d/lvfs/packages"
 	if [ -r /google/data/ro/users/mo/motorman/www/data/share/cros/fwupd/ufs/test.cab ]; then
 		cp -f /google/data/ro/users/mo/motorman/www/data/share/cros/fwupd/ufs/test.cab \
-		      "$STAGE/etc/fwupd/remotes.d/lvfs/packages/test.cab"
+		      "$STAGE/etc/fwupd/remotes.d/lvfs/packages/samsung-ufs-kludg4uhgc-2101.cab"
 	else
-		python3 - "$STAGE/etc/fwupd/remotes.d/lvfs/packages/test.cab" << 'PYEOF'
+		python3 - "$STAGE/etc/fwupd/remotes.d/lvfs/packages/samsung-ufs-kludg4uhgc-2101.cab" << 'PYEOF'
 import hashlib, struct, sys
 
 out_path = sys.argv[1]
@@ -339,11 +339,10 @@ with open(out_path, "wb") as f:
     f.write(chdr + cfolder + cffiles + cfdata)
 PYEOF
 	fi
-	chmod 0644 "$STAGE/etc/fwupd/remotes.d/lvfs/packages/test.cab"
-	chown 0:0 "$STAGE/etc/fwupd/remotes.d/lvfs/packages/test.cab"
-	ln -sfn remotes.d/lvfs/packages/test.cab "$STAGE/etc/fwupd/test.cab"
+	chmod 0644 "$STAGE/etc/fwupd/remotes.d/lvfs/packages/samsung-ufs-kludg4uhgc-2101.cab"
+	chown 0:0 "$STAGE/etc/fwupd/remotes.d/lvfs/packages/samsung-ufs-kludg4uhgc-2101.cab"
 
-	python3 - "$STAGE/etc/fwupd/remotes.d/lvfs/packages/wd-sn850x-624711WD.cab" << 'PYEOF'
+	python3 - "$STAGE/etc/fwupd/remotes.d/lvfs/packages/wd-nvme-sn850x-624711WD.cab" << 'PYEOF'
 import hashlib, struct, sys, zlib
 
 out_path = sys.argv[1]
@@ -409,8 +408,8 @@ cfolder = struct.pack("<IHH", coff_data, len(blocks), 1)  # typeCompress = 1 (MS
 with open(out_path, "wb") as f:
     f.write(chdr + cfolder + cffiles + cfdata)
 PYEOF
-	chmod 0644 "$STAGE/etc/fwupd/remotes.d/lvfs/packages/wd-sn850x-624711WD.cab"
-	chown 0:0 "$STAGE/etc/fwupd/remotes.d/lvfs/packages/wd-sn850x-624711WD.cab"
+	chmod 0644 "$STAGE/etc/fwupd/remotes.d/lvfs/packages/wd-nvme-sn850x-624711WD.cab"
+	chown 0:0 "$STAGE/etc/fwupd/remotes.d/lvfs/packages/wd-nvme-sn850x-624711WD.cab"
 fi
 
 if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
