@@ -36,7 +36,7 @@
 #define MAX_TRANS_RULES		64
 #define MAX_FILE_CONTEXTS	128
 #define MAX_SERVICE_CONTEXTS	32
-#define MAX_INODE_SEC		2048
+#define MAX_INODE_SEC		4096
 #define AVC_LOG_RING_SIZE	64
 
 /* Type attribute flags */
@@ -108,6 +108,7 @@ struct selinux_inode_sec {
 	unsigned long ino;
 	unsigned short sid;
 	unsigned char explicit_label;
+	unsigned char is_dir;
 	char path[96];
 };
 
@@ -2068,8 +2069,11 @@ static unsigned short selinux_match_path_sid(const char *path)
 
 static struct selinux_inode_sec *find_inode_sec(unsigned short dev, unsigned long ino, int alloc)
 {
-	int idx = (int)(((unsigned long)dev * 131UL + ino) & (MAX_INODE_SEC - 1));
-	int i;
+	unsigned long h = ((unsigned long)dev * 2654435761UL) ^
+			  (ino * 2246822519UL) ^
+			  (ino >> 11) ^ (ino >> 16);
+	int idx = (int)(h & (MAX_INODE_SEC - 1));
+	int i, victim = -1;
 
 	for (i = 0; i < 64; i++) {
 		int slot = (idx + i) & (MAX_INODE_SEC - 1);
@@ -2088,6 +2092,16 @@ static struct selinux_inode_sec *find_inode_sec(unsigned short dev, unsigned lon
 			inode_sec_table[slot].ino = ino;
 			return &inode_sec_table[slot];
 		}
+		if (victim < 0 &&
+		    !inode_sec_table[slot].explicit_label &&
+		    !inode_sec_table[slot].is_dir)
+			victim = slot;
+	}
+	if (victim >= 0) {
+		memset(&inode_sec_table[victim], 0, sizeof(inode_sec_table[victim]));
+		inode_sec_table[victim].dev = dev;
+		inode_sec_table[victim].ino = ino;
+		return &inode_sec_table[victim];
 	}
 	return NULL;
 }
@@ -2131,7 +2145,8 @@ unsigned short selinux_inode_sid(struct inode *inode)
 	if (S_ISDIR(inode->i_mode) && inode->i_ino == 2) {
 		if (MAJOR(inode->i_dev) == NVME_MAJOR || MAJOR(inode->i_dev) == UFS_MAJOR)
 			return (inode->i_sec_sid = sid_system_data_file);
-		if (MAJOR(inode->i_dev) == IDE0_MAJOR && MINOR(inode->i_dev) == 1)
+		if (MAJOR(inode->i_dev) == IDE0_MAJOR &&
+		    (MINOR(inode->i_dev) == 0 || MINOR(inode->i_dev) == 1))
 			return (inode->i_sec_sid = sid_rootfs);
 	}
 
@@ -2265,6 +2280,15 @@ void selinux_d_instantiate(unsigned short dir_dev, unsigned long dir_ino,
 	    (len == 2 && name[0] == '.' && name[1] == '.'))
 		return;
 
+	/* Procfs, pstorefs, and fuse nodes compute their SID dynamically without polluting inode_sec_table */
+	if (result->i_sb && (result->i_sb->s_magic == 0x9fa0UL ||
+			     result->i_sb->s_magic == 0x6165676cUL ||
+			     result->i_sb->s_magic == 0x65735546UL)) {
+		result->i_sec_sid = 0;
+		result->i_sec_sid = selinux_inode_sid(result);
+		return;
+	}
+
 	res_sec = find_inode_sec((unsigned short)result->i_dev, result->i_ino, 1);
 	if (res_sec && res_sec->explicit_label && res_sec->sid != 0) {
 		result->i_sec_sid = res_sec->sid;
@@ -2276,6 +2300,7 @@ void selinux_d_instantiate(unsigned short dir_dev, unsigned long dir_ino,
 			result->i_sec_sid = sid_system_data_file;
 			if (res_sec) {
 				res_sec->sid = sid_system_data_file;
+				res_sec->is_dir = 1;
 				strcpy(res_sec->path, "/data");
 			}
 			return;
@@ -2284,14 +2309,17 @@ void selinux_d_instantiate(unsigned short dir_dev, unsigned long dir_ino,
 			result->i_sec_sid = sid_system_data_file;
 			if (res_sec) {
 				res_sec->sid = sid_system_data_file;
+				res_sec->is_dir = 1;
 				strcpy(res_sec->path, "/ufs");
 			}
 			return;
 		}
-		if (MAJOR(result->i_dev) == IDE0_MAJOR && MINOR(result->i_dev) == 1) {
+		if (MAJOR(result->i_dev) == IDE0_MAJOR &&
+		    (MINOR(result->i_dev) == 0 || MINOR(result->i_dev) == 1)) {
 			result->i_sec_sid = sid_rootfs;
 			if (res_sec) {
 				res_sec->sid = sid_rootfs;
+				res_sec->is_dir = 1;
 				strcpy(res_sec->path, "/");
 			}
 			return;
@@ -2316,11 +2344,6 @@ void selinux_d_instantiate(unsigned short dir_dev, unsigned long dir_ino,
 	} else if (dir_ino == 2) {
 		strcpy(full_path, "/");
 		plen = 1;
-	} else if (current && current->fs && current->fs->pwd &&
-		   current->fs->pwd->i_ino == 2 &&
-		   MAJOR(current->fs->pwd->i_dev) != NVME_MAJOR) {
-		strcpy(full_path, "/");
-		plen = 1;
 	}
 
 	if (plen > 0) {
@@ -2339,11 +2362,8 @@ void selinux_d_instantiate(unsigned short dir_dev, unsigned long dir_ino,
 		sid = (dir_sid && dir_sid != sid_rootfs) ? dir_sid : selinux_inode_sid(result);
 	}
 
-	/* Device/procfs/pstorefs/fuse nodes use their exact device/magic SID */
-	if (S_ISCHR(result->i_mode) || S_ISBLK(result->i_mode) ||
-	    (result->i_sb && (result->i_sb->s_magic == 0x9fa0UL ||
-			      result->i_sb->s_magic == 0x6165676cUL ||
-			      result->i_sb->s_magic == 0x65735546UL))) {
+	/* Device nodes use their exact device major/minor SID */
+	if (S_ISCHR(result->i_mode) || S_ISBLK(result->i_mode)) {
 		if (res_sec)
 			res_sec->sid = 0;
 		result->i_sec_sid = 0;
@@ -2353,6 +2373,8 @@ void selinux_d_instantiate(unsigned short dir_dev, unsigned long dir_ino,
 	result->i_sec_sid = sid;
 	if (res_sec) {
 		res_sec->sid = sid;
+		if (S_ISDIR(result->i_mode))
+			res_sec->is_dir = 1;
 		if (full_path[0]) {
 			strncpy(res_sec->path, full_path, sizeof(res_sec->path) - 1);
 			res_sec->path[sizeof(res_sec->path) - 1] = '\0';
@@ -2367,6 +2389,13 @@ void selinux_label_inode_path(struct inode *inode, const char *pathname)
 
 	if (!inode || !pathname || !pathname[0])
 		return;
+	if (inode->i_sb && (inode->i_sb->s_magic == 0x9fa0UL ||
+			    inode->i_sb->s_magic == 0x6165676cUL ||
+			    inode->i_sb->s_magic == 0x65735546UL)) {
+		inode->i_sec_sid = 0;
+		inode->i_sec_sid = selinux_inode_sid(inode);
+		return;
+	}
 	isec = find_inode_sec((unsigned short)inode->i_dev, inode->i_ino, 1);
 	if (isec && isec->explicit_label && isec->sid != 0) {
 		inode->i_sec_sid = isec->sid;
@@ -2374,8 +2403,7 @@ void selinux_label_inode_path(struct inode *inode, const char *pathname)
 	}
 	if (pathname[0] == '/') {
 		sid = selinux_match_path_sid(pathname);
-		if (S_ISCHR(inode->i_mode) || S_ISBLK(inode->i_mode) ||
-		    (inode->i_sb && inode->i_sb->s_magic == 0x65735546UL)) {
+		if (S_ISCHR(inode->i_mode) || S_ISBLK(inode->i_mode)) {
 			if (isec)
 				isec->sid = 0;
 			inode->i_sec_sid = 0;
@@ -2384,6 +2412,8 @@ void selinux_label_inode_path(struct inode *inode, const char *pathname)
 		inode->i_sec_sid = sid;
 		if (isec) {
 			isec->sid = sid;
+			if (S_ISDIR(inode->i_mode))
+				isec->is_dir = 1;
 			strncpy(isec->path, pathname, sizeof(isec->path) - 1);
 			isec->path[sizeof(isec->path) - 1] = '\0';
 		}
