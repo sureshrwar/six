@@ -157,7 +157,7 @@ static void extract_str(const char *line, const char *key, char *out, int maxlen
 	out[i] = '\0';
 }
 
-static void refresh_telemetry(void)
+static void refresh_telemetry_side(int side)
 {
 	char buf[3072];
 	int fd, n;
@@ -182,9 +182,9 @@ static void refresh_telemetry(void)
 		if (strncmp(line, "mount=", 6) == 0) {
 			char mpath[32];
 			extract_str(line, "mount=", mpath, sizeof(mpath));
-			if (strcmp(mpath, "/bin") == 0)
+			if (strcmp(mpath, "/bin") == 0 && (side < 0 || side == PANE_LEFT))
 				cur = &panes[PANE_LEFT].tele;
-			else if (strcmp(mpath, "/bin-sarthak") == 0)
+			else if (strcmp(mpath, "/bin-sarthak") == 0 && (side < 0 || side == PANE_RIGHT))
 				cur = &panes[PANE_RIGHT].tele;
 			else
 				cur = NULL;
@@ -221,6 +221,11 @@ static void refresh_telemetry(void)
 		}
 		line = next;
 	}
+}
+
+static void refresh_telemetry(void)
+{
+	refresh_telemetry_side(-1);
 }
 
 static void pane_append_line(int side, const char *text)
@@ -315,13 +320,75 @@ static const char *cache_mode_name(void)
 
 static int has_shell_meta(const char *cmd)
 {
+	int in_squote = 0, in_dquote = 0;
 	const char *p;
+
 	for (p = cmd; *p; p++) {
-		if (*p == '|' || *p == '>' || *p == '<' || *p == ';' ||
-		    *p == '&' || *p == '$' || *p == '`' || *p == '\'' || *p == '"')
+		char c = *p;
+		if (c == '\\' && !in_squote && p[1]) {
+			p++;
+			continue;
+		}
+		if (c == '\'' && !in_dquote) {
+			in_squote = !in_squote;
+			continue;
+		}
+		if (c == '"' && !in_squote) {
+			in_dquote = !in_dquote;
+			continue;
+		}
+		if (!in_squote && (c == '$' || c == '`'))
 			return 1;
+		if (!in_squote && !in_dquote) {
+			if (c == '|' || c == '>' || c == '<' || c == ';' ||
+			    c == '&' || c == '*' || c == '?' || c == '[')
+				return 1;
+		}
 	}
 	return 0;
+}
+
+static int parse_argv(char *cmd, char **argv, int max_args)
+{
+	int argc = 0;
+	char *p = cmd;
+
+	while (*p && argc < max_args - 1) {
+		char *dst;
+		int in_sq = 0, in_dq = 0;
+
+		while (*p == ' ' || *p == '\t')
+			p++;
+		if (!*p)
+			break;
+
+		argv[argc++] = dst = p;
+		while (*p) {
+			if (!in_sq && !in_dq && (*p == ' ' || *p == '\t')) {
+				p++;
+				break;
+			}
+			if (*p == '\\' && !in_sq && p[1]) {
+				p++;
+				*dst++ = *p++;
+				continue;
+			}
+			if (*p == '\'' && !in_dq) {
+				in_sq = !in_sq;
+				p++;
+				continue;
+			}
+			if (*p == '"' && !in_sq) {
+				in_dq = !in_dq;
+				p++;
+				continue;
+			}
+			*dst++ = *p++;
+		}
+		*dst = '\0';
+	}
+	argv[argc] = NULL;
+	return argc;
 }
 
 /*
@@ -443,8 +510,9 @@ static void execute_on_pane(int side, const char *cmdline)
 	if (pid == 0) {
 		char path_env[128];
 		char *envp[6];
-		char *argv[16];
+		char *argv[32];
 		char exec_path[128];
+		char sh_path[128];
 		int argc = 0;
 
 		close(pfd[0]);
@@ -466,12 +534,7 @@ static void execute_on_pane(int side, const char *cmdline)
 		envp[4] = NULL;
 
 		if (!has_shell_meta(trimmed)) {
-			char *tok = strtok(trimmed, " \t");
-			while (tok && argc < 15) {
-				argv[argc++] = tok;
-				tok = strtok(NULL, " \t");
-			}
-			argv[argc] = NULL;
+			argc = parse_argv(trimmed, argv, 32);
 			if (argc > 0) {
 				resolve_pane_binary(side, argv[0], exec_path, sizeof(exec_path));
 				argv[0] = exec_path;
@@ -486,20 +549,21 @@ static void execute_on_pane(int side, const char *cmdline)
 				first_tok[k++] = *rest++;
 			first_tok[k] = '\0';
 			resolve_pane_binary(side, first_tok, exec_path, sizeof(exec_path));
+			resolve_pane_binary(side, "sh", sh_path, sizeof(sh_path));
 			snprintf(rewritten, sizeof(rewritten), "%s%s", exec_path, rest);
-			argv[0] = "/bin/sh";
+			argv[0] = sh_path;
 			argv[1] = "-c";
 			argv[2] = rewritten;
 			argv[3] = NULL;
-			execve("/bin/sh", argv, envp);
+			execve(sh_path, argv, envp);
 		}
-		printf("exec failed: %s (errno=%d)\n", trimmed, errno);
+		printf("exec failed: %s (errno=%d)\n", cmdline, errno);
 		_exit(127);
 	}
 
 	close(pfd[1]);
 	if (pid > 0) {
-		char outbuf[2048];
+		char outbuf[8192];
 		int total = 0, n;
 		while (total < (int)sizeof(outbuf) - 1 &&
 		       (n = read(pfd[0], outbuf + total, sizeof(outbuf) - 1 - total)) > 0) {
@@ -518,7 +582,7 @@ static void execute_on_pane(int side, const char *cmdline)
 		pane_append_line(side, "error: fork() failed");
 	}
 
-	refresh_telemetry();
+	refresh_telemetry_side(side);
 	snprintf(summary, sizeof(summary),
 		 "=> %luus %lu+%lum %luc/%lur hit:%lu",
 		 p->tele.last_us,
