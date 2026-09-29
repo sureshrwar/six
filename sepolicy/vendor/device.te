@@ -6,3 +6,5 @@ typeattribute sdx_block_device dev_type;
 typeattribute ufs_dev dev_type;
 typeattribute ufs_rpmb_device dev_type;
 typeattribute nvme_device dev_type;
+type nvme_block_device, dev_type;
+

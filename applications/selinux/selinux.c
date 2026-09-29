@@ -420,6 +420,12 @@ static int load_policy_file(const char *path)
 	if (strstr(path, "/vendor/") != NULL) {
 		strcpy(buf, "@tier vendor\n");
 		off = strlen(buf);
+	} else if (strstr(path, "/public/") != NULL) {
+		strcpy(buf, "@tier public\n");
+		off = strlen(buf);
+	} else if (strstr(path, "/private/") != NULL) {
+		strcpy(buf, "@tier private\n");
+		off = strlen(buf);
 	}
 	n = read_text_file(path, buf + off, sizeof(buf) - off);
 	if (n < 0) {

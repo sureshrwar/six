@@ -29,8 +29,8 @@
 #include <linux/selinux.h>
 #include <asm/segment.h>
 
-#define MAX_SIDS		96
-#define SID_WORDS		3	/* 3 * 32 = 96 bits */
+#define MAX_SIDS		128
+#define SID_WORDS		4	/* 4 * 32 = 128 bits */
 #define MAX_XPERM_RULES		128
 #define MAX_NEVERALLOW_RULES	96
 #define MAX_TRANS_RULES		64
@@ -180,6 +180,7 @@ static unsigned short sid_adbd = 12;
 static unsigned short sid_fwupd = 13;
 static unsigned short sid_httpd = 14;
 static unsigned short sid_telnetd = 15;
+static unsigned short sid_fwupd_script;
 
 static unsigned short sid_init_exec;
 static unsigned short sid_shell_exec;
@@ -192,6 +193,8 @@ static unsigned short sid_mediaprovider_exec;
 static unsigned short sid_externalstoraged_exec;
 static unsigned short sid_adbd_exec;
 static unsigned short sid_fwupd_exec;
+static unsigned short sid_fwupd_script_exec;
+static unsigned short sid_fwupdmgr_exec;
 static unsigned short sid_httpd_exec;
 static unsigned short sid_telnetd_exec;
 
@@ -202,6 +205,7 @@ static unsigned short sid_vendor_configs_file;
 static unsigned short sid_sepolicy_file;
 static unsigned short sid_system_data_file;
 static unsigned short sid_vendor_data_file;
+static unsigned short sid_fwupd_data_file;
 static unsigned short sid_app_data_file;
 static unsigned short sid_media_rw_data_file;
 static unsigned short sid_mnt_media_rw_file;
@@ -232,6 +236,8 @@ static unsigned short sid_sdx_block_device;
 static unsigned short sid_ufs_dev;
 static unsigned short sid_ufs_rpmb_device;
 static unsigned short sid_nvme_device;
+static unsigned short sid_nvme_block_device;
+static unsigned short sid_usb_device;
 
 static unsigned short sid_proc;
 static unsigned short sid_proc_meminfo;
@@ -1006,6 +1012,8 @@ static void selinux_seed_baseline_policy(void)
 				  ATTR_DOMAIN | ATTR_COREDOMAIN);
 	sid_telnetd = register_type("telnetd", 1, SELINUX_TIER_PRIVATE,
 				    ATTR_DOMAIN | ATTR_COREDOMAIN);
+	sid_fwupd_script = register_type("fwupd_script", 1, SELINUX_TIER_VENDOR,
+					 ATTR_DOMAIN | ATTR_VENDORDOMAIN);
 
 	/* Executable Entrypoint Types */
 	sid_init_exec = register_type("init_exec", 0, SELINUX_TIER_PUBLIC,
@@ -1030,6 +1038,10 @@ static void selinux_seed_baseline_policy(void)
 				      ATTR_FILE_TYPE | ATTR_SYSTEM_FILE_TYPE | ATTR_EXEC_TYPE);
 	sid_fwupd_exec = register_type("fwupd_exec", 0, SELINUX_TIER_PUBLIC,
 				       ATTR_FILE_TYPE | ATTR_VENDOR_FILE_TYPE | ATTR_EXEC_TYPE);
+	sid_fwupd_script_exec = register_type("fwupd_script_exec", 0, SELINUX_TIER_VENDOR,
+					      ATTR_FILE_TYPE | ATTR_VENDOR_FILE_TYPE | ATTR_EXEC_TYPE);
+	sid_fwupdmgr_exec = register_type("fwupdmgr_exec", 0, SELINUX_TIER_VENDOR,
+					  ATTR_FILE_TYPE | ATTR_VENDOR_FILE_TYPE | ATTR_EXEC_TYPE);
 	sid_httpd_exec = register_type("httpd_exec", 0, SELINUX_TIER_PRIVATE,
 				       ATTR_FILE_TYPE | ATTR_SYSTEM_FILE_TYPE | ATTR_EXEC_TYPE);
 	sid_telnetd_exec = register_type("telnetd_exec", 0, SELINUX_TIER_PRIVATE,
@@ -1050,6 +1062,8 @@ static void selinux_seed_baseline_policy(void)
 					     ATTR_FILE_TYPE | ATTR_DATA_FILE_TYPE);
 	sid_vendor_data_file = register_type("vendor_data_file", 0, SELINUX_TIER_PUBLIC,
 					     ATTR_FILE_TYPE | ATTR_DATA_FILE_TYPE | ATTR_VENDOR_FILE_TYPE);
+	sid_fwupd_data_file = register_type("fwupd_data_file", 0, SELINUX_TIER_VENDOR,
+					    ATTR_FILE_TYPE | ATTR_DATA_FILE_TYPE | ATTR_VENDOR_FILE_TYPE);
 	sid_app_data_file = register_type("app_data_file", 0, SELINUX_TIER_PUBLIC,
 					  ATTR_FILE_TYPE | ATTR_DATA_FILE_TYPE);
 	sid_media_rw_data_file = register_type("media_rw_data_file", 0, SELINUX_TIER_PUBLIC,
@@ -1086,6 +1100,8 @@ static void selinux_seed_baseline_policy(void)
 	sid_ufs_dev = register_type("ufs_dev", 0, SELINUX_TIER_VENDOR, ATTR_DEV_TYPE);
 	sid_ufs_rpmb_device = register_type("ufs_rpmb_device", 0, SELINUX_TIER_VENDOR, ATTR_DEV_TYPE);
 	sid_nvme_device = register_type("nvme_device", 0, SELINUX_TIER_VENDOR, ATTR_DEV_TYPE);
+	sid_nvme_block_device = register_type("nvme_block_device", 0, SELINUX_TIER_VENDOR, ATTR_DEV_TYPE);
+	sid_usb_device = register_type("usb_device", 0, SELINUX_TIER_PUBLIC, ATTR_DEV_TYPE);
 
 	/* Procfs & Sysfs Types */
 	sid_proc = register_type("proc", 0, SELINUX_TIER_PUBLIC, ATTR_PROC_TYPE);
@@ -1238,6 +1254,7 @@ static void selinux_seed_baseline_policy(void)
 	add_domain_auto_trans(sid_init, sid_externalstoraged_exec, sid_externalstoraged);
 	add_domain_auto_trans(sid_init, sid_adbd_exec, sid_adbd);
 	add_domain_auto_trans(sid_init, sid_fwupd_exec, sid_fwupd);
+	add_domain_auto_trans(sid_init, sid_fwupd_script_exec, sid_fwupd_script);
 	add_domain_auto_trans(sid_init, sid_httpd_exec, sid_httpd);
 	add_domain_auto_trans(sid_init, sid_telnetd_exec, sid_telnetd);
 
@@ -1277,6 +1294,7 @@ static void selinux_seed_baseline_policy(void)
 			 * coredomain cannot execute_no_trans vendor_file_type */
 			av_allow[pd][sid_vendor_file][SECCLASS_FILE] &= ~SEPERM_EXECUTE_NO_TRANS;
 			av_allow[pd][sid_fwupd_exec][SECCLASS_FILE] &= ~SEPERM_EXECUTE_NO_TRANS;
+			av_allow[pd][sid_fwupd_script_exec][SECCLASS_FILE] &= ~SEPERM_EXECUTE_NO_TRANS;
 			av_allow[pd][sid_vendor_configs_file][SECCLASS_FILE] &= ~(SEPERM_EXECUTE | SEPERM_EXECUTE_NO_TRANS);
 			av_allow[pd][sid_vendor_data_file][SECCLASS_FILE] &= ~(SEPERM_EXECUTE | SEPERM_EXECUTE_NO_TRANS);
 			/* No W^X execute on data files */
@@ -1350,6 +1368,7 @@ static void selinux_seed_baseline_policy(void)
 	allow_sid(sid_vold, sid_sdx_block_device, SECCLASS_BLK_FILE, RW_FILE_PERMS);
 	allow_sid(sid_vold, sid_nvme_device, SECCLASS_BLK_FILE, RW_FILE_PERMS);
 	allow_sid(sid_vold, sid_nvme_device, SECCLASS_CHR_FILE, RW_FILE_PERMS);
+	allow_sid(sid_vold, sid_nvme_block_device, SECCLASS_BLK_FILE, RW_FILE_PERMS);
 	allow_sid(sid_vold, sid_sysfs_power, SECCLASS_DIR, RO_DIR_PERMS);
 	allow_sid(sid_vold, sid_sysfs_power, SECCLASS_CHR_FILE, RW_FILE_PERMS);
 	allow_sid(sid_vold, sid_sysfs_power, SECCLASS_FILE, RW_FILE_PERMS);
@@ -1378,6 +1397,7 @@ static void selinux_seed_baseline_policy(void)
 	add_xperm(sid_vold, sid_sdx_block_device, SECCLASS_BLK_FILE, 0x0000, 0xffff, 0);
 	add_xperm(sid_vold, sid_nvme_device, SECCLASS_BLK_FILE, 0x0000, 0xffff, 0);
 	add_xperm(sid_vold, sid_nvme_device, SECCLASS_CHR_FILE, 0x0000, 0xffff, 0);
+	add_xperm(sid_vold, sid_nvme_block_device, SECCLASS_BLK_FILE, 0x0000, 0xffff, 0);
 
 	/*
 	 * ===================================================================
@@ -1403,17 +1423,21 @@ static void selinux_seed_baseline_policy(void)
 
 	/*
 	 * ===================================================================
-	 * 7. fwupd (sepolicy/system/public/fwupd.te + sepolicy/vendor/fwupd.te)
-	 *    Refs: b/467820671, ag/41847641, arsp/9037735
+	 * 7. fwupd & fwupd_script (system/public/fwupd.te + system/private/fwupd.te
+	 *    + vendor/fwupd.te - b/467820671, b/511410071, ag/41847641, ag/41886338)
 	 * ===================================================================
 	 * Runs as vendor daemon (/vendor/bin/fwupd), registers "fwupd" Binder
 	 * service, writes firmware staging/history in /data/vendor/fwupd
-	 * (vendor_data_file), and performs UFS/NVMe/SCSI firmware updates using
-	 * capability { sys_rawio sys_admin } and allowxperm ioctl 0x2285 (SG_IO).
+	 * (fwupd_data_file / vendor_data_file), and performs UFS/NVMe/SCSI
+	 * firmware updates using ONLY capability { sys_rawio sys_admin }
+	 * (NO dac_override), kmsg_device:chr_file write, and allowxperm ioctls
+	 * 0x4E41 (NVME_IOCTL_ADMIN_CMD) and 0x2285 (SG_IO).
 	 */
 	allow_sid(sid_fwupd, sid_fwupd, SECCLASS_CAPABILITY,
-		  (1UL << CAP_SYS_RAWIO) | (1UL << CAP_SYS_ADMIN) |
-		  (1UL << CAP_DAC_OVERRIDE) | (1UL << CAP_DAC_READ_SEARCH));
+		  (1UL << CAP_SYS_RAWIO) | (1UL << CAP_SYS_ADMIN));
+	allow_sid(sid_fwupd, sid_kmsg_device, SECCLASS_CHR_FILE, SEPERM_WRITE);
+	allow_sid(sid_fwupd, sid_usb_device, SECCLASS_DIR, RO_DIR_PERMS);
+	allow_sid(sid_fwupd, sid_usb_device, SECCLASS_CHR_FILE, RW_FILE_PERMS);
 	allow_sid(sid_fwupd, sid_vendor_file, SECCLASS_FILE, RX_FILE_PERMS);
 	allow_sid(sid_fwupd, sid_fwupd_exec, SECCLASS_FILE,
 		  RX_FILE_PERMS | SEPERM_ENTRYPOINT);
@@ -1422,8 +1446,12 @@ static void selinux_seed_baseline_policy(void)
 		  SEPERM_BINDER_CALL | SEPERM_BINDER_TRANSFER);
 	allow_attr(sid_fwupd, ATTR_DOMAIN, SECCLASS_BINDER,
 		   SEPERM_BINDER_CALL | SEPERM_BINDER_TRANSFER);
+	allow_sid(sid_fwupd, sid_fwupd_script, SECCLASS_FD, SEPERM_USE);
 	allow_sid(sid_fwupd, sid_fwupd_service, SECCLASS_SERVICE_MANAGER,
 		  SEPERM_SVCMGR_ADD | SEPERM_SVCMGR_FIND);
+	allow_sid(sid_fwupd, sid_fwupd_data_file, SECCLASS_DIR, RW_DIR_PERMS);
+	allow_sid(sid_fwupd, sid_fwupd_data_file, SECCLASS_FILE, RW_FILE_PERMS);
+	allow_sid(sid_fwupd, sid_fwupd_data_file, SECCLASS_LNK_FILE, RW_FILE_PERMS);
 	allow_sid(sid_fwupd, sid_vendor_data_file, SECCLASS_DIR, RW_DIR_PERMS);
 	allow_sid(sid_fwupd, sid_vendor_data_file, SECCLASS_FILE, RW_FILE_PERMS);
 	allow_sid(sid_fwupd, sid_vendor_data_file, SECCLASS_LNK_FILE, RW_FILE_PERMS);
@@ -1435,21 +1463,39 @@ static void selinux_seed_baseline_policy(void)
 	allow_sid(sid_fwupd, sid_ufs_rpmb_device, SECCLASS_CHR_FILE, RW_FILE_PERMS);
 	allow_sid(sid_fwupd, sid_nvme_device, SECCLASS_CHR_FILE, RW_FILE_PERMS);
 	allow_sid(sid_fwupd, sid_nvme_device, SECCLASS_BLK_FILE, RW_FILE_PERMS);
+	allow_sid(sid_fwupd, sid_nvme_block_device, SECCLASS_CHR_FILE, RW_FILE_PERMS);
+	allow_sid(sid_fwupd, sid_nvme_block_device, SECCLASS_BLK_FILE, RW_FILE_PERMS);
 	allow_sid(sid_fwupd, sid_vold_device, SECCLASS_BLK_FILE, RW_FILE_PERMS);
 	allow_sid(sid_fwupd, sid_block_device, SECCLASS_BLK_FILE, RO_FILE_PERMS);
 	allow_sid(sid_fwupd, sid_proc_diskstats, SECCLASS_FILE, RO_FILE_PERMS);
 
-	/* Explicit allowxperm for UFS/NVMe/SCSI firmware update ioctls */
+	/* Explicit allowxperm for UFS/NVMe/SCSI firmware update ioctls (ag/41886338) */
 	add_xperm(sid_fwupd, sid_sdx_block_device, SECCLASS_BLK_FILE, SG_IO, SG_IO, 0);
+	add_xperm(sid_fwupd, sid_sdx_block_device, SECCLASS_BLK_FILE, 0x1272, 0x1272, 0);
 	add_xperm(sid_fwupd, sid_sdx_block_device, SECCLASS_BLK_FILE, 0x5540, 0x5543, 0);
 	add_xperm(sid_fwupd, sid_ufs_dev, SECCLASS_CHR_FILE, SG_IO, SG_IO, 0);
 	add_xperm(sid_fwupd, sid_ufs_dev, SECCLASS_CHR_FILE, 0x5540, 0x5543, 0);
 	add_xperm(sid_fwupd, sid_ufs_rpmb_device, SECCLASS_CHR_FILE, 0x5540, 0x5543, 0);
+	add_xperm(sid_fwupd, sid_nvme_block_device, SECCLASS_BLK_FILE, 0x4e40, 0x4e43, 0);
 	add_xperm(sid_fwupd, sid_nvme_device, SECCLASS_CHR_FILE, 0x4e40, 0x4e43, 0);
 	add_xperm(sid_fwupd, sid_nvme_device, SECCLASS_BLK_FILE, 0x4e40, 0x4e43, 0);
 	add_xperm(sid_fwupd, sid_vold_device, SECCLASS_BLK_FILE, SG_IO, SG_IO, 0);
 	add_xperm(sid_fwupd, sid_vold_device, SECCLASS_BLK_FILE, 0x5382, 0x5386, 0);
 	add_xperm(sid_fwupd, sid_vold_device, SECCLASS_BLK_FILE, 0x5540, 0x5543, 0);
+
+	/* fwupd_script (u:r:fwupd_script:s0 - ag/41886338) */
+	allow_sid(sid_fwupd_script, sid_fwupdmgr_exec, SECCLASS_FILE,
+		  RX_FILE_PERMS | SEPERM_ENTRYPOINT);
+	allow_sid(sid_fwupd_script, sid_vendor_file, SECCLASS_FILE, RX_FILE_PERMS);
+	allow_sid(sid_fwupd_script, sid_binder_device, SECCLASS_CHR_FILE, RW_FILE_PERMS);
+	allow_sid(sid_fwupd_script, sid_servicemanager, SECCLASS_BINDER,
+		  SEPERM_BINDER_CALL | SEPERM_BINDER_TRANSFER);
+	allow_sid(sid_fwupd_script, sid_fwupd, SECCLASS_BINDER,
+		  SEPERM_BINDER_CALL | SEPERM_BINDER_TRANSFER);
+	allow_sid(sid_fwupd_script, sid_fwupd_service, SECCLASS_SERVICE_MANAGER,
+		  SEPERM_SVCMGR_FIND);
+	allow_sid(sid_fwupd_script, sid_fwupd_data_file, SECCLASS_DIR, RW_DIR_PERMS);
+	allow_sid(sid_fwupd_script, sid_fwupd_data_file, SECCLASS_FILE, RW_FILE_PERMS);
 
 	/*
 	 * ===================================================================
@@ -1611,6 +1657,7 @@ static void selinux_seed_baseline_policy(void)
 	 */
 	allow_sid(sid_shell, sid_shell, SECCLASS_CAPABILITY, (1UL << CAP_SYS_PTRACE));
 	allow_sid(sid_shell, sid_shell_exec, SECCLASS_FILE, RX_FILE_PERMS | SEPERM_ENTRYPOINT);
+	allow_sid(sid_shell, sid_fwupdmgr_exec, SECCLASS_FILE, RX_FILE_PERMS);
 	allow_sid(sid_shell, sid_adbd, SECCLASS_FD, SEPERM_USE);
 	allow_sid(sid_shell, sid_binder_device, SECCLASS_CHR_FILE, RW_FILE_PERMS);
 	allow_sid(sid_shell, sid_servicemanager, SECCLASS_BINDER,
@@ -1711,9 +1758,13 @@ static void selinux_seed_baseline_policy(void)
 		       (1UL << CAP_SYS_RAWIO),
 		       "neverallow { domain -kernel -init -vold -fwupd } self:capability sys_rawio");
 
-	/* Rule 2: neverallow { coredomain } vendor_file_type:file execute_no_trans; */
+	/* Rule 2: neverallow { coredomain -kernel -init -shell -su } vendor_file_type:file execute_no_trans; */
 	sid_set_zero(&sset);
 	sid_set_add_attr(&sset, ATTR_COREDOMAIN);
+	sid_set_del(&sset, sid_kernel);
+	sid_set_del(&sset, sid_init);
+	sid_set_del(&sset, sid_shell);
+	sid_set_del(&sset, sid_su);
 	sid_set_zero(&tset);
 	sid_set_add_attr(&tset, ATTR_VENDOR_FILE_TYPE);
 	add_neverallow(&sset, &tset, 0, SECCLASS_FILE,
@@ -1738,13 +1789,14 @@ static void selinux_seed_baseline_policy(void)
 		       SEPERM_EXECUTE | SEPERM_EXECUTE_NO_TRANS | SEPERM_ENTRYPOINT,
 		       "neverallow domain data_file_type:file execute (W^X)");
 
-	/* Rule 5: neverallow untrusted_app { sdx_block_device vold_device nvme_device ufs_dev root_block_device }:{ blk_file chr_file } { read write open ioctl }; */
+	/* Rule 5: neverallow untrusted_app { sdx_block_device vold_device nvme_device nvme_block_device ufs_dev root_block_device }:{ blk_file chr_file } { read write open ioctl }; */
 	sid_set_zero(&sset);
 	sid_set_add(&sset, sid_untrusted_app);
 	sid_set_zero(&tset);
 	sid_set_add(&tset, sid_sdx_block_device);
 	sid_set_add(&tset, sid_vold_device);
 	sid_set_add(&tset, sid_nvme_device);
+	sid_set_add(&tset, sid_nvme_block_device);
 	sid_set_add(&tset, sid_ufs_dev);
 	sid_set_add(&tset, sid_ufs_rpmb_device);
 	sid_set_add(&tset, sid_root_block_device);
@@ -1833,7 +1885,9 @@ static void selinux_seed_baseline_policy(void)
 	add_file_context("/bin/mediaproviderd", 0, sid_mediaprovider_exec);
 	add_file_context("/bin/externalstoraged", 0, sid_externalstoraged_exec);
 	add_file_context("/bin/sadbd", 0, sid_adbd_exec);
+	add_file_context("/vendor/bin/fwupd-binder", 0, sid_fwupd_exec);
 	add_file_context("/vendor/bin/fwupd", 0, sid_fwupd_exec);
+	add_file_context("/vendor/bin/fwupdmgr", 0, sid_fwupdmgr_exec);
 	add_file_context("/bin/httpd", 0, sid_httpd_exec);
 	add_file_context("/bin/telnetd", 0, sid_telnetd_exec);
 
@@ -1864,6 +1918,7 @@ static void selinux_seed_baseline_policy(void)
 	add_file_context("/dev/ufs-bsg", 1, sid_ufs_dev);
 	add_file_context("/dev/ufs-rpmb", 1, sid_ufs_rpmb_device);
 	add_file_context("/dev/ufs", 1, sid_sdx_block_device);
+	add_file_context("/dev/nvme0n", 1, sid_nvme_block_device);
 	add_file_context("/dev/nvme", 1, sid_nvme_device);
 	add_file_context("/dev", 1, sid_device);
 
@@ -1905,6 +1960,7 @@ static void selinux_seed_baseline_policy(void)
 	add_file_context("/vendor/bin", 1, sid_vendor_file);
 	add_file_context("/vendor/etc", 1, sid_vendor_configs_file);
 	add_file_context("/vendor", 1, sid_vendor_file);
+	add_file_context("/data/vendor/fwupd", 1, sid_fwupd_data_file);
 	add_file_context("/data/vendor", 1, sid_vendor_data_file);
 	add_file_context("/data/media", 1, sid_media_rw_data_file);
 	add_file_context("/data/app", 1, sid_app_data_file);
@@ -2118,7 +2174,7 @@ unsigned short selinux_inode_sid(struct inode *inode)
 		case DM_MAJOR:
 			return (inode->i_sec_sid = sid_vold_device);
 		case NVME_MAJOR:
-			return (inode->i_sec_sid = sid_nvme_device);
+			return (inode->i_sec_sid = sid_nvme_block_device);
 		case UFS_MAJOR:
 			return (inode->i_sec_sid = sid_sdx_block_device);
 		default:
@@ -3331,6 +3387,47 @@ static int selinux_parse_and_load_policy(const char *buf, int len)
 				add_domain_auto_trans(ssid, tsid, dsid);
 			else
 				add_trans(ssid, tsid, SECCLASS_PROCESS, dsid);
+			continue;
+		}
+
+		if (!strcmp(tok, "init_daemon_domain")) {
+			char dname[32], ename[40];
+			unsigned short dsid, esid;
+
+			p = next_token(p, dname, sizeof(dname));
+			if (!strcmp(dname, "("))
+				p = next_token(p, dname, sizeof(dname));
+			while (*p) {
+				const char *save_p = p;
+				p = next_token(p, tok, sizeof(tok));
+				if (!strcmp(tok, ")") || !strcmp(tok, ";"))
+					continue;
+				p = save_p;
+				break;
+			}
+			dsid = selinux_type_to_sid(dname);
+			sprintf(ename, "%s_exec", dname);
+			esid = selinux_type_to_sid(ename);
+			if (dsid && esid)
+				add_domain_auto_trans(sid_init, esid, dsid);
+			continue;
+		}
+
+		if (!strcmp(tok, "binder_use") || !strcmp(tok, "binder_call") ||
+		    !strcmp(tok, "add_service")) {
+			while (*p) {
+				p = next_token(p, tok, sizeof(tok));
+				if (!tok[0] || !strcmp(tok, ")"))
+					break;
+			}
+			while (*p) {
+				const char *save_p = p;
+				p = next_token(p, tok, sizeof(tok));
+				if (!strcmp(tok, ";"))
+					continue;
+				p = save_p;
+				break;
+			}
 			continue;
 		}
 

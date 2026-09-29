@@ -23,3 +23,5 @@ type sdx_block_device, dev_type;
 type ufs_dev, dev_type;
 type ufs_rpmb_device, dev_type;
 type nvme_device, dev_type;
+type usb_device, dev_type;
+

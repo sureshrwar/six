@@ -1,0 +1,24 @@
+# system/sepolicy/private/fwupd.te
+# Core platform policy for fwupd daemon (b/467820671, b/511410071, ag/41847641)
+@tier private
+
+# Restrict domain entry strictly to init executing fwupd_exec
+init_daemon_domain(fwupd)
+
+# --- IPC & Binder ---
+binder_use(fwupd)
+
+# --- Netlink Sockets ---
+allow fwupd self:netlink_kobject_uevent_socket { create bind read setopt getattr };
+
+# --- Core Hardware Capabilities ---
+allow fwupd self:capability sys_admin;
+allow fwupd self:capability sys_rawio;
+
+# --- Kernel Logs ---
+allow fwupd kmsg_device:chr_file write;
+
+# --- Block Devices & Hardware ---
+allow fwupd block_device:dir search;
+allow fwupd usb_device:dir r_dir_perms;
+allow fwupd usb_device:chr_file rw_file_perms;

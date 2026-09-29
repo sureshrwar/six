@@ -826,8 +826,8 @@ static int nvme_handle_passthru_ioctl(struct nvme_queue *q, unsigned long arg)
 	    (ucmd.opcode == nvme_admin_download_fw ||
 	     ucmd.opcode == nvme_admin_activate_fw ||
 	     ucmd.opcode == nvme_admin_format_nvm)) {
-		if (!suser_cap(CAP_SYS_RAWIO))
-			return -EPERM;
+		if (!suser_cap(CAP_SYS_ADMIN))
+			return -EACCES;
 	}
 
 	xfer_len = ucmd.data_len;

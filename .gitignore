@@ -181,6 +181,7 @@ applications/*/files
 applications/*/nvme
 applications/*/ufs
 applications/*/fwupdmgr
+applications/*/selinux
 applications/ntfs-3g/ntfs-3g
 applications/ntfs-3g/ntfs-3g.probe
 applications/ntfs-3g/mkntfs

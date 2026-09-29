@@ -1051,7 +1051,8 @@ TESTS = [
             "ps -efZ && "
             "(runcon u:r:ntfs_3g:s0 ntfs-3g /dev/sda1 /tmp 2>/dev/null || echo NTFS_3G_DIRECT_MOUNT_BLOCKED_OK) && "
             "usbctl unplug && "
-            "ls -Z /bin/ntfs-3g /vendor/bin/fwupd /dev/ufsa /dev/ufs-bsg0 /dev/nvme0 /dev/binder && "
+            "ls -Z /bin/ntfs-3g /vendor/bin/fwupd /vendor/bin/fwupd-binder /vendor/bin/fwupdmgr && "
+            "ls -dZ /data/vendor/fwupd /dev/ufsa /dev/ufs-bsg0 /dev/nvme0 /dev/nvme0n1 /dev/binder && "
             "dumpsys fwupd && "
             "load_policy && "
             "(load_policy -e 'allow shell self:capability sys_rawio;' || echo NEVERALLOW_RAWIO_BLOCKED_OK) && "
@@ -1084,8 +1085,12 @@ TESTS = [
             "u:r:fwupd:s0",
             "u:object_r:ntfs_3g_exec:s0",
             "u:object_r:fwupd_exec:s0",
+            "u:object_r:fwupdmgr_exec:s0",
+            "u:object_r:fwupd_data_file:s0",
             "u:object_r:sdx_block_device:s0",
             "u:object_r:ufs_dev:s0",
+            "u:object_r:nvme_device:s0",
+            "u:object_r:nvme_block_device:s0",
             "VENDOR FWUPD SERVICE (dumpsys fwupd)",
             "SELinux Domain: u:r:fwupd:s0",
             "Capabilities: CAP_SYS_RAWIO, CAP_SYS_ADMIN (SG_IO 0x2285 allowxperm)",

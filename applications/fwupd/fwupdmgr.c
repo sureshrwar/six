@@ -2282,6 +2282,7 @@ int main(int argc, char **argv)
 	prog = prog ? (prog + 1) : argv[0];
 
 	if (strcmp(prog, "fwupd") == 0 ||
+	    strcmp(prog, "fwupd-binder") == 0 ||
 	    (argc >= 2 && strcmp(argv[1], "--daemon") == 0)) {
 		return run_fwupd_binder_daemon();
 	}

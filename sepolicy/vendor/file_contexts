@@ -5,10 +5,13 @@
 /vendor/etc(/.*)?           u:object_r:vendor_configs_file:s0
 /vendor/etc/selinux(/.*)?   u:object_r:vendor_configs_file:s0
 /vendor/bin/fwupd           u:object_r:fwupd_exec:s0
-/vendor/bin/fwupdmgr        u:object_r:vendor_file:s0
+/vendor/bin/fwupd-binder    u:object_r:fwupd_exec:s0
+/vendor/bin/fwupdmgr        u:object_r:fwupdmgr_exec:s0
+/data/vendor/fwupd(/.*)?    u:object_r:fwupd_data_file:s0
 /data/vendor(/.*)?          u:object_r:vendor_data_file:s0
 /etc/fwupd(/.*)?            u:object_r:vendor_data_file:s0
 /var/lib/fwupd(/.*)?        u:object_r:vendor_data_file:s0
+
 
 # Vendor storage & firmware update device nodes
 /dev/ufsa                   u:object_r:sdx_block_device:s0

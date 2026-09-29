@@ -278,6 +278,7 @@ file  /system/etc/selinux/private/storaged.te         0644  sepolicy/system/priv
 file  /system/etc/selinux/private/mediaprovider.te    0644  sepolicy/system/private/mediaprovider.te
 file  /system/etc/selinux/private/externalstoraged.te 0644  sepolicy/system/private/externalstoraged.te
 file  /system/etc/selinux/private/adbd.te             0644  sepolicy/system/private/adbd.te
+file  /system/etc/selinux/private/fwupd.te            0644  sepolicy/system/private/fwupd.te
 file  /system/etc/selinux/private/shell.te            0644  sepolicy/system/private/shell.te
 file  /system/etc/selinux/private/untrusted_app.te    0644  sepolicy/system/private/untrusted_app.te
 file  /system/etc/selinux/plat_file_contexts          0644  sepolicy/system/private/file_contexts
@@ -285,6 +286,7 @@ file  /system/etc/selinux/plat_service_contexts       0644  sepolicy/system/priv
 dir   /vendor               0755
 dir   /vendor/bin           0755
 file  /vendor/bin/fwupd     0755  applications/fwupd/fwupdmgr
+sym   /vendor/bin/fwupd-binder -  fwupd
 sym   /vendor/bin/fwupdmgr  -     fwupd
 dir   /vendor/etc           0755
 dir   /vendor/etc/selinux   0755
