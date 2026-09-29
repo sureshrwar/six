@@ -1116,6 +1116,10 @@ static int get_root_array(char * page, int type, char **start, off_t offset, int
 			extern int get_selinux_proc_info(char *buf);
 			return get_selinux_proc_info(page);
 		}
+		case PROC_EROFS: {
+			extern int get_erofs_proc_info(char *buf);
+			return get_erofs_proc_info(page);
+		}
 	}
 	return -EBADF;
 }
@@ -1220,6 +1224,7 @@ static int array_read(struct inode * inode, struct file * file,char * buf, int c
 static int array_write(struct inode *inode, struct file *file, const char *buf, int count)
 {
 	extern int selinux_task_set_context(struct task_struct *tsk, const char *ctx, int is_exec);
+	extern int set_erofs_proc_ctl(const char *cmd, int count);
 	unsigned int type = inode->i_ino & 0x0000ffff;
 	unsigned int pid = inode->i_ino >> 16;
 	struct task_struct **p;
@@ -1227,16 +1232,18 @@ static int array_write(struct inode *inode, struct file *file, const char *buf, 
 	int n, rc;
 
 	(void)file;
-	if (type != PROC_PID_ATTR_CURRENT && type != PROC_PID_ATTR_EXEC)
-		return -EIO;
 	if (count <= 0)
 		return 0;
-	p = get_task((int)pid);
-	if (!p || !*p)
-		return -ESRCH;
 	n = (count < (int)sizeof(kbuf) - 1) ? count : ((int)sizeof(kbuf) - 1);
 	memcpy_fromfs(kbuf, buf, n);
 	kbuf[n] = '\0';
+	if (pid == 0 && type == PROC_EROFS)
+		return set_erofs_proc_ctl(kbuf, n);
+	if (type != PROC_PID_ATTR_CURRENT && type != PROC_PID_ATTR_EXEC)
+		return -EIO;
+	p = get_task((int)pid);
+	if (!p || !*p)
+		return -ESRCH;
 	rc = selinux_task_set_context(*p, kbuf, (type == PROC_PID_ATTR_EXEC) ? 1 : 0);
 	return rc ? rc : count;
 }

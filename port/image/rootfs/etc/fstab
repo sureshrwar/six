@@ -3,6 +3,7 @@
 # <src>                      <mnt_point>      <type>  <mnt_flags>  <fs_mgr_flags>
 /dev/hda                     /                auto    rw           wait
 /dev/hdd                     /bin             erofs   ro           wait,verify
+/dev/mapper/sarthak_bin      /bin-sarthak     erofs   ro,root_digest wait,erofs_verity
 proc                         /proc            proc    defaults     defaults
 tmpfs                        /tmp             tmpfs   defaults     defaults
 /dev/nvme0n1                 /data            ext4    defaults     wait,check

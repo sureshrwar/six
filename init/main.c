@@ -943,9 +943,11 @@ static int init(void * unused)
         sys_setup();
         {
                 extern int dm_setup_verity_bin(void);
+                extern const char *dm_get_sarthak_mount_opts(void);
                 extern asmlinkage int sys_mount(char *, char *, char *, unsigned long, void *);
                 if (dm_setup_verity_bin() == 0) {
                         const char *bin_fs = "erofs";
+                        const char *sarthak_opts;
                         int mret = sys_mount("/dev/mapper/verity_bin", "/bin", "erofs",
                                              MS_MGC_VAL | MS_RDONLY, NULL);
                         if (mret != 0) {
@@ -965,6 +967,17 @@ static int init(void * unused)
                                         printk("VFS: Failed to mount overlay on /bin (err=%d)\n", oret);
                         } else
                                 printk("VFS: Failed to mount /dev/mapper/verity_bin on /bin (err=%d)\n", mret);
+
+                        sarthak_opts = dm_get_sarthak_mount_opts();
+                        if (sarthak_opts) {
+                                int sret = sys_mount("/dev/mapper/sarthak_bin", "/bin-sarthak", "erofs",
+                                                     MS_MGC_VAL | MS_RDONLY,
+                                                     (void *)sarthak_opts);
+                                if (sret == 0)
+                                        printk("VFS: Mounted /dev/mapper/sarthak_bin on /bin-sarthak (erofs, go/erofs-verity native sha256 read-only)\n");
+                                else
+                                        printk("VFS: Failed to mount /dev/mapper/sarthak_bin on /bin-sarthak (err=%d)\n", sret);
+                        }
                 }
         }
 #else

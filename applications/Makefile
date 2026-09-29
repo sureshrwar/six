@@ -144,7 +144,8 @@ SUBDIRS	=	start \
 		nvme \
 		ufs \
 		fwupd \
-		selinux
+		selinux \
+		sarthak
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

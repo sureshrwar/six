@@ -444,21 +444,44 @@ TESTS = [
     ),
     TestCase(
         name="fs.erofs",
-        description="EROFS v1 read-only filesystem on /bin (dm-verity) and vold USB hotplug (usb_erofs.img)",
+        description="EROFS v1 on /bin (dm-verity) & /bin-sarthak (Native EROFS Verity go/erofs-verity), /bin/sarthak split-screen dual-shell comparator, tamper detection, and vold USB hotplug",
         cmd=(
-            "grep verity_bin /proc/mounts && "
+            "grep erofs /proc/mounts && "
             "grep '/bin.*erofs' /etc/fstab && "
+            "sarthak --compare 'uname -a' && "
+            "echo tamper > /proc/erofs && "
+            "(/bin-sarthak/uname -a || echo SARTHAK_TAMPER_BLOCKED_OK) && "
+            "echo untamper > /proc/erofs && "
+            "/bin-sarthak/uname -a && "
+            "cat /proc/erofs && "
             "usbctl plug erofs && "
             "sleep 1 && "
             "sm list-volumes && "
             "lsblk -f && "
             "cat /mnt/media_rw/usb/README_USB.txt && "
-            "usbctl unplug"
+            "usbctl unplug && "
+            "sarthak"
         ),
+        raw_post_cmds=[
+            "__SLEEP__:0.4",
+            r"__KEYS__:\x02id\r",
+            "__SLEEP__:0.4",
+            r"__KEYS__:exit\r",
+        ],
         expected_substrings=[
             "/dev/mapper/verity_bin /bin erofs ro",
+            "/dev/mapper/sarthak_bin /bin-sarthak erofs ro,erofs_verity,root_digest=",
+            "[/bin] Stock EROFS + dm-verity         | [/bin-sarthak] go/erofs-verity",
+            "0 Merkle (inline)",
+            "fewer SHA-256 rounds",
+            "CORRUPTION DETECTED at data block",
+            "inline digest mismatch",
+            "SARTHAK_TAMPER_BLOCKED_OK",
+            "mode=go/erofs-verity",
+            "SIX EROFS VERITY COMPARATOR",
             "PUBLIC(EROFS)",
             "bin_verity",
+            "bin_sarthak",
             "SANDISK_EROFS",
             "SanDisk Extreme EROFS Read-Only Flash Drive",
         ],

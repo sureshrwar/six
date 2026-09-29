@@ -36,6 +36,7 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/time.h>
+#include <time.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <netinet/in.h>
@@ -1393,6 +1394,27 @@ int six_host_read_source_line(const char *file, int line_no, char *buf, int bufl
 	}
 	fclose(fp);
 	return -1;
+}
+
+unsigned long six_host_monotonic_us(void)
+{
+	struct timespec ts;
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+		return (unsigned long)ts.tv_sec * 1000000UL +
+		       (unsigned long)(ts.tv_nsec / 1000L);
+	}
+	return 0;
+}
+
+void six_host_gettimeofday(long *sec_out, long *usec_out)
+{
+	struct timeval tv;
+	if (gettimeofday(&tv, NULL) == 0) {
+		if (sec_out)
+			*sec_out = (long)tv.tv_sec;
+		if (usec_out)
+			*usec_out = (long)tv.tv_usec;
+	}
 }
 
 

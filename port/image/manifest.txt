@@ -20,6 +20,7 @@
 # ---------------------------------------------------------------------------
 
 dir   /bin                  0755
+dir   /bin-sarthak          0755
 dir   /etc                  0755
 dir   /dev                  0755
 dir   /proc                 0555
@@ -248,6 +249,8 @@ sym   /bin/seinfo           -     selinux
 sym   /bin/sestatus         -     selinux
 file  /bin/mkfs.ext2        0755  applications/mkfs/mkfs.ext2
 sym   /bin/mke2fs           -     mkfs.ext2
+file  /bin/sarthak          0755  applications/sarthak/sarthak
+sym   /bin/erofs_compare    -     sarthak
 file  /bin/mount_all        0755  port/image/rootfs/bin/mount_all
 file  /bin/configure_dm     0755  port/image/rootfs/bin/configure_dm
 file  /bin/set_d            0755  port/image/rootfs/bin/set_d
@@ -512,6 +515,7 @@ node  /dev/nvme0n1p1        0660  b  63 1
 dir   /dev/mapper           0755
 node  /dev/mapper/control   0660  b  62 63
 sym   /dev/mapper/verity_bin -    /dev/dm-0
+sym   /dev/mapper/sarthak_bin -   /dev/dm-7
 node  /dev/dm-0             0660  b  62 0
 node  /dev/dm-1             0660  b  62 1
 node  /dev/dm-2             0660  b  62 2

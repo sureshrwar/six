@@ -111,6 +111,7 @@ int main(int argc, char **argv)
 	int i, rc;
 	static const char *extra_mounts[] = {
 		"/bin",
+		"/bin-sarthak",
 		"/tmp",
 		"/data",
 		"/ufs",

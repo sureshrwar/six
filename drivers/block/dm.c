@@ -933,18 +933,37 @@ int get_dm_status_proc(char *buf)
 	return len;
 }
 
+void dm_get_verity_stats(int minor, unsigned long *verified_out,
+			 unsigned long *corrupt_out, unsigned long *read_secs_out)
+{
+	if (minor >= 0 && minor < DM_MAX_DEVICES && dm_devs[minor].active &&
+	    dm_devs[minor].num_targets > 0) {
+		if (verified_out)
+			*verified_out = dm_devs[minor].targets[0].verified_blocks;
+		if (corrupt_out)
+			*corrupt_out = dm_devs[minor].targets[0].corrupt_blocks;
+		if (read_secs_out)
+			*read_secs_out = dm_devs[minor].read_sectors;
+	} else {
+		if (verified_out) *verified_out = 0;
+		if (corrupt_out)  *corrupt_out = 0;
+		if (read_secs_out) *read_secs_out = 0;
+	}
+}
+
 void dm_notify_bdev_write(kdev_t bdev)
 {
 	int i, j, k;
 	unsigned short raw_bdev = kdev_t_to_nr(bdev);
 	extern struct inode *first_inode;
 	extern int nr_inodes;
+	extern void erofs_notify_bdev_write(kdev_t dev);
 
 	for (i = 0; i < DM_MAX_DEVICES; i++) {
 		if (!dm_devs[i].active)
 			continue;
 		for (j = 0; j < dm_devs[i].num_targets; j++) {
-			if (dm_devs[i].targets[j].type == DM_TARGET_VERITY &&
+			if ((dm_devs[i].targets[j].type == DM_TARGET_VERITY || i == 7) &&
 			    dm_devs[i].targets[j].bdev == raw_bdev) {
 				kdev_t dm_kdev = MKDEV(DM_MAJOR, i);
 				struct inode *ino = first_inode;
@@ -953,13 +972,16 @@ void dm_notify_bdev_write(kdev_t bdev)
 						truncate_inode_pages(ino, 0);
 				}
 				invalidate_buffers(dm_kdev);
+				erofs_notify_bdev_write(dm_kdev);
 			}
 		}
 	}
 }
 
 /*
- * In-kernel dm-verity setup for /bin (/dev/hdd -> /dev/dm-0 -> /dev/mapper/verity_bin).
+ * In-kernel dm-verity setup for /bin (/dev/hdd -> /dev/dm-0 -> /dev/mapper/verity_bin)
+ * and Native EROFS Verity linear mapping for /bin-sarthak (/dev/hdd@32768 -> /dev/dm-7
+ * -> /dev/mapper/sarthak_bin).
  * Called by init() in init/main.c immediately after mounting the root filesystem
  * and before executing /etc/init.
  */
@@ -990,6 +1012,7 @@ int dm_setup_verity_bin(void)
 	memset(dev, 0, sizeof(*dev));
 	strcpy(dev->name, "verity_bin");
 	dev->ro = 1;
+	dev->open_count = 1;
 	dev->num_targets = 1;
 	dev->total_sectors = VERITY_BIN_DATA_SECTORS;
 	memcpy(dev->verity_salt, sb.salt, 32);
@@ -1006,7 +1029,7 @@ int dm_setup_verity_bin(void)
 	strcpy(t->cipher, "sha256");
 	strcpy(t->root_hash, VERITY_BIN_ROOT_HASH_HEX);
 
-	/* Pre-verify block 0 and block 1 (ext4 superblock) before activating */
+	/* Pre-verify block 0 and block 1 (EROFS/ext4 superblock) before activating */
 	if (dm_read_phys_1k(hdd_dev, 0, dm_verity_data_buf) != 0 ||
 	    dm_verify_verity_block(dev, t, 0, dm_verity_data_buf) != 0 ||
 	    dm_read_phys_1k(hdd_dev, 2, dm_verity_data_buf) != 0 ||
@@ -1026,7 +1049,48 @@ int dm_setup_verity_bin(void)
 	       VERITY_BIN_ROOT_HASH_HEX);
 	printk("device-mapper: created /dev/dm-0 (verity_bin), %lu sectors (%lu KB, read-only)\n",
 	       dev->total_sectors, dev->total_sectors >> 1);
+
+#ifdef SARTHAK_BIN_START_SECTOR
+	/* Set up /dev/dm-7 (sarthak_bin) if the second 16 MB half is present on /dev/hdd */
+	if ((unsigned long)six_disk_sectors[3] >= SARTHAK_BIN_START_SECTOR + SARTHAK_BIN_DATA_SECTORS) {
+		struct dm_device *sdev = &dm_devs[7];
+		struct dm_target_spec *st;
+
+		memset(sdev, 0, sizeof(*sdev));
+		strcpy(sdev->name, "sarthak_bin");
+		sdev->ro = 1;
+		sdev->open_count = 1;
+		sdev->num_targets = 1;
+		sdev->total_sectors = SARTHAK_BIN_DATA_SECTORS;
+
+		st = &sdev->targets[0];
+		st->start_sector = 0;
+		st->num_sectors = SARTHAK_BIN_DATA_SECTORS;
+		st->type = DM_TARGET_LINEAR;
+		st->bdev = (HD_MAJOR << 8) | 192;
+		strcpy(st->dev_name, "/dev/hdd");
+		st->offset_sector = SARTHAK_BIN_START_SECTOR;
+
+		sdev->active = 1;
+		sdev->suspended = 0;
+		dm_sizes[7] = sdev->total_sectors >> (BLOCK_SIZE_BITS - 9);
+		dm_blocksizes[7] = 1024;
+		set_device_ro(MKDEV(DM_MAJOR, 7), 1);
+		printk("device-mapper: created /dev/dm-7 (sarthak_bin -> /dev/hdd+%lu), %lu sectors (%lu KB, go/erofs-verity)\n",
+		       (unsigned long)SARTHAK_BIN_START_SECTOR, sdev->total_sectors, sdev->total_sectors >> 1);
+	}
+#endif
+
 	return 0;
+}
+
+const char *dm_get_sarthak_mount_opts(void)
+{
+#ifdef SARTHAK_EROFS_ROOT_DIGEST_HEX
+	if (dm_devs[7].active)
+		return "root_digest=" SARTHAK_EROFS_ROOT_DIGEST_HEX;
+#endif
+	return NULL;
 }
 
 int dm_init(void)

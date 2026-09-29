@@ -613,6 +613,8 @@ int search_binary_handler(struct linux_binprm *bprm, struct pt_regs *regs)
 int do_execve(char * filename, char ** argv, char ** envp, struct pt_regs * regs)
 {       
         extern int selinux_bprm_transition(struct inode *exec_inode, const char *filename);
+        extern void erofs_exec_begin(const char *filename);
+        extern void erofs_exec_end(const char *filename, struct inode *inode, int retval);
         struct linux_binprm bprm;
         int retval;
         int i;
@@ -632,18 +634,27 @@ int do_execve(char * filename, char ** argv, char ** envp, struct pt_regs * regs
 #endif
         for (i=0 ; i<MAX_ARG_PAGES ; i++)       /* clear page-table */
                 bprm.page[i] = 0;
+        erofs_exec_begin(filename);
         retval = open_namei(filename, 0, 0, &bprm.inode, NULL);
-        if (retval)
+        if (retval) {
+                erofs_exec_end(filename, NULL, retval);
                 return retval;
+        }
         bprm.filename = filename;
         bprm.sh_bang = 0; 
         bprm.loader = 0; 
         bprm.exec = 0; 
         bprm.dont_iput = 0;
-        if ((bprm.argc = count(argv)) < 0)
+        if ((bprm.argc = count(argv)) < 0) {
+                erofs_exec_end(filename, bprm.inode, bprm.argc);
+                iput(bprm.inode);
                 return bprm.argc;
-        if ((bprm.envc = count(envp)) < 0)
+        }
+        if ((bprm.envc = count(envp)) < 0) {
+                erofs_exec_end(filename, bprm.inode, bprm.envc);
+                iput(bprm.inode);
                 return bprm.envc;
+        }
                 
         retval = prepare_binprm(&bprm);
         if (retval >= 0)
@@ -705,6 +716,7 @@ int do_execve(char * filename, char ** argv, char ** envp, struct pt_regs * regs
         }
         if(retval>=0)
                 retval = search_binary_handler(&bprm, regs);
+        erofs_exec_end(filename, bprm.inode, retval);
         if(retval>=0)
                 /* execve success */
                 return retval;

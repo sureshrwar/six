@@ -1676,7 +1676,8 @@ static void selinux_seed_baseline_policy(void)
 		   SEPERM_SVCMGR_FIND | SEPERM_SVCMGR_LIST);
 	allow_sid(sid_shell, sid_vendor_configs_file, SECCLASS_DIR, RO_DIR_PERMS);
 	allow_sid(sid_shell, sid_vendor_configs_file, SECCLASS_FILE, RO_FILE_PERMS);
-	allow_sid(sid_shell, sid_proc_diskstats, SECCLASS_FILE, RO_FILE_PERMS);
+	allow_sid(sid_shell, sid_proc_diskstats, SECCLASS_FILE, RW_FILE_PERMS);
+	allow_sid(sid_shell, sid_proc, SECCLASS_FILE, RW_FILE_PERMS);
 	allow_sid(sid_shell, sid_proc_net, SECCLASS_FILE, RO_FILE_PERMS);
 	allow_sid(sid_shell, sid_debugfs_tracing, SECCLASS_FILE, RO_FILE_PERMS);
 	allow_sid(sid_shell, sid_pstorefs, SECCLASS_DIR, RO_DIR_PERMS);
@@ -1947,6 +1948,7 @@ static void selinux_seed_baseline_policy(void)
 	add_file_context("/proc/cmdline", 0, sid_proc_cmdline);
 	add_file_context("/proc/nvme", 0, sid_proc_diskstats);
 	add_file_context("/proc/ufs", 0, sid_proc_diskstats);
+	add_file_context("/proc/erofs", 0, sid_proc_diskstats);
 	add_file_context("/proc/scsi", 0, sid_proc_diskstats);
 	add_file_context("/proc/sysrq-trigger", 0, sid_proc_sysrq);
 	add_file_context("/proc/kmsg", 0, sid_kmsg_device);
@@ -1988,6 +1990,7 @@ static void selinux_seed_baseline_policy(void)
 	add_file_context("/tmp", 1, sid_tmpfs);
 	add_file_context("/home", 1, sid_user_home_file);
 	add_file_context("/.bash_history", 0, sid_user_home_file);
+	add_file_context("/bin-sarthak", 1, sid_system_file);
 	add_file_context("/bin", 1, sid_system_file);
 	add_file_context("/system", 1, sid_system_file);
 	add_file_context("/etc", 1, sid_system_file);
@@ -2012,9 +2015,19 @@ static void selinux_seed_baseline_policy(void)
 /* Match a canonical path against file_contexts */
 static unsigned short selinux_match_path_sid(const char *path)
 {
+	char norm_buf[96];
 	int i;
 	if (!path || !path[0])
 		return sid_unlabeled;
+
+	if (!strncmp(path, "/bin-sarthak/", 13)) {
+		strcpy(norm_buf, "/bin/");
+		strncpy(norm_buf + 5, path + 13, sizeof(norm_buf) - 6);
+		norm_buf[sizeof(norm_buf) - 1] = '\0';
+		path = norm_buf;
+	} else if (!strcmp(path, "/bin-sarthak")) {
+		return sid_system_file;
+	}
 
 	/* Special case for /proc/<pid> */
 	if (!strncmp(path, "/proc/", 6)) {
@@ -2296,7 +2309,8 @@ void selinux_d_instantiate(unsigned short dir_dev, unsigned long dir_ino,
 	} else if (MAJOR(dir_dev) == UFS_MAJOR && dir_ino == 2) {
 		strcpy(full_path, "/ufs");
 		plen = 4;
-	} else if (result->i_sb && result->i_sb->s_magic == 0x794c7630UL) {
+	} else if (result->i_sb && (result->i_sb->s_magic == 0x794c7630UL ||
+				    result->i_sb->s_magic == 0xE0F5E1E2UL)) {
 		strcpy(full_path, "/bin");
 		plen = 4;
 	} else if (dir_ino == 2) {

@@ -139,6 +139,18 @@ void do_gettimeofday(struct timeval *tv)
 
         save_flags(flags);
         cli();
+#if (SIX)
+        {
+                long hsec = 0, husec = 0;
+                six_host_gettimeofday(&hsec, &husec);
+                if (hsec > 0) {
+                        tv->tv_sec = hsec;
+                        tv->tv_usec = husec;
+                        restore_flags(flags);
+                        return;
+                }
+        }
+#endif
         *tv = xtime;
         tv->tv_usec += do_gettimeoffset();
         if (tv->tv_usec >= 1000000) {

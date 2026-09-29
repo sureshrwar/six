@@ -54,7 +54,8 @@ enum root_directory_inos {
 	PROC_WAKELOCKS,
 	PROC_NVME,
 	PROC_UFS,
-	PROC_SELINUX
+	PROC_SELINUX,
+	PROC_EROFS
 };
 
 enum pid_directory_inos {

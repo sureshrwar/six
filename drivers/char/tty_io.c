@@ -778,6 +778,7 @@ static inline int do_tty_write(
 		if (ret <= 0)
 			break;
 		count -= ret;
+		buf += ret;
 		written += ret;
 		if (!count)
 			break;

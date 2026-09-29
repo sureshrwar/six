@@ -563,6 +563,25 @@ static int write_chan(struct tty_struct * tty, struct file * file,
                 }
                 if (O_OPOST(tty)) {
                         while (nr > 0) {
+                                if (!O_OLCUC(tty)) {
+                                        unsigned int span = 0;
+                                        while (span < nr) {
+                                                unsigned char ch = get_user(b + span);
+                                                if (ch == '\n' || ch == '\r' || ch == '\t' || ch == '\b')
+                                                        break;
+                                                if (!iscntrl(ch))
+                                                        tty->column++;
+                                                span++;
+                                        }
+                                        if (span > 0) {
+                                                c = tty->driver.write(tty, 1, b, span);
+                                                if (c <= 0)
+                                                        break;
+                                                b += c;
+                                                nr -= c;
+                                                continue;
+                                        }
+                                }
                                 c = get_user(b);
                                 if (opost(c, tty) < 0)
                                         break;

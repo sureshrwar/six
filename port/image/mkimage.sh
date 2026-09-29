@@ -484,6 +484,18 @@ else
 		exit 1
 	}
 fi
+
+if [ "$MODE" = "bin" ]; then
+	python3 port/image/mkerofs.py \
+		--stage "$STAGE" \
+		--manifest "$MANIFEST" \
+		--mode "$MODE" \
+		--label "bin_sarthak" \
+		--uuid 13bcf00c-78b2-11d9-8fdf-f213c4292cfd \
+		--blocks "$BLOCK_COUNT" \
+		--verity \
+		--out "$OUT.sarthak" || exit 1
+fi
 FAKEROOT_SCRIPT
 
 rc=$?

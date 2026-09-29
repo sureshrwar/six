@@ -95,5 +95,9 @@ int  six_host_load_guest_debug(const char *guest_exe_path,
 			       char (*files_out)[96], int max_files, int *num_files_out);
 int  six_host_read_source_line(const char *file, int line_no, char *buf, int buflen);
 
+/* Host monotonic microsecond clock & wallclock gettimeofday */
+unsigned long six_host_monotonic_us(void);
+void six_host_gettimeofday(long *sec_out, long *usec_out);
+
 #endif /* _SIX_HOST_H */
 

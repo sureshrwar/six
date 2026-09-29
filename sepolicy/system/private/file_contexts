@@ -3,6 +3,7 @@
 
 /                           u:object_r:rootfs:s0
 /bin(/.*)?                  u:object_r:system_file:s0
+/bin-sarthak(/.*)?          u:object_r:system_file:s0
 /system(/.*)?               u:object_r:system_file:s0
 /etc(/.*)?                  u:object_r:system_file:s0
 /etc/shadow                 u:object_r:shadow_file:s0

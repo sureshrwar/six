@@ -401,12 +401,19 @@ static int con_write(struct tty_struct * tty, int from_user,
         disable_bh(CONSOLE_BH);
 #if (SIX)
         while (!tty->stopped && count) {
-                unsigned char ch;
+                unsigned char kbuf[512];
+                int chunk = count > (int)sizeof(kbuf) ? (int)sizeof(kbuf) : count;
+                int i;
                 enable_bh(CONSOLE_BH);
-                ch = from_user ? get_user(buf) : *buf;
-                buf++; n++; count--;
+                if (from_user) {
+                        for (i = 0; i < chunk; i++)
+                                kbuf[i] = get_user(buf + i);
+                } else {
+                        memcpy(kbuf, buf, chunk);
+                }
+                buf += chunk; n += chunk; count -= chunk;
                 disable_bh(CONSOLE_BH);
-                write(1, &ch, 1);
+                write(1, kbuf, chunk);
         }
         enable_bh(CONSOLE_BH);
         return n;

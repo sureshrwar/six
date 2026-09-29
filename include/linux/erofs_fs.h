@@ -17,6 +17,12 @@
 #define EROFS_ISLOTBITS		5
 #define EROFS_SLOTSIZE		(1U << EROFS_ISLOTBITS) /* 32 bytes */
 
+/* Native EROFS Verity (go/erofs-verity, aosp/4324130) */
+#define EROFS_FEATURE_INCOMPAT_VERITY	0x00000200U
+#define EROFS_SB_EXTSLOT_SIZE		16
+#define EROFS_VERITY_DIGEST_SIZE	32
+#define EROFS_VERITY_EXTSLOTS		5
+
 /* Inode i_format bitfields */
 #define EROFS_I_VERSION_MASK	0x01
 #define EROFS_I_VERS_COMPACT	0
@@ -72,6 +78,21 @@ struct erofs_super_block {
 	__u64 packed_nid;	/* 0x60 */
 	__u8  xattr_filter_reserved; /* 0x68 */
 	__u8  reserved[23];	/* 0x69 .. 0x7F */
+} __attribute__((packed));
+
+/*
+ * Native EROFS Verity superblock extension (go/erofs-verity, aosp/4324130).
+ * Stored immediately after struct erofs_super_block (at offset 128 within
+ * Block 1, i.e. disk byte offset 1024 + 128 = 1152), occupying
+ * 5 * EROFS_SB_EXTSLOT_SIZE = 80 bytes.
+ */
+struct erofs_verity_sb_ext {
+	__u32 meta_verity_startblk;	/* 0x00: start block of verified metadata */
+	__u32 meta_verity_blocks;	/* 0x04: number of metadata blocks */
+	__u32 meta_merkle_blkaddr;	/* 0x08: start block of metadata Merkle tree */
+	__u32 meta_merkle_blocks;	/* 0x0C: number of metadata Merkle tree blocks */
+	__u8  meta_merkle_root[32];	/* 0x10: SHA-256 root of metadata Merkle tree */
+	__u8  verity_salt[32];		/* 0x30: 256-bit SHA-256 salt */
 } __attribute__((packed));
 
 /*
@@ -133,15 +154,52 @@ struct erofs_sb_info {
 	__u64 build_time;
 	__u16 root_nid;
 	__u8  blkszbits;
+	__u8  extslots;
+	__u32 feature_incompat;
 	__u8  uuid[16];
 	char  volume_name[17];
+
+	/* Native EROFS Verity (go/erofs-verity) state */
+	int   verity_enabled;
+	__u8  root_digest[32];
+	__u32 meta_verity_startblk;
+	__u32 meta_verity_blocks;
+	__u32 meta_merkle_blkaddr;
+	__u32 meta_merkle_blocks;
+	__u8  meta_merkle_root[32];
+	__u8  verity_salt[32];
+	__u32 verity_init_state[8];
+	__u8  *meta_merkle_leaves;
+	__u8  *meta_verified_bitmap;
+	unsigned int meta_bitmap_bytes;
+	__u8  *data_verified_bitmap;
+	unsigned int data_bitmap_bytes;
+
+	/* Live performance & verification telemetry (exposed in /proc/erofs) */
+	unsigned long total_execs;
+	char          last_exec_comm[32];
+	unsigned long last_exec_bytes;
+	unsigned long last_exec_us;
+	unsigned long last_exec_data_blks;
+	unsigned long last_exec_merkle_blks;
+	unsigned long last_exec_sha256_calls;
+	unsigned long last_exec_sha256_rounds;
+	unsigned long last_exec_meta_hits;
+	unsigned long data_blk_reads;
+	unsigned long merkle_blk_reads;
+	unsigned long sha256_calls;
+	unsigned long sha256_rounds;
+	unsigned long meta_bitmap_hits;
+	unsigned long meta_blocks_verified;
+	unsigned long data_blocks_verified;
+	unsigned long corrupt_blocks;
 };
 
 /*
  * Per-inode metadata stored inside inode->u.ext2_i.i_data[0..3]:
  *   i_data[0] = datalayout (EROFS_INODE_FLAT_PLAIN or EROFS_INODE_FLAT_INLINE)
  *   i_data[1] = raw_blkaddr
- *   i_data[2] = inline_byte_off (byte offset of inline tail data on disk)
+ *   i_data[2] = inline_byte_off (byte offset of inline tail data or inline digest table)
  *   i_data[3] = nid
  */
 #define EROFS_I_DATALAYOUT(inode)	((inode)->u.ext2_i.i_data[0])
@@ -150,6 +208,10 @@ struct erofs_sb_info {
 #define EROFS_I_NID(inode)		((inode)->u.ext2_i.i_data[3])
 
 extern int init_erofs_fs(void);
+extern void erofs_exec_begin(const char *filename);
+extern void erofs_exec_end(const char *filename, struct inode *inode, int retval);
+extern int get_erofs_proc_info(char *buf);
+extern int set_erofs_proc_ctl(const char *cmd, int count);
 
 #endif /* __KERNEL__ */
 

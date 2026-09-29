@@ -901,7 +901,12 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	/*
 	 * Read the Elf header
 	 */
-        read_exec(bprm->inode, 0, e, sizeof(Elf32_Ehdr), 1);
+        if (read_exec(bprm->inode, 0, e, sizeof(Elf32_Ehdr), 1) < 0) {
+		kfree(e);
+		kfree(s);
+		kfree(strhdr);
+		return -EIO;
+	}
 	if (e->e_ident[0] != 0x7f ||
 	    strncmp((char *)&e->e_ident[1], "ELF", 3) != 0) {
 		kfree(e);
@@ -912,14 +917,25 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	/*
 	 * Read the String header
 	 */
-        read_exec(bprm->inode, e->e_shoff+e->e_shentsize*e->e_shstrndx, 
-		 strhdr, sizeof(Elf32_Shdr), 1);
+        if (read_exec(bprm->inode, e->e_shoff+e->e_shentsize*e->e_shstrndx, 
+		 strhdr, sizeof(Elf32_Shdr), 1) < 0) {
+		kfree(e);
+		kfree(s);
+		kfree(strhdr);
+		return -EIO;
+	}
 	str = (char *)kmalloc(strhdr->sh_size, GFP_KERNEL);
 	/*
 	 * Read the String table.
 	 */
-        read_exec(bprm->inode, strhdr->sh_offset,
-		 str, strhdr->sh_size, 1);
+        if (read_exec(bprm->inode, strhdr->sh_offset,
+		 str, strhdr->sh_size, 1) < 0) {
+		kfree(str);
+		kfree(e);
+		kfree(s);
+		kfree(strhdr);
+		return -EIO;
+	}
 
 
 	/*
@@ -928,8 +944,14 @@ do_six_load_elf_binary(struct linux_binprm * bprm, struct pt_regs *regs) {
 	 */
         for(i=0; i<e->e_shnum; i++)
         {
-        	read_exec(bprm->inode, e->e_shoff+i*e->e_shentsize,
-		 	s, e->e_shentsize, 1);
+        	if (read_exec(bprm->inode, e->e_shoff+i*e->e_shentsize,
+		 	s, e->e_shentsize, 1) < 0) {
+			kfree(str);
+			kfree(e);
+			kfree(s);
+			kfree(strhdr);
+			return -EIO;
+		}
                 if(!strcmp(str+(s->sh_name), ".text"))
 		{
                         ss[TEXT] = s;

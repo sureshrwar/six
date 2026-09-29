@@ -335,6 +335,10 @@ int get_filesystem_info( char *buf )
                         extern int ovl_format_mount_opts(struct super_block *sb, char *buf);
                         len += ovl_format_mount_opts(tmp->mnt_sb, buf + len);
                 }
+                if (!strcmp("erofs", tmp->mnt_sb->s_type->name)) {
+                        extern int erofs_format_mount_opts(struct super_block *sb, char *buf);
+                        len += erofs_format_mount_opts(tmp->mnt_sb, buf + len);
+                }
                 if (!strcmp("nfs", tmp->mnt_sb->s_type->name)) {
                         nfss = &tmp->mnt_sb->u.nfs_sb.s_server;
                         if (nfss->rsize != NFS_DEF_FILE_IO_BUFFER_SIZE) {
