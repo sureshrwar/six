@@ -738,6 +738,6 @@ include Rules.make
 vim_run:
 	./six
 
-test:
+test: do-it-all
 	./scripts/test_suite.py
 

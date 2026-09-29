@@ -1638,11 +1638,19 @@ static void selinux_seed_baseline_policy(void)
 
 	allow_sid(sid_telnetd, sid_telnetd, SECCLASS_CAPABILITY,
 		  (1UL << CAP_NET_BIND_SERVICE) | (1UL << CAP_SETUID) |
-		  (1UL << CAP_SETGID) | (1UL << CAP_SYS_TTY_CONFIG));
+		  (1UL << CAP_SETGID) | (1UL << CAP_SYS_TTY_CONFIG) |
+		  (1UL << CAP_CHOWN) | (1UL << CAP_FOWNER) |
+		  (1UL << CAP_DAC_OVERRIDE) | (1UL << CAP_DAC_READ_SEARCH));
+	allow_sid(sid_telnetd, sid_telnetd, SECCLASS_PROCESS,
+		  SEPERM_PROC_SETCURRENT | SEPERM_PROC_SETEXEC);
 	allow_sid(sid_telnetd, sid_proc_net, SECCLASS_FILE, RO_FILE_PERMS);
+	allow_sid(sid_telnetd, sid_system_data_file, SECCLASS_DIR, RW_DIR_PERMS);
+	allow_sid(sid_telnetd, sid_system_data_file, SECCLASS_FILE, RW_FILE_PERMS);
 	allow_sid(sid_telnetd, sid_su, SECCLASS_PROCESS,
 		  SEPERM_PROC_TRANSITION | SEPERM_PROC_DYNTRANSITION | SEPERM_PROC_SIGCHLD);
 	allow_sid(sid_telnetd, sid_shell, SECCLASS_PROCESS,
+		  SEPERM_PROC_TRANSITION | SEPERM_PROC_DYNTRANSITION | SEPERM_PROC_SIGCHLD);
+	allow_sid(sid_telnetd, sid_untrusted_app, SECCLASS_PROCESS,
 		  SEPERM_PROC_TRANSITION | SEPERM_PROC_DYNTRANSITION | SEPERM_PROC_SIGCHLD);
 
 	/*
@@ -1953,7 +1961,10 @@ static void selinux_seed_baseline_policy(void)
 	add_file_context("/system/etc/selinux", 1, sid_sepolicy_file);
 	add_file_context("/vendor/etc/selinux", 1, sid_vendor_configs_file);
 	add_file_context("/etc/fwupd", 1, sid_vendor_data_file);
+	add_file_context("/etc/utmp", 0, sid_system_data_file);
+	add_file_context("/usr/adm", 1, sid_system_data_file);
 	add_file_context("/var/lib/fwupd", 1, sid_vendor_data_file);
+	add_file_context("/var/mail", 1, sid_user_home_file);
 	add_file_context("/var/db", 1, sid_media_rw_data_file);
 
 	/* Vendor, Data, Media, Home, System directories */
@@ -1966,6 +1977,7 @@ static void selinux_seed_baseline_policy(void)
 	add_file_context("/data/app", 1, sid_app_data_file);
 	add_file_context("/data", 1, sid_system_data_file);
 	add_file_context("/mnt/media_rw", 1, sid_mnt_media_rw_file);
+	add_file_context("/mnt/expand", 1, sid_mnt_media_rw_file);
 	add_file_context("/mnt/runtime", 1, sid_mnt_media_rw_file);
 	add_file_context("/mnt/user", 1, sid_mnt_media_rw_file);
 	add_file_context("/mnt/fuse", 1, sid_mnt_media_rw_file);
@@ -1975,6 +1987,7 @@ static void selinux_seed_baseline_policy(void)
 	add_file_context("/sdcard", 1, sid_media_rw_data_file);
 	add_file_context("/tmp", 1, sid_tmpfs);
 	add_file_context("/home", 1, sid_user_home_file);
+	add_file_context("/.bash_history", 0, sid_user_home_file);
 	add_file_context("/bin", 1, sid_system_file);
 	add_file_context("/system", 1, sid_system_file);
 	add_file_context("/etc", 1, sid_system_file);

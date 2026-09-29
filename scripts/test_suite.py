@@ -1047,7 +1047,10 @@ TESTS = [
         cmd=(
             "getenforce && "
             "sestatus && "
+            "audit2allow -c && "
             "usbctl plug ntfs && "
+            "cat /mnt/media_rw/6A1B-8E42/README && "
+            "audit2allow && "
             "ps -efZ && "
             "(runcon u:r:ntfs_3g:s0 ntfs-3g /dev/sda1 /tmp 2>/dev/null || echo NTFS_3G_DIRECT_MOUNT_BLOCKED_OK) && "
             "usbctl unplug && "
@@ -1076,6 +1079,7 @@ TESTS = [
         expected_substrings=[
             "Enforcing",
             "sepolicy_v1 (3-tier: system/public, system/private, vendor)",
+            "# No AVC denials recorded in /sys/fs/selinux/avc",
             "u:r:servicemanager:s0",
             "u:r:vold:s0",
             "u:r:storaged:s0",
@@ -1147,12 +1151,29 @@ def evaluate_single_test(raw_output, tc):
     rc = int(m.group(1))
     body = sub[: m.start()].strip()
     missing = [s for s in tc.expected_substrings if s not in body]
-    passed = (rc == 0) and (len(missing) == 0)
+    avc_lines = [
+        re.sub(r"[\r\n]+", "", body[m.start() : m.start() + 200]).strip()
+        for m in re.finditer(r"avc:  denied", body)
+    ]
+    if tc.name == "android.mediaprovider_fuse":
+        avc_lines = [
+            ln
+            for ln in avc_lines
+            if "scontext=u:r:untrusted_app:s0 tcontext=u:object_r:mnt_media_rw_stub_file:s0"
+            not in ln
+        ]
+    unexpected_avc = (
+        tc.name != "selinux.enforcing_domains_and_neverallow"
+        and len(avc_lines) > 0
+    )
+    passed = (rc == 0) and (len(missing) == 0) and (not unexpected_avc)
     reason = ""
     if rc != 0:
         reason = f"Non-zero exit status: {rc}"
     elif missing:
         reason = f"Missing expected output: {missing}"
+    elif unexpected_avc:
+        reason = f"Unexpected SELinux AVC denial detected: {avc_lines[:3]}"
 
     return {
         "passed": passed,

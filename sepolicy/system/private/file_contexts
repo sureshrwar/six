@@ -65,7 +65,12 @@
 /data/app(/.*)?             u:object_r:app_data_file:s0
 /mnt                        u:object_r:mnt_media_rw_stub_file:s0
 /mnt/media_rw(/.*)?         u:object_r:mnt_media_rw_file:s0
+/mnt/expand(/.*)?           u:object_r:mnt_media_rw_file:s0
 /storage(/.*)?              u:object_r:media_rw_data_file:s0
 /sdcard(/.*)?               u:object_r:media_rw_data_file:s0
 /tmp(/.*)?                  u:object_r:tmpfs:s0
 /home(/.*)?                 u:object_r:user_home_file:s0
+/var/mail(/.*)?             u:object_r:user_home_file:s0
+/usr/adm(/.*)?              u:object_r:system_data_file:s0
+/etc/utmp                   u:object_r:system_data_file:s0
+/\.bash_history             u:object_r:user_home_file:s0
