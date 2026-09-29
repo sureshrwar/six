@@ -710,11 +710,10 @@ static void append_prompt_row_to_fb(int left_w, int right_w)
 		 R->prompt, r_in,
 		 (active_pane == PANE_RIGHT || mirror_mode) ? "_" : "");
 
-	fb_puts("\033[30m");
-	fb_padded(lbuf, left_w);
-	fb_puts("\033[0m | \033[30m");
-	fb_padded(rbuf, right_w);
 	fb_puts("\033[0m");
+	fb_padded(lbuf, left_w);
+	fb_puts(" | ");
+	fb_padded(rbuf, right_w);
 }
 
 /*
@@ -805,11 +804,10 @@ static void render_split_screen_ex(int clear_first)
 			 R->tele.last_comm[0] ? R->tele.last_comm : "-",
 			 R->tele.last_bytes, R->tele.last_us);
 	}
-	fb_puts("\033[30m");
 	fb_padded(lbuf, left_w);
-	fb_puts("\033[0m | \033[30m");
+	fb_puts(" | ");
 	fb_padded(rbuf, right_w);
-	fb_puts("\033[0m\n");
+	fb_putc('\n');
 
 	/* Row 4: Telemetry Line 2 - Block I/O & Merkle Overhead */
 	snprintf(lbuf, sizeof(lbuf), " Blks: %2lu data + %3lu Merkle (+3x tree)",
@@ -854,11 +852,10 @@ static void render_split_screen_ex(int clear_first)
 		const char *l_txt = (l_idx < L->log_count) ? L->log[l_idx] : "";
 		const char *r_txt = (r_idx < R->log_count) ? R->log[r_idx] : "";
 
-		fb_puts("\033[30m");
 		fb_padded(l_txt, left_w);
-		fb_puts("\033[0m | \033[30m");
+		fb_puts(" | ");
 		fb_padded(r_txt, right_w);
-		fb_puts("\033[0m\n");
+		fb_putc('\n');
 	}
 
 	/* Bottom Divider */
