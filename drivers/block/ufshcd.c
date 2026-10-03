@@ -1051,6 +1051,7 @@ static int ufs_handle_rpmb_ioctl(unsigned long arg)
 	case RPMB_REQ_PROGRAM_KEY:
 		memcpy(ufs_hdr.rpmb_key, frame.key_mac, 32);
 		ufs_hdr.rpmb_key_set = 1;
+		ufs_hdr.rpmb_write_counter = 0;
 		ufs_save_persist_hdr();
 		memset(frame.key_mac, 0, 32);
 		frame.result = RPMB_RES_OK;
@@ -1309,6 +1310,64 @@ static struct gendisk ufs_gendisk = {
 	NULL,			/* real_devices */
 	NULL,			/* next */
 };
+
+int ufs_get_active_boot_lun(void)
+{
+	if (!ufs_online || ufs_fd < 0)
+		return 1;
+	return (ufs_hdr.boot_lun_id == 2) ? 2 : 1;
+}
+
+int ufs_set_active_boot_lun(int boot_lun_id)
+{
+	if (boot_lun_id != 1 && boot_lun_id != 2)
+		return -EINVAL;
+	if (!ufs_online || ufs_fd < 0)
+		return -ENODEV;
+	ufs_hdr.boot_lun_id = (unsigned char)boot_lun_id;
+	ufs_save_persist_hdr();
+	return 0;
+}
+
+int ufs_read_boot_vbmeta(int boot_lun_id, struct six_avb_vbmeta *out)
+{
+	unsigned long off;
+	int minor;
+
+	if (!out || (boot_lun_id != 1 && boot_lun_id != 2))
+		return -EINVAL;
+	if (!ufs_online || ufs_fd < 0)
+		return -ENODEV;
+	minor = (boot_lun_id == 2) ? UFS_LUN_BOOT_B : UFS_LUN_BOOT_A;
+	fsync_dev(MKDEV(UFS_MAJOR, minor));
+	off = (boot_lun_id == 2) ? UFS_IMG_BOOTB_OFFSET : UFS_IMG_BOOTA_OFFSET;
+	off += SIX_AVB_VBMETA_SECTOR * 512UL;
+	memset(out, 0, sizeof(*out));
+	lseek(ufs_fd, (long)(ufs_base_offset + off), 0);
+	if (read(ufs_fd, out, sizeof(*out)) != (int)sizeof(*out))
+		return -EIO;
+	return 0;
+}
+
+int ufs_write_boot_vbmeta(int boot_lun_id, const struct six_avb_vbmeta *in)
+{
+	unsigned long off;
+	int minor;
+
+	if (!in || (boot_lun_id != 1 && boot_lun_id != 2))
+		return -EINVAL;
+	if (!ufs_online || ufs_fd < 0)
+		return -ENODEV;
+	minor = (boot_lun_id == 2) ? UFS_LUN_BOOT_B : UFS_LUN_BOOT_A;
+	fsync_dev(MKDEV(UFS_MAJOR, minor));
+	off = (boot_lun_id == 2) ? UFS_IMG_BOOTB_OFFSET : UFS_IMG_BOOTA_OFFSET;
+	off += SIX_AVB_VBMETA_SECTOR * 512UL;
+	lseek(ufs_fd, (long)(ufs_base_offset + off), 0);
+	if (write(ufs_fd, in, sizeof(*in)) != (int)sizeof(*in))
+		return -EIO;
+	invalidate_buffers(MKDEV(UFS_MAJOR, minor));
+	return 0;
+}
 
 int get_ufs_proc_info(char *buf)
 {

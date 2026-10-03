@@ -377,4 +377,39 @@ struct ufs_rpmb_frame {
 #define SG_IO				0x2285
 #endif
 
+/*
+ * Android Verified Boot 2.0 (AVB0 / vbmeta) 512-byte descriptor stored at
+ * Sector 1 (offset 512) of UFS Boot LUN A (/dev/ufsb) and Boot LUN B (/dev/ufsc).
+ */
+#define SIX_AVB_VBMETA_MAGIC		"AVB0"
+#define SIX_AVB_VBMETA_SECTOR		1UL
+
+#define SIX_SLOT_FLAG_ACTIVE		0x01U
+#define SIX_SLOT_FLAG_BOOTABLE		0x02U
+#define SIX_SLOT_FLAG_SUCCESSFUL	0x04U
+#define SIX_SLOT_FLAG_UNBOOTABLE	0x08U
+
+struct six_avb_vbmeta {
+	char			magic[4];		/* "AVB0" */
+	unsigned int		version;		/* 1 */
+	unsigned char		slot;			/* 0 = slot_a (/dev/ufsb), 1 = slot_b (/dev/ufsc) */
+	unsigned char		priority;		/* 15..0 */
+	unsigned char		tries_remaining;	/* 7..0 */
+	unsigned char		flags;			/* SIX_SLOT_FLAG_* */
+	unsigned int		reserved0;
+	unsigned long long	rollback_index;		/* Anti-rollback counter (synced with RPMB) */
+	unsigned char		system_root_hash[32];	/* SHA-256 dm-verity root hash for system_{a,b} */
+	unsigned char		vendor_root_hash[32];	/* SHA-256 dm-verity root hash for vendor_{a,b} */
+	char			build_id[64];		/* e.g. "SIX.261003.001.A1" */
+	char			release_str[32];	/* e.g. "16 (20261003.0001)" */
+	unsigned char		reserved[328];		/* Pad to 512 bytes */
+};
+
+#ifdef __KERNEL__
+int ufs_get_active_boot_lun(void);
+int ufs_set_active_boot_lun(int boot_lun_id);
+int ufs_read_boot_vbmeta(int boot_lun_id, struct six_avb_vbmeta *out);
+int ufs_write_boot_vbmeta(int boot_lun_id, const struct six_avb_vbmeta *in);
+#endif
+
 #endif /* _LINUX_UFS_H */

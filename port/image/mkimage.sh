@@ -104,7 +104,10 @@ esac
 
 UNIFIED_DISK="disk/x86/root"
 BUILD_OUT=$(mktemp)
-trap 'rm -f "$BUILD_OUT" "$BUILD_OUT.sarthak"' EXIT
+trap 'rm -f "$BUILD_OUT" "$BUILD_OUT.sarthak" "$BUILD_OUT.vendor"' EXIT
+
+STAGE_SYS="port/image/.stage_system"
+STAGE_VENDOR="port/image/.stage_vendor"
 
 if [ "$MODE" = "bin" ]; then
 	STAGE="port/image/.stage_bin"
@@ -152,9 +155,9 @@ while read -r type path mode a b c; do
 	case "$type" in ''|\#*) continue ;; esac
 	[ "$type" = "file" ] || continue
 	if [ "$MODE" = "root" ]; then
-		case "$path" in /bin/*) continue ;; esac
+		case "$path" in /bin/*|/system/*|/vendor/*) continue ;; esac
 	elif [ "$MODE" = "bin" ]; then
-		case "$path" in /bin/*) ;; *) continue ;; esac
+		case "$path" in /bin/*|/system/*|/vendor/*) ;; *) continue ;; esac
 	fi
 	if [ ! -f "$a" ]; then
 		missing=$((missing + 1))
@@ -196,29 +199,19 @@ fi
 # ---------------------------------------------------------------------------
 rm -rf "$STAGE"
 mkdir -p "$STAGE" "$(dirname "$OUT")"
+if [ "$MODE" = "bin" ]; then
+	rm -rf "$STAGE_SYS" "$STAGE_VENDOR"
+	mkdir -p "$STAGE_SYS" "$STAGE_VENDOR"
+fi
 
-export SRCROOT STAGE MANIFEST OUT BUILD_OUT BLOCK_SIZE BLOCK_COUNT INODE_COUNT FSTYPE MODE
+export SRCROOT STAGE STAGE_SYS STAGE_VENDOR MANIFEST OUT BUILD_OUT BLOCK_SIZE BLOCK_COUNT INODE_COUNT FSTYPE MODE
 
 fakeroot -- bash -s <<'FAKEROOT_SCRIPT'
 set -u
 rc=0
 
-while read -r type path mode a b c; do
-	case "$type" in ''|\#*) continue ;; esac
-
-	if [ "$MODE" = "root" ]; then
-		case "$path" in
-		/bin/*) continue ;;
-		esac
-	elif [ "$MODE" = "bin" ]; then
-		case "$path" in
-		/bin/*) path="${path#/bin}" ;;
-		*) continue ;;
-		esac
-	fi
-
-	dest="$STAGE$path"
-
+stage_entry() {
+	local type="$1" dest="$2" mode="$3" a="${4:-}" b="${5:-}" c="${6:-}"
 	case "$type" in
 	dir)
 		mkdir -p "$dest"           || rc=1
@@ -226,7 +219,7 @@ while read -r type path mode a b c; do
 		chown 0:0 "$dest"          || rc=1
 		;;
 	file)
-		[ -f "$a" ] || continue    # already reported in pass 1
+		[ -f "$a" ] || return 0
 		mkdir -p "$(dirname "$dest")"
 		cp -f "$a" "$dest"         || rc=1
 		if [ "$(head -c 4 "$dest" | od -An -tx1 | tr -d ' ')" = "7f454c46" ]; then
@@ -240,7 +233,6 @@ while read -r type path mode a b c; do
 		;;
 	node)
 		mkdir -p "$(dirname "$dest")"
-		# $a = c|b, $b = major, $c = minor
 		mknod -m "$mode" "$dest" "$a" "$b" "$c" || rc=1
 		chown 0:0 "$dest"          || rc=1
 		;;
@@ -253,10 +245,100 @@ while read -r type path mode a b c; do
 		rc=1
 		;;
 	esac
+}
+
+while read -r type path mode a b c; do
+	case "$type" in ''|\#*) continue ;; esac
+
+	if [ "$MODE" = "root" ]; then
+		case "$path" in
+		/bin|/bin/*|/bin-sarthak|/system|/system/*|/vendor|/vendor/*) continue ;;
+		esac
+		stage_entry "$type" "$STAGE$path" "$mode" "${a:-}" "${b:-}" "${c:-}"
+	elif [ "$MODE" = "bin" ]; then
+		case "$path" in
+		/bin|/bin-sarthak)
+			stage_entry "$type" "$STAGE_SYS$path" "$mode" "${a:-}" "${b:-}" "${c:-}"
+			;;
+		/bin/*)
+			stage_entry "$type" "$STAGE${path#/bin}" "$mode" "${a:-}" "${b:-}" "${c:-}"
+			stage_entry "$type" "$STAGE_SYS$path" "$mode" "${a:-}" "${b:-}" "${c:-}"
+			;;
+		/system/*)
+			stage_entry "$type" "$STAGE_SYS${path#/system}" "$mode" "${a:-}" "${b:-}" "${c:-}"
+			;;
+		/vendor/*)
+			stage_entry "$type" "$STAGE_VENDOR${path#/vendor}" "$mode" "${a:-}" "${b:-}" "${c:-}"
+			;;
+		esac
+	else
+		stage_entry "$type" "$STAGE$path" "$mode" "${a:-}" "${b:-}" "${c:-}"
+	fi
 done < <(sed 's/#.*//' "$MANIFEST")
 
 chown 0:0 "$STAGE"
 chmod 0755 "$STAGE"
+
+if [ "$MODE" = "root" ]; then
+	mkdir -p "$STAGE/system" "$STAGE/vendor"
+	chmod 0755 "$STAGE/system" "$STAGE/vendor"
+	chown 0:0 "$STAGE/system" "$STAGE/vendor"
+	ln -sfn /system/bin "$STAGE/bin"
+	ln -sfn /system/bin-sarthak "$STAGE/bin-sarthak"
+elif [ "$MODE" = "full" ]; then
+	mkdir -p "$STAGE/system" "$STAGE/vendor"
+	ln -sfn /bin "$STAGE/system/bin"
+	ln -sfn /bin-sarthak "$STAGE/system/bin-sarthak"
+elif [ "$MODE" = "bin" ]; then
+	mkdir -p "$STAGE_SYS/bin-sarthak"
+	chmod 0755 "$STAGE_SYS" "$STAGE_SYS/bin-sarthak" "$STAGE_VENDOR"
+	chown 0:0 "$STAGE_SYS" "$STAGE_SYS/bin-sarthak" "$STAGE_VENDOR"
+	python3 - "$STAGE_SYS/build.prop" "$STAGE_VENDOR/build.prop" << 'PYEOF'
+import sys
+
+sys_prop = (
+    "# SIX_ANDROID_BUILD_PROP_V1\n"
+    "ro.build.Partition=system\n"
+    "ro.build.Slot=_a\n"
+    "ro.build.id=SIX.261003.001.A1\n"
+    "ro.build.version.incremental=20261003.0001\n"
+    "ro.build.version.release=16\n"
+    "ro.build.version.security_patch=2026-10-01\n"
+    "ro.build.fingerprint=google/six_x86/six:16/SIX.261003.001.A1/20261003.0001:user/release-keys\n"
+    "ro.product.system.brand=google\n"
+    "ro.product.system.name=six_x86\n"
+    "ro.product.system.device=six\n"
+    "ro.boot.slot_suffix=_a\n"
+    "ro.boot.verifiedbootstate=green\n"
+    "ro.boot.veritymode=enforcing\n"
+    "ro.ota.version=1\n"
+).encode("ascii")
+sys_prop = sys_prop + b"#" * (1023 - len(sys_prop)) + b"\n"
+with open(sys.argv[1], "wb") as f:
+    f.write(sys_prop)
+
+vnd_prop = (
+    "# SIX_ANDROID_BUILD_PROP_V1\n"
+    "ro.build.Partition=vendor\n"
+    "ro.build.Slot=_a\n"
+    "ro.vendor.build.id=SIX.261003.001.A1\n"
+    "ro.vendor.build.version.incremental=20261003.0001\n"
+    "ro.vendor.build.version.release=16\n"
+    "ro.vendor.build.security_patch=2026-10-01\n"
+    "ro.vendor.build.fingerprint=google/six_x86/six:16/SIX.261003.001.A1/20261003.0001:user/release-keys\n"
+    "ro.product.vendor.brand=google\n"
+    "ro.product.vendor.name=six_x86\n"
+    "ro.product.vendor.device=six\n"
+    "ro.boot.slot_suffix=_a\n"
+    "ro.ota.version=1\n"
+).encode("ascii")
+vnd_prop = vnd_prop + b"#" * (1023 - len(vnd_prop)) + b"\n"
+with open(sys.argv[2], "wb") as f:
+    f.write(vnd_prop)
+PYEOF
+	chmod 0644 "$STAGE_SYS/build.prop" "$STAGE_VENDOR/build.prop"
+	chown 0:0 "$STAGE_SYS/build.prop" "$STAGE_VENDOR/build.prop"
+fi
 
 if [ "$MODE" != "bin" ]; then
 	mkdir -p "$STAGE/etc/fwupd/remotes.d/lvfs/packages"
@@ -417,6 +499,9 @@ fi
 
 if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
 	find "$STAGE" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
+	if [ "$MODE" = "bin" ]; then
+		find "$STAGE_SYS" "$STAGE_VENDOR" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
+	fi
 fi
 
 [ "$rc" = 0 ] || { echo "mkimage: staging failed" >&2; exit 1; }
@@ -424,8 +509,12 @@ fi
 rm -f "$BUILD_OUT"
 
 LABEL_OPT=""
+PRIMARY_STAGE="$STAGE"
+EROFS_MODE="$MODE"
 if [ "$MODE" = "bin" ]; then
 	LABEL_OPT="-L bin_verity"
+	PRIMARY_STAGE="$STAGE_SYS"
+	EROFS_MODE="system"
 else
 	LABEL_OPT="-L rootfs"
 fi
@@ -436,9 +525,9 @@ if [ "$FSTYPE" = erofs ]; then
 	LABEL_NAME="rootfs"
 	[ "$MODE" = "bin" ] && LABEL_NAME="bin_verity"
 	python3 port/image/mkerofs.py \
-		--stage "$STAGE" \
+		--stage "$PRIMARY_STAGE" \
 		--manifest "$MANIFEST" \
-		--mode "$MODE" \
+		--mode "$EROFS_MODE" \
 		--label "$LABEL_NAME" \
 		--uuid 13bcf00c-78b2-11d9-8fdf-f213c4292cfb \
 		--blocks "$BLOCK_COUNT" \
@@ -454,7 +543,7 @@ elif [ "$FSTYPE" = ext4 ]; then
 		-I 256 \
 		-O "$EXT4_FEATURES" -m 2 \
 		-U 13bcf00c-78b2-11d9-8fdf-f213c4292cfb \
-		-d "$STAGE" \
+		-d "$PRIMARY_STAGE" \
 		"$BUILD_OUT" "$BLOCK_COUNT"
 
 	[ -s "$BUILD_OUT" ] || { echo "mkimage: mke2fs produced nothing" >&2; exit 1; }
@@ -466,7 +555,7 @@ else
 		-I 128 \
 		-O none -m 5 \
 		-U 13bcf00c-78b2-11d9-8fdf-f213c4292cfb \
-		-d "$STAGE" \
+		-d "$PRIMARY_STAGE" \
 		"$BUILD_OUT" "$BLOCK_COUNT" 2>&1 | grep -v '128-byte inodes cannot handle dates'
 
 	[ -s "$BUILD_OUT" ] || { echo "mkimage: mke2fs produced nothing" >&2; exit 1; }
@@ -481,12 +570,21 @@ if [ "$MODE" = "bin" ]; then
 	python3 port/image/mkerofs.py \
 		--stage "$STAGE" \
 		--manifest "$MANIFEST" \
-		--mode "$MODE" \
+		--mode "bin" \
 		--label "bin_sarthak" \
 		--uuid 13bcf00c-78b2-11d9-8fdf-f213c4292cfd \
 		--blocks "$BLOCK_COUNT" \
 		--verity \
 		--out "$BUILD_OUT.sarthak" || exit 1
+
+	python3 port/image/mkerofs.py \
+		--stage "$STAGE_VENDOR" \
+		--manifest "$MANIFEST" \
+		--mode "vendor" \
+		--label "vendor_verity" \
+		--uuid 13bcf00c-78b2-11d9-8fdf-f213c4292cfe \
+		--blocks 3072 \
+		--out "$BUILD_OUT.vendor" || exit 1
 fi
 FAKEROOT_SCRIPT
 

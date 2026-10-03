@@ -19,7 +19,7 @@ import zlib
 
 SECTOR_SIZE = 512
 MIB = 1024 * 1024
-TOTAL_MIB = 215
+TOTAL_MIB = 239
 TOTAL_BYTES = TOTAL_MIB * MIB
 TOTAL_SECTORS = TOTAL_BYTES // SECTOR_SIZE
 
@@ -33,14 +33,14 @@ PARTITIONS = [
     (1,  "root",          1,   50, GUID_LINUX_FS),
     (2,  "aux_storage-1", 51,  50, GUID_MS_BASIC_DATA),
     (3,  "aux_storage-2", 101, 50, GUID_LINUX_FS),
-    (4,  "bin_storage",   151, 32, GUID_LINUX_FS),
-    (5,  "nvme0n1",       183, 16, GUID_LINUX_FS),
-    (6,  "ufs0",          199, 5,  GUID_LINUX_FS),
-    (7,  "usb_ext2",      204, 2,  GUID_LINUX_FS),
-    (8,  "usb_ext4",      206, 2,  GUID_LINUX_FS),
-    (9,  "usb_erofs",     208, 2,  GUID_LINUX_FS),
-    (10, "usb_ntfs",      210, 2,  GUID_MS_BASIC_DATA),
-    (11, "usb_crypt",     212, 2,  GUID_LINUX_FS),
+    (4,  "bin_storage",   151, 56, GUID_LINUX_FS),
+    (5,  "nvme0n1",       207, 16, GUID_LINUX_FS),
+    (6,  "ufs0",          223, 5,  GUID_LINUX_FS),
+    (7,  "usb_ext2",      228, 2,  GUID_LINUX_FS),
+    (8,  "usb_ext4",      230, 2,  GUID_LINUX_FS),
+    (9,  "usb_erofs",     232, 2,  GUID_LINUX_FS),
+    (10, "usb_ntfs",      234, 2,  GUID_MS_BASIC_DATA),
+    (11, "usb_crypt",     236, 2,  GUID_LINUX_FS),
 ]
 
 PART_BY_NAME = {name: (idx, start_mib, size_mib, tguid) for idx, name, start_mib, size_mib, tguid in PARTITIONS}

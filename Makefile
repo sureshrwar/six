@@ -401,7 +401,7 @@ SIX_VERITY_TOOL	= port/image/mkverity.py
 SIX_IMAGE_FILES	= $(wildcard $(shell sed 's/\#.*//' $(SIX_IMAGE_MANIFEST) | \
 		    $(AWK) '$$1 == "file" { print $$4 }'))
 SIX_BIN_FILES	= $(wildcard $(shell sed 's/\#.*//' $(SIX_IMAGE_MANIFEST) | \
-		    $(AWK) '$$1 == "file" && $$2 ~ /^\/bin\// { print $$4 }'))
+		    $(AWK) '$$1 == "file" && ($$2 ~ /^\/bin\// || $$2 ~ /^\/system\// || $$2 ~ /^\/vendor\//) { print $$4 }'))
 
 # Which on-disk format the root image is packed into, and whether /bin lives
 # on its own dm-verity disk (disk/x86/bin_storage, SIX_VERITY_BIN=1) or inside
@@ -451,7 +451,7 @@ $(SIX_BIN_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_EROFS_TOOL) $(SI
 # The order-only dependency on "six" keeps the image from being assembled in
 # parallel with the kernel link under make -j; the guest binaries are built
 # by linuxsubdirs, which is a prerequisite of six.
-$(SIX_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_SINGLE_TOOL) $(SIX_IMAGE_FILES) $(SIX_IMAGE_STAMP) $(SIX_VERITY_STAMP) $(if $(filter 1,$(SIX_VERITY_BIN)),$(SIX_BIN_IMAGE)) | six
+$(SIX_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_SINGLE_TOOL) $(SIX_IMAGE_FILES) $(SIX_IMAGE_STAMP) $(SIX_VERITY_STAMP) | six
 	@if [ "$(SIX_VERITY_BIN)" != "1" ]; then rm -f $(SIX_BIN_IMAGE) port/image/.bin_part.img; fi
 	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict --mode $(SIX_ROOT_MODE) --fstype $(SIX_IMAGE_FSTYPE)
 
@@ -488,7 +488,7 @@ ext4-image:
 
 image-clean:
 	rm -f $(SIX_IMAGE) $(SIX_BIN_IMAGE) port/image/.bin_part.img $(SIX_IMAGE_STAMP) $(SIX_VERITY_STAMP) include/linux/verity_roothash.h
-	rm -rf port/image/.stage port/image/.stage_bin
+	rm -rf port/image/.stage port/image/.stage_bin port/image/.stage_system port/image/.stage_vendor
 
 # The auxiliary disk, which SIX exposes as /dev/hdb (Partition 2 of disk/x86/root).
 SIX_AUX_TOOL   = port/image/mkaux.sh

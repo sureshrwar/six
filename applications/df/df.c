@@ -110,6 +110,8 @@ int main(int argc, char **argv)
 	const char *path = NULL;
 	int i, rc;
 	static const char *extra_mounts[] = {
+		"/system",
+		"/vendor",
 		"/bin",
 		"/bin-sarthak",
 		"/tmp",

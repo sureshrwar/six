@@ -1006,38 +1006,56 @@ static int init(void * unused)
                 extern int dm_setup_verity_bin(void);
                 extern const char *dm_get_sarthak_mount_opts(void);
                 extern asmlinkage int sys_mount(char *, char *, char *, unsigned long, void *);
+                extern asmlinkage int sys_readlink(const char *, char *, int);
                 if (dm_setup_verity_bin() == 0) {
+                        char linkbuf[32];
+                        int is_sys_layout = (sys_readlink("/bin", linkbuf, sizeof(linkbuf)) > 0);
+                        const char *sys_mnt = is_sys_layout ? "/system" : "/bin";
+                        const char *ovl_mnt = is_sys_layout ? "/system/bin" : "/bin";
+                        const char *ovl_opts = is_sys_layout
+                                ? "lowerdir=/system/bin,upperdir=/var/overlay/bin"
+                                : "lowerdir=/bin,upperdir=/var/overlay/bin";
+                        const char *sarthak_mnt = is_sys_layout ? "/system/bin-sarthak" : "/bin-sarthak";
                         const char *bin_fs = "erofs";
                         const char *sarthak_opts;
-                        int mret = sys_mount("/dev/mapper/verity_bin", "/bin", "erofs",
+                        int mret = sys_mount("/dev/mapper/verity_bin", (char *)sys_mnt, "erofs",
                                              MS_MGC_VAL | MS_RDONLY, NULL);
                         if (mret != 0) {
                                 bin_fs = "ext4";
-                                mret = sys_mount("/dev/mapper/verity_bin", "/bin", "ext4",
+                                mret = sys_mount("/dev/mapper/verity_bin", (char *)sys_mnt, "ext4",
                                                  MS_MGC_VAL | MS_RDONLY, NULL);
                         }
                         if (mret == 0) {
                                 int oret;
-                                printk("VFS: Mounted /dev/mapper/verity_bin on /bin (%s, dm-verity sha256 read-only)\n", bin_fs);
-                                oret = sys_mount("overlay", "/bin", "overlay",
-                                                 MS_MGC_VAL,
-                                                 "lowerdir=/bin,upperdir=/var/overlay/bin");
+                                printk("VFS: Mounted /dev/mapper/verity_bin on %s (%s, dm-verity sha256 read-only)\n",
+                                       sys_mnt, bin_fs);
+                                oret = sys_mount("overlay", (char *)ovl_mnt, "overlay",
+                                                 MS_MGC_VAL, (void *)ovl_opts);
                                 if (oret == 0)
-                                        printk("VFS: Mounted overlay on /bin (lowerdir=/bin [dm-verity], upperdir=/var/overlay/bin [/dev/hda])\n");
+                                        printk("VFS: Mounted overlay on %s (%s)\n", ovl_mnt, ovl_opts);
                                 else
-                                        printk("VFS: Failed to mount overlay on /bin (err=%d)\n", oret);
+                                        printk("VFS: Failed to mount overlay on %s (err=%d)\n", ovl_mnt, oret);
                         } else
-                                printk("VFS: Failed to mount /dev/mapper/verity_bin on /bin (err=%d)\n", mret);
+                                printk("VFS: Failed to mount /dev/mapper/verity_bin on %s (err=%d)\n", sys_mnt, mret);
 
                         sarthak_opts = dm_get_sarthak_mount_opts();
                         if (sarthak_opts) {
-                                int sret = sys_mount("/dev/mapper/sarthak_bin", "/bin-sarthak", "erofs",
+                                int sret = sys_mount("/dev/mapper/sarthak_bin", (char *)sarthak_mnt, "erofs",
                                                      MS_MGC_VAL | MS_RDONLY,
                                                      (void *)sarthak_opts);
                                 if (sret == 0)
-                                        printk("VFS: Mounted /dev/mapper/sarthak_bin on /bin-sarthak (erofs, go/erofs-verity native sha256 read-only)\n");
+                                        printk("VFS: Mounted /dev/mapper/sarthak_bin on %s (erofs, go/erofs-verity native sha256 read-only)\n",
+                                               sarthak_mnt);
                                 else
-                                        printk("VFS: Failed to mount /dev/mapper/sarthak_bin on /bin-sarthak (err=%d)\n", sret);
+                                        printk("VFS: Failed to mount /dev/mapper/sarthak_bin on %s (err=%d)\n",
+                                               sarthak_mnt, sret);
+                        }
+
+                        if (is_sys_layout) {
+                                int vret = sys_mount("/dev/mapper/verity_vendor", "/vendor", "erofs",
+                                                     MS_MGC_VAL | MS_RDONLY, NULL);
+                                if (vret == 0)
+                                        printk("VFS: Mounted /dev/mapper/verity_vendor on /vendor (erofs, dm-verity sha256 read-only)\n");
                         }
                 }
         }

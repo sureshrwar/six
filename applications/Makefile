@@ -145,7 +145,8 @@ SUBDIRS	=	start \
 		ufs \
 		fwupd \
 		selinux \
-		sarthak
+		sarthak \
+		ota
 
 all:
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done

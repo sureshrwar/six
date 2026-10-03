@@ -18,6 +18,7 @@
 #include <linux/string.h>
 #include <linux/blk.h>
 #include <linux/dm.h>
+#include <linux/ufs.h>
 #include <linux/verity_roothash.h>
 #include <asm/segment.h>
 #include <asm/system.h>
@@ -620,7 +621,7 @@ static int dm_ioctl(struct inode *inode, struct file *file,
 		    unsigned int cmd, unsigned long arg)
 {
 	int inode_minor, minor, i, err;
-	struct dm_ioctl_req kreq;
+	static struct dm_ioctl_req kreq;
 	struct dm_device *dev;
 
 	if (!inode)
@@ -810,6 +811,46 @@ static int dm_ioctl(struct inode *inode, struct file *file,
 		memcpy_tofs((void *)arg, &kreq, sizeof(struct dm_ioctl_req));
 		return 0;
 
+	case DM_IOC_OTA_ACTIVATE: {
+		int target_slot;
+		if (!suser())
+			return -EPERM;
+		target_slot = (int)arg;
+		if (target_slot != 0 && target_slot != 1)
+			return -EINVAL;
+		return dm_activate_ota_slot(target_slot);
+	}
+
+	case DM_IOC_OTA_STATUS: {
+		struct dm_ota_status st;
+		if (!arg)
+			return -EINVAL;
+		err = verify_area(VERIFY_WRITE, (void *)arg, sizeof(st));
+		if (err)
+			return err;
+		memset(&st, 0, sizeof(st));
+		st.active_slot = (ufs_get_active_boot_lun() == 2 &&
+				  dm_devs[0].active &&
+				  dm_devs[0].targets[0].offset_sector > 0) ? 1 : 0;
+		st.boot_lun_id = ufs_get_active_boot_lun();
+		if (dm_devs[0].active && dm_devs[0].num_targets > 0) {
+			st.system_start_sector = dm_devs[0].targets[0].offset_sector;
+			st.system_hash_sector = dm_devs[0].targets[0].hash_start_sector;
+			strncpy(st.system_root_hash, dm_devs[0].targets[0].root_hash, 64);
+			st.system_verified = dm_devs[0].targets[0].verified_blocks;
+			st.system_corrupt = dm_devs[0].targets[0].corrupt_blocks;
+		}
+		if (dm_devs[6].active && dm_devs[6].num_targets > 0) {
+			st.vendor_start_sector = dm_devs[6].targets[0].offset_sector;
+			st.vendor_hash_sector = dm_devs[6].targets[0].hash_start_sector;
+			strncpy(st.vendor_root_hash, dm_devs[6].targets[0].root_hash, 64);
+			st.vendor_verified = dm_devs[6].targets[0].verified_blocks;
+			st.vendor_corrupt = dm_devs[6].targets[0].corrupt_blocks;
+		}
+		memcpy_tofs((void *)arg, &st, sizeof(st));
+		return 0;
+	}
+
 	default:
 		return -EINVAL;
 	}
@@ -968,7 +1009,8 @@ void dm_notify_bdev_write(kdev_t bdev)
 				kdev_t dm_kdev = MKDEV(DM_MAJOR, i);
 				struct inode *ino = first_inode;
 				for (k = 0; k < nr_inodes && ino; k++, ino = ino->i_next) {
-					if (ino->i_dev == dm_kdev)
+					if (ino->i_dev == dm_kdev ||
+					    (ino->i_sb && ino->i_sb->s_magic == 0x794c7630UL))
 						truncate_inode_pages(ino, 0);
 				}
 				invalidate_buffers(dm_kdev);
@@ -978,80 +1020,303 @@ void dm_notify_bdev_write(kdev_t bdev)
 	}
 }
 
+static void dm_bytes_to_hex(const unsigned char in[32], char out[65])
+{
+	static const char hex_chars[] = "0123456789abcdef";
+	int i;
+
+	for (i = 0; i < 32; i++) {
+		out[i * 2 + 0] = hex_chars[(in[i] >> 4) & 0x0f];
+		out[i * 2 + 1] = hex_chars[in[i] & 0x0f];
+	}
+	out[64] = '\0';
+}
+
+static void dm_seed_ufs_vbmeta_if_needed(void)
+{
+	static struct six_avb_vbmeta vbm_a, vbm_b;
+	int reseed_b = 0;
+
+	if (ufs_read_boot_vbmeta(1, &vbm_a) != 0)
+		return;
+	if (memcmp(vbm_a.magic, SIX_AVB_VBMETA_MAGIC, 4) != 0 ||
+	    (vbm_a.rollback_index <= 1ULL &&
+	     memcmp(vbm_a.system_root_hash, verity_bin_root_hash, 32) != 0)) {
+		memset(&vbm_a, 0, sizeof(vbm_a));
+		memcpy(vbm_a.magic, SIX_AVB_VBMETA_MAGIC, 4);
+		vbm_a.version = 1;
+		vbm_a.slot = 0;
+		vbm_a.priority = 15;
+		vbm_a.tries_remaining = 7;
+		vbm_a.flags = SIX_SLOT_FLAG_BOOTABLE | SIX_SLOT_FLAG_SUCCESSFUL | SIX_SLOT_FLAG_ACTIVE;
+		vbm_a.rollback_index = 1ULL;
+		memcpy(vbm_a.system_root_hash, verity_bin_root_hash, 32);
+#ifdef VERITY_VENDOR_A_START_SECTOR
+		memcpy(vbm_a.vendor_root_hash, verity_vendor_root_hash, 32);
+#endif
+		strcpy(vbm_a.build_id, "SIX.261003.001.A1");
+		strcpy(vbm_a.release_str, "16 (20261003.0001)");
+		ufs_write_boot_vbmeta(1, &vbm_a);
+		ufs_set_active_boot_lun(1);
+		reseed_b = 1;
+	}
+
+	if (ufs_read_boot_vbmeta(2, &vbm_b) == 0 &&
+	    (reseed_b || memcmp(vbm_b.magic, SIX_AVB_VBMETA_MAGIC, 4) != 0)) {
+		memset(&vbm_b, 0, sizeof(vbm_b));
+		memcpy(vbm_b.magic, SIX_AVB_VBMETA_MAGIC, 4);
+		vbm_b.version = 1;
+		vbm_b.slot = 1;
+		vbm_b.priority = 14;
+		vbm_b.tries_remaining = 7;
+		vbm_b.flags = SIX_SLOT_FLAG_BOOTABLE | SIX_SLOT_FLAG_SUCCESSFUL;
+		vbm_b.rollback_index = 1ULL;
+#ifdef VERITY_SYSTEM_B_START_SECTOR
+		memcpy(vbm_b.system_root_hash, verity_bin_b_root_hash, 32);
+#endif
+#ifdef VERITY_VENDOR_B_START_SECTOR
+		memcpy(vbm_b.vendor_root_hash, verity_vendor_b_root_hash, 32);
+#endif
+		strcpy(vbm_b.build_id, "SIX.261003.001.B1");
+		strcpy(vbm_b.release_str, "16 (20261003.0002)");
+		ufs_write_boot_vbmeta(2, &vbm_b);
+	}
+}
+
+static int dm_setup_verity_slice(int minor, const char *name,
+				 unsigned long offset_sec,
+				 unsigned long data_secs,
+				 unsigned long hash_sec,
+				 const unsigned char expected_root_hash[32],
+				 int check_blocks)
+{
+	static struct dm_device tmp_dev;
+	static struct six_verity_sb sb;
+	struct dm_target_spec *t;
+	kdev_t hdd_dev = MKDEV(HD_MAJOR, 192);
+	int blk;
+
+	if (dm_read_phys_1k(hdd_dev, hash_sec, dm_verity_data_buf) != 0) {
+		printk("device-mapper: verity: cannot read superblock for %s at sector %lu\n",
+		       name, hash_sec);
+		return -EIO;
+	}
+	memcpy(&sb, dm_verity_data_buf, sizeof(sb));
+	if (memcmp(sb.magic, "verity\0\0", 8) != 0 || sb.version != 1) {
+		printk("device-mapper: verity: invalid superblock magic for %s at sector %lu\n",
+		       name, hash_sec);
+		return -EINVAL;
+	}
+	if (memcmp(sb.root_hash, expected_root_hash, 32) != 0) {
+		printk("device-mapper: verity: %s superblock root hash mismatch against trusted vbmeta!\n",
+		       name);
+		return -EIO;
+	}
+
+	memset(&tmp_dev, 0, sizeof(tmp_dev));
+	strncpy(tmp_dev.name, name, DM_NAME_LEN - 1);
+	tmp_dev.ro = 1;
+	tmp_dev.open_count = dm_devs[minor].active ? dm_devs[minor].open_count : 1;
+	tmp_dev.num_targets = 1;
+	tmp_dev.total_sectors = data_secs;
+	memcpy(tmp_dev.verity_salt, sb.salt, 32);
+	memcpy(tmp_dev.verity_root_hash, expected_root_hash, 32);
+
+	t = &tmp_dev.targets[0];
+	t->start_sector = 0;
+	t->num_sectors = data_secs;
+	t->type = DM_TARGET_VERITY;
+	t->bdev = (HD_MAJOR << 8) | 192;
+	strcpy(t->dev_name, "/dev/hdd");
+	t->offset_sector = offset_sec;
+	t->hash_start_sector = hash_sec;
+	strcpy(t->cipher, "sha256");
+	dm_bytes_to_hex(expected_root_hash, t->root_hash);
+
+	for (blk = 0; blk < check_blocks; blk++) {
+		if (dm_read_phys_1k(hdd_dev, offset_sec + ((unsigned long)blk << 1),
+				    dm_verity_data_buf) != 0 ||
+		    dm_verify_verity_block(&tmp_dev, t, (unsigned long)blk,
+					   dm_verity_data_buf) != 0) {
+			printk("device-mapper: verity: %s Merkle tree verification FAILED at block %d (sector %lu)!\n",
+			       name, blk, offset_sec + ((unsigned long)blk << 1));
+			return -EIO;
+		}
+	}
+
+	dm_devs[minor] = tmp_dev;
+	dm_devs[minor].active = 1;
+	dm_devs[minor].suspended = 0;
+	dm_sizes[minor] = tmp_dev.total_sectors >> (BLOCK_SIZE_BITS - 9);
+	dm_blocksizes[minor] = 1024;
+	set_device_ro(MKDEV(DM_MAJOR, minor), 1);
+	return 0;
+}
+
+int dm_activate_ota_slot(int slot)
+{
+	kdev_t hdd_dev = MKDEV(HD_MAJOR, 192);
+	static struct six_avb_vbmeta vbm, vbm_other;
+	unsigned long sys_start, sys_data, sys_hash;
+	unsigned long vnd_start, vnd_data, vnd_hash;
+	const unsigned char *sys_root = verity_bin_root_hash;
+	const unsigned char *vnd_root = verity_bin_root_hash;
+	int boot_lun, other_lun;
+	int has_ab_super = 0;
+	int rolled_back = 0;
+
+	if (six_disk_fd[3] < 0)
+		return -ENODEV;
+
+	fsync_dev(hdd_dev);
+
+#ifdef VERITY_VENDOR_B_HASH_SECTOR
+	if ((unsigned long)six_disk_sectors[3] >= VERITY_VENDOR_B_HASH_SECTOR + 2048UL)
+		has_ab_super = 1;
+#endif
+
+	if (!has_ab_super) {
+		if (slot != 0)
+			return -ENODEV;
+		return dm_setup_verity_slice(0, "verity_bin", 0,
+					     VERITY_BIN_DATA_SECTORS,
+					     VERITY_BIN_HASH_START_SECTOR,
+					     verity_bin_root_hash, 2);
+	}
+
+	dm_seed_ufs_vbmeta_if_needed();
+
+retry_slot:
+	boot_lun = (slot == 1) ? 2 : 1;
+	other_lun = (slot == 1) ? 1 : 2;
+
+#ifdef VERITY_VENDOR_B_HASH_SECTOR
+	if (slot == 0) {
+		sys_start = 0UL;
+		sys_data  = VERITY_BIN_DATA_SECTORS;
+		sys_hash  = VERITY_BIN_HASH_START_SECTOR;
+		vnd_start = VERITY_VENDOR_A_START_SECTOR;
+		vnd_data  = VERITY_VENDOR_DATA_SECTORS;
+		vnd_hash  = VERITY_VENDOR_A_HASH_SECTOR;
+		sys_root  = verity_bin_root_hash;
+		vnd_root  = verity_vendor_root_hash;
+	} else {
+		sys_start = VERITY_SYSTEM_B_START_SECTOR;
+		sys_data  = VERITY_BIN_DATA_SECTORS;
+		sys_hash  = VERITY_SYSTEM_B_HASH_SECTOR;
+		vnd_start = VERITY_VENDOR_B_START_SECTOR;
+		vnd_data  = VERITY_VENDOR_DATA_SECTORS;
+		vnd_hash  = VERITY_VENDOR_B_HASH_SECTOR;
+		sys_root  = verity_bin_b_root_hash;
+		vnd_root  = verity_vendor_b_root_hash;
+	}
+#else
+	sys_start = 0;
+	sys_data  = VERITY_BIN_DATA_SECTORS;
+	sys_hash  = VERITY_BIN_HASH_START_SECTOR;
+	vnd_start = 0;
+	vnd_data  = VERITY_BIN_DATA_SECTORS;
+	vnd_hash  = VERITY_BIN_HASH_START_SECTOR;
+	sys_root  = verity_bin_root_hash;
+	vnd_root  = verity_bin_root_hash;
+#endif
+
+	if (ufs_read_boot_vbmeta(boot_lun, &vbm) == 0 &&
+	    memcmp(vbm.magic, SIX_AVB_VBMETA_MAGIC, 4) == 0) {
+		if ((vbm.flags & SIX_SLOT_FLAG_UNBOOTABLE) ||
+		    !(vbm.flags & SIX_SLOT_FLAG_BOOTABLE)) {
+			printk("device-mapper: verity: slot_%c is marked UNBOOTABLE in UFS vbmeta!\n",
+			       slot ? 'b' : 'a');
+			if (slot == 1 && !rolled_back)
+				goto rollback_to_a;
+			return -EIO;
+		}
+		sys_root = vbm.system_root_hash;
+		vnd_root = vbm.vendor_root_hash;
+	}
+
+	if (dm_setup_verity_slice(0, "verity_bin", sys_start, sys_data, sys_hash, sys_root, 16) != 0 ||
+	    dm_setup_verity_slice(6, "verity_vnd", vnd_start, vnd_data, vnd_hash, vnd_root, 16) != 0) {
+		if (slot == 1 && !rolled_back)
+			goto rollback_to_a;
+		return -EIO;
+	}
+
+	if (ufs_read_boot_vbmeta(boot_lun, &vbm) == 0 &&
+	    memcmp(vbm.magic, SIX_AVB_VBMETA_MAGIC, 4) == 0) {
+		vbm.flags |= (SIX_SLOT_FLAG_BOOTABLE | SIX_SLOT_FLAG_SUCCESSFUL | SIX_SLOT_FLAG_ACTIVE);
+		vbm.flags &= ~SIX_SLOT_FLAG_UNBOOTABLE;
+		vbm.priority = 15;
+		if (vbm.tries_remaining == 0)
+			vbm.tries_remaining = 7;
+		ufs_write_boot_vbmeta(boot_lun, &vbm);
+	}
+	if (ufs_read_boot_vbmeta(other_lun, &vbm_other) == 0 &&
+	    memcmp(vbm_other.magic, SIX_AVB_VBMETA_MAGIC, 4) == 0) {
+		vbm_other.flags &= ~SIX_SLOT_FLAG_ACTIVE;
+		if (vbm_other.priority >= 15)
+			vbm_other.priority = 14;
+		ufs_write_boot_vbmeta(other_lun, &vbm_other);
+	}
+	ufs_set_active_boot_lun(boot_lun);
+	dm_notify_bdev_write(hdd_dev);
+
+	printk("device-mapper: verity: activated slot_%c (bBootLunID=0x%02x): system @ /dev/hdd+%lu (%.16s...), vendor @ /dev/hdd+%lu (%.16s...)\n",
+	       slot ? 'b' : 'a', boot_lun,
+	       sys_start, dm_devs[0].targets[0].root_hash,
+	       vnd_start, dm_devs[6].targets[0].root_hash);
+	return rolled_back ? -EIO : 0;
+
+rollback_to_a:
+	printk("device-mapper: verity: Slot B (_b) verification FAILED! Rolling back UFS bBootLunID to Slot A (_a)...\n");
+	if (ufs_read_boot_vbmeta(2, &vbm) == 0 &&
+	    memcmp(vbm.magic, SIX_AVB_VBMETA_MAGIC, 4) == 0) {
+		vbm.flags &= ~(SIX_SLOT_FLAG_BOOTABLE | SIX_SLOT_FLAG_SUCCESSFUL | SIX_SLOT_FLAG_ACTIVE);
+		vbm.flags |= SIX_SLOT_FLAG_UNBOOTABLE;
+		vbm.tries_remaining = 0;
+		vbm.priority = 0;
+		ufs_write_boot_vbmeta(2, &vbm);
+	}
+	ufs_set_active_boot_lun(1);
+	slot = 0;
+	rolled_back = 1;
+	goto retry_slot;
+}
+
 /*
- * In-kernel dm-verity setup for /bin (/dev/hdd -> /dev/dm-0 -> /dev/mapper/verity_bin)
- * and Native EROFS Verity linear mapping for /bin-sarthak (/dev/hdd@32768 -> /dev/dm-7
- * -> /dev/mapper/sarthak_bin).
+ * In-kernel dm-verity setup for /system (/dev/dm-0 -> /dev/mapper/verity_bin),
+ * /vendor (/dev/dm-6 -> /dev/mapper/verity_vendor), and Native EROFS Verity
+ * linear mapping for /system/bin-sarthak (/dev/dm-7 -> /dev/mapper/sarthak_bin).
  * Called by init() in init/main.c immediately after mounting the root filesystem
  * and before executing /etc/init.
  */
 int dm_setup_verity_bin(void)
 {
-	struct dm_device *dev = &dm_devs[0];
-	struct dm_target_spec *t;
-	struct six_verity_sb sb;
-	kdev_t hdd_dev = MKDEV(HD_MAJOR, 192);
+	int target_slot;
+	int rc;
 
 	if (six_disk_fd[3] < 0)
 		return -ENODEV;
 
-	if (dm_read_phys_1k(hdd_dev, VERITY_BIN_HASH_START_SECTOR, dm_verity_data_buf) != 0) {
-		printk("device-mapper: verity: cannot read superblock on /dev/hdd\n");
-		return -EIO;
+	dm_seed_ufs_vbmeta_if_needed();
+	target_slot = (ufs_get_active_boot_lun() == 2) ? 1 : 0;
+	rc = dm_activate_ota_slot(target_slot);
+	if (rc != 0 && target_slot == 1 && dm_devs[0].active) {
+		/* Automatic rollback from Slot B to Slot A succeeded */
+		rc = 0;
 	}
-	memcpy(&sb, dm_verity_data_buf, sizeof(sb));
-	if (memcmp(sb.magic, "verity\0\0", 8) != 0 || sb.version != 1) {
-		printk("device-mapper: verity: no valid superblock on /dev/hdd\n");
-		return -EINVAL;
-	}
-	if (memcmp(sb.root_hash, verity_bin_root_hash, 32) != 0) {
-		printk("device-mapper: verity: superblock root hash mismatch against kernel trusted root hash!\n");
-		return -EIO;
-	}
+	if (rc != 0)
+		return rc;
 
-	memset(dev, 0, sizeof(*dev));
-	strcpy(dev->name, "verity_bin");
-	dev->ro = 1;
-	dev->open_count = 1;
-	dev->num_targets = 1;
-	dev->total_sectors = VERITY_BIN_DATA_SECTORS;
-	memcpy(dev->verity_salt, sb.salt, 32);
-	memcpy(dev->verity_root_hash, verity_bin_root_hash, 32);
-
-	t = &dev->targets[0];
-	t->start_sector = 0;
-	t->num_sectors = VERITY_BIN_DATA_SECTORS;
-	t->type = DM_TARGET_VERITY;
-	t->bdev = (HD_MAJOR << 8) | 192;
-	strcpy(t->dev_name, "/dev/hdd");
-	t->offset_sector = 0;
-	t->hash_start_sector = VERITY_BIN_HASH_START_SECTOR;
-	strcpy(t->cipher, "sha256");
-	strcpy(t->root_hash, VERITY_BIN_ROOT_HASH_HEX);
-
-	/* Pre-verify block 0 and block 1 (EROFS/ext4 superblock) before activating */
-	if (dm_read_phys_1k(hdd_dev, 0, dm_verity_data_buf) != 0 ||
-	    dm_verify_verity_block(dev, t, 0, dm_verity_data_buf) != 0 ||
-	    dm_read_phys_1k(hdd_dev, 2, dm_verity_data_buf) != 0 ||
-	    dm_verify_verity_block(dev, t, 1, dm_verity_data_buf) != 0) {
-		printk("device-mapper: verity: initial Merkle tree verification FAILED on /dev/hdd!\n");
-		memset(dev, 0, sizeof(*dev));
-		return -EIO;
-	}
-
-	dev->active = 1;
-	dev->suspended = 0;
-	dm_sizes[0] = dev->total_sectors >> (BLOCK_SIZE_BITS - 9);
-	dm_blocksizes[0] = 1024;
-	set_device_ro(MKDEV(DM_MAJOR, 0), 1);
-
-	printk("device-mapper: verity: SHA-256 Merkle root %.16s... verified on /dev/hdd\n",
-	       VERITY_BIN_ROOT_HASH_HEX);
 	printk("device-mapper: created /dev/dm-0 (verity_bin), %lu sectors (%lu KB, read-only)\n",
-	       dev->total_sectors, dev->total_sectors >> 1);
+	       dm_devs[0].total_sectors, dm_devs[0].total_sectors >> 1);
+	if (dm_devs[6].active) {
+		printk("device-mapper: created /dev/dm-6 (verity_vnd), %lu sectors (%lu KB, read-only)\n",
+		       dm_devs[6].total_sectors, dm_devs[6].total_sectors >> 1);
+	}
 
 #ifdef SARTHAK_BIN_START_SECTOR
-	/* Set up /dev/dm-7 (sarthak_bin) if the second 16 MB half is present on /dev/hdd */
+	/* Set up /dev/dm-7 (sarthak_bin) if the second 16 MB slice is present on /dev/hdd */
 	if ((unsigned long)six_disk_sectors[3] >= SARTHAK_BIN_START_SECTOR + SARTHAK_BIN_DATA_SECTORS) {
 		struct dm_device *sdev = &dm_devs[7];
 		struct dm_target_spec *st;

@@ -74,6 +74,9 @@ static const char *find_mountpoint(const char *dev_path, const char *alt_path, i
 			return mounts[i].mnt;
 		if (alt_path && strcmp(mounts[i].dev, alt_path) == 0)
 			return mounts[i].mnt;
+		if (strcmp(dev_path, "/dev/mapper/verity_vnd") == 0 &&
+		    strcmp(mounts[i].dev, "/dev/mapper/verity_vendor") == 0)
+			return mounts[i].mnt;
 		if (is_root_hda && strcmp(mounts[i].dev, "rootfs") == 0)
 			return mounts[i].mnt;
 	}

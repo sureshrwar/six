@@ -38,6 +38,8 @@ disk/*/root
 disk/*/bin_storage
 include/linux/verity_roothash.h
 port/image/.stage_bin/
+port/image/.stage_system/
+port/image/.stage_vendor/
 port/image/.bin_part.img
 port/image/.bin_stamp
 
@@ -185,6 +187,7 @@ applications/*/ufs
 applications/*/fwupdmgr
 applications/*/selinux
 applications/*/sarthak
+applications/*/ota
 applications/ntfs-3g/ntfs-3g
 applications/ntfs-3g/ntfs-3g.probe
 applications/ntfs-3g/mkntfs

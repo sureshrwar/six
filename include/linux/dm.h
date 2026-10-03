@@ -26,6 +26,23 @@
 #define DM_IOC_RESUME		0x4404
 #define DM_IOC_STATUS		0x4405
 #define DM_IOC_REMOVE_ALL	0x4406
+#define DM_IOC_OTA_ACTIVATE	0x4407
+#define DM_IOC_OTA_STATUS	0x4408
+
+struct dm_ota_status {
+	int active_slot;		/* 0 = slot_a, 1 = slot_b */
+	int boot_lun_id;		/* 1 = /dev/ufsb, 2 = /dev/ufsc */
+	unsigned long system_start_sector;
+	unsigned long system_hash_sector;
+	char system_root_hash[68];
+	unsigned long system_verified;
+	unsigned long system_corrupt;
+	unsigned long vendor_start_sector;
+	unsigned long vendor_hash_sector;
+	char vendor_root_hash[68];
+	unsigned long vendor_verified;
+	unsigned long vendor_corrupt;
+};
 
 struct dm_target_spec {
 	unsigned long start_sector;
@@ -65,6 +82,7 @@ struct dm_ioctl_req {
 #ifdef __KERNEL__
 int dm_init(void);
 int dm_setup_verity_bin(void);
+int dm_activate_ota_slot(int slot);
 void dm_notify_bdev_write(kdev_t bdev);
 int get_dm_status_proc(char *buf);
 #endif

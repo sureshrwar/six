@@ -195,8 +195,31 @@ def apply_manifest_metadata(root: Node, manifest_path: str, mode: str) -> None:
                     root.mode = stat.S_IFDIR | perm
                     continue
                 path = path[4:]  # strip leading "/bin"
+            elif mode == "system":
+                if path == "/system":
+                    root.mode = stat.S_IFDIR | perm
+                    continue
+                elif path == "/system/bin":
+                    continue
+                elif path.startswith("/system/"):
+                    path = path[7:]  # strip leading "/system" -> "/etc/..."
+                elif path in ("/bin", "/bin-sarthak") or path.startswith("/bin/"):
+                    pass  # keep "/bin", "/bin-sarthak", "/bin/..." under /system
+                else:
+                    continue
+            elif mode == "vendor":
+                if path != "/vendor" and not path.startswith("/vendor/"):
+                    continue
+                if path == "/vendor":
+                    root.mode = stat.S_IFDIR | perm
+                    continue
+                path = path[7:]  # strip leading "/vendor" -> "/bin/...", "/etc/..."
             elif mode == "root":
-                if path.startswith("/bin/"):
+                if (
+                    path.startswith("/bin/")
+                    or path.startswith("/system/")
+                    or path.startswith("/vendor/")
+                ):
                     continue
 
             if path == "/":
@@ -237,7 +260,10 @@ def collect_nodes(root: Node) -> list:
     def walk(n: Node):
         nodes.append(n)
         if n.is_dir():
-            for k in sorted(n.children.keys()):
+            for k in sorted(
+                n.children.keys(),
+                key=lambda name: (1 if n.children[name].is_dir() else 0, name),
+            ):
                 walk(n.children[k])
 
     walk(root)

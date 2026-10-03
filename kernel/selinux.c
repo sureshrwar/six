@@ -2026,7 +2026,19 @@ static unsigned short selinux_match_path_sid(const char *path)
 		strncpy(norm_buf + 5, path + 13, sizeof(norm_buf) - 6);
 		norm_buf[sizeof(norm_buf) - 1] = '\0';
 		path = norm_buf;
-	} else if (!strcmp(path, "/bin-sarthak")) {
+	} else if (!strncmp(path, "/system/bin-sarthak/", 20)) {
+		strcpy(norm_buf, "/bin/");
+		strncpy(norm_buf + 5, path + 20, sizeof(norm_buf) - 6);
+		norm_buf[sizeof(norm_buf) - 1] = '\0';
+		path = norm_buf;
+	} else if (!strncmp(path, "/system/bin/", 12)) {
+		strcpy(norm_buf, "/bin/");
+		strncpy(norm_buf + 5, path + 12, sizeof(norm_buf) - 6);
+		norm_buf[sizeof(norm_buf) - 1] = '\0';
+		path = norm_buf;
+	} else if (!strcmp(path, "/bin-sarthak") ||
+		   !strcmp(path, "/system/bin-sarthak") ||
+		   !strcmp(path, "/system/bin")) {
 		return sid_system_file;
 	}
 
@@ -2258,6 +2270,9 @@ unsigned short selinux_inode_sid(struct inode *inode)
 	if (MAJOR(inode->i_dev) == NVME_MAJOR) {
 		return (inode->i_sec_sid = sid_system_data_file);
 	}
+	if (MAJOR(inode->i_dev) == DM_MAJOR && MINOR(inode->i_dev) == 6) {
+		return (inode->i_sec_sid = sid_vendor_file);
+	}
 	if (inode->i_ino == 2 && S_ISDIR(inode->i_mode)) {
 		return (inode->i_sec_sid = sid_rootfs);
 	}
@@ -2337,8 +2352,27 @@ void selinux_d_instantiate(unsigned short dir_dev, unsigned long dir_ino,
 	} else if (MAJOR(dir_dev) == UFS_MAJOR && dir_ino == 2) {
 		strcpy(full_path, "/ufs");
 		plen = 4;
-	} else if (result->i_sb && (result->i_sb->s_magic == 0x794c7630UL ||
-				    result->i_sb->s_magic == 0xE0F5E1E2UL)) {
+	} else if (result->i_sb && result->i_sb->s_magic == 0x794c7630UL) {
+		strcpy(full_path, "/bin");
+		plen = 4;
+	} else if (MAJOR(dir_dev) == DM_MAJOR && MINOR(dir_dev) == 6) {
+		strcpy(full_path, "/vendor");
+		plen = 7;
+	} else if (MAJOR(dir_dev) == DM_MAJOR && MINOR(dir_dev) == 7) {
+		strcpy(full_path, "/bin-sarthak");
+		plen = 12;
+	} else if (MAJOR(dir_dev) == DM_MAJOR && MINOR(dir_dev) == 0) {
+		if ((len == 3 && !strncmp(name, "bin", 3)) ||
+		    (len == 3 && !strncmp(name, "etc", 3)) ||
+		    (len == 10 && !strncmp(name, "build.prop", 10)) ||
+		    (len == 11 && !strncmp(name, "bin-sarthak", 11))) {
+			strcpy(full_path, "/system");
+			plen = 7;
+		} else {
+			strcpy(full_path, "/bin");
+			plen = 4;
+		}
+	} else if (result->i_sb && result->i_sb->s_magic == 0xE0F5E1E2UL) {
 		strcpy(full_path, "/bin");
 		plen = 4;
 	} else if (dir_ino == 2) {

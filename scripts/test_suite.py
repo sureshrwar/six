@@ -444,10 +444,10 @@ TESTS = [
     ),
     TestCase(
         name="fs.erofs",
-        description="EROFS v1 on /bin (dm-verity) & /bin-sarthak (Native EROFS Verity go/erofs-verity), /bin/sarthak split-screen dual-shell comparator, tamper detection, and vold USB hotplug",
+        description="EROFS v1 on /system (dm-verity), /vendor (dm-verity) & /system/bin-sarthak (Native EROFS Verity go/erofs-verity), /bin/sarthak split-screen dual-shell comparator, tamper detection, and vold USB hotplug",
         cmd=(
             "grep erofs /proc/mounts && "
-            "grep '/bin.*erofs' /etc/fstab && "
+            "grep '/system.*erofs' /etc/fstab && "
             "sarthak --compare 'uname -a' && "
             "echo tamper > /proc/erofs && "
             "(/bin-sarthak/uname -a || echo SARTHAK_TAMPER_BLOCKED_OK) && "
@@ -469,8 +469,9 @@ TESTS = [
             r"__KEYS__:exit\r",
         ],
         expected_substrings=[
-            "/dev/mapper/verity_bin /bin erofs ro",
-            "/dev/mapper/sarthak_bin /bin-sarthak erofs ro,erofs_verity,root_digest=",
+            "/dev/mapper/verity_bin /system erofs ro",
+            "/dev/mapper/sarthak_bin /system/bin-sarthak erofs ro,erofs_verity,root_digest=",
+            "/dev/mapper/verity_vendor /vendor erofs ro",
             "[/bin] Stock EROFS + dm-verity         | [/bin-sarthak] go/erofs-verity",
             "0 Merkle (inline)",
             "fewer SHA-256 rounds",
@@ -482,6 +483,7 @@ TESTS = [
             "PUBLIC(EROFS)",
             "bin_verity",
             "bin_sarthak",
+            "vendor_verity",
             "SANDISK_EROFS",
             "SanDisk Extreme EROFS Read-Only Flash Drive",
         ],
@@ -1134,6 +1136,49 @@ TESTS = [
             "#============= shell ==============",
             "changing security context of '/tmp/selinux_ctx_test' to 'u:object_r:vendor_data_file:s0'",
             "Relabeling /tmp/selinux_ctx_test from u:object_r:vendor_data_file:s0 to u:object_r:tmpfs:s0.",
+        ],
+    ),
+    TestCase(
+        name="ota.ab_seamless_update_and_rollback",
+        description="Android System-as-Root (/system & /vendor EROFS + dm-verity, /bin -> /system/bin), Live Seamless A/B OTA (/bin/ota & /bin/bootctl), UFS AVB0 vbmeta & RPMB anti-rollback, and automatic dm-verity corruption rollback",
+        cmd=(
+            "readlink /bin && "
+            "readlink /bin-sarthak && "
+            "ls -la /system/etc/selinux/public/domain.te /vendor/etc/selinux/fwupd.te && "
+            "bootctl get-current-slot && "
+            "bootctl get-suffix && "
+            "ota status && "
+            "ota apply SIX.261003.099.B2 && "
+            "bootctl get-current-slot && "
+            "bootctl get-suffix && "
+            "grep 'ro.build.id=' /system/build.prop && "
+            "grep 'ro.vendor.build.id=' /vendor/build.prop && "
+            "ota status && "
+            "ota switch a && "
+            "grep 'ro.build.id=' /system/build.prop && "
+            "ota corrupt-b && "
+            "(ota switch b || echo OTA_SLOT_B_ROLLBACK_OK) && "
+            "ota status && "
+            "ota repair-b && "
+            "ota switch a"
+        ),
+        expected_substrings=[
+            "/system/bin",
+            "/system/bin-sarthak",
+            "/system/etc/selinux/public/domain.te",
+            "/vendor/etc/selinux/fwupd.te",
+            "=== Android Seamless A/B OTA & AVB 2.0 Boot Control Status ===",
+            "[update_engine] Starting Seamless A/B OTA payload application -> slot_b (_b)",
+            "[update_engine] Signed AVB0 vbmeta on /dev/ufsc",
+            "OTA Slot Activated Live: slot_b (_b, UFS bBootLunID=0x02, build=SIX.261003.099.B2)",
+            "ro.build.id=SIX.261003.099.B2",
+            "ro.vendor.build.id=SIX.261003.099.B2",
+            "OTA Slot Activated Live: slot_a (_a, UFS bBootLunID=0x01",
+            "ota corrupt-b: Corrupted system_b block 1",
+            "Automatic Rollback triggered -> active slot is slot_a (bBootLunID=0x01)",
+            "OTA_SLOT_B_ROLLBACK_OK",
+            "UNBOOTABLE",
+            "ota repair-b: Restored system_b block 1 and cleared UNBOOTABLE flag on /dev/ufsc",
         ],
     ),
 ]

@@ -274,8 +274,12 @@ static int mount_from_fstab(const char *match_target)
 				continue;
 			found = 1;
 		} else {
-			/* mount -a: skip root, /bin, none, auto, or noauto entries */
+			/* mount -a: skip root, /bin, /system, /vendor, none, auto, or noauto entries */
 			if (!strcmp(mnt, "/") || !strcmp(mnt, "/bin") ||
+			    !strcmp(mnt, "/bin-sarthak") ||
+			    !strcmp(mnt, "/system") ||
+			    !strcmp(mnt, "/system/bin-sarthak") ||
+			    !strcmp(mnt, "/vendor") ||
 			    !strcmp(mnt, "none") || !strcmp(mnt, "auto"))
 				continue;
 			if (strstr(mntflags, "noauto") || strstr(fsmgr, "noauto"))

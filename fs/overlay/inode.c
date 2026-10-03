@@ -1411,17 +1411,21 @@ struct super_block *overlay_read_super(struct super_block *sb, void *data,
 		strncpy(opt_buf, (char *)data, sizeof(opt_buf) - 1);
 		opt_buf[sizeof(opt_buf) - 1] = '\0';
 	} else {
-		strcpy(opt_buf, "lowerdir=/bin,upperdir=/var/overlay/bin");
+		strcpy(opt_buf, "lowerdir=/system/bin,upperdir=/var/overlay/bin");
 	}
 	ovl_parse_options(opt_buf, lower_path, upper_path);
 	if (!lower_path[0])
-		strcpy(lower_path, "/bin");
+		strcpy(lower_path, "/system/bin");
 	if (!upper_path[0])
 		strcpy(upper_path, "/var/overlay/bin");
 
 	old_fs = get_fs();
 	set_fs(get_ds());
 	err = namei(lower_path, &lower_root);
+	if ((err || !lower_root) && strcmp(lower_path, "/system/bin") == 0) {
+		strcpy(lower_path, "/bin");
+		err = namei(lower_path, &lower_root);
+	}
 	if (err || !lower_root) {
 		set_fs(old_fs);
 		if (!silent)

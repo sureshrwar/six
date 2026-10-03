@@ -39,7 +39,7 @@
 #include <linux/pagemap.h>
 #include <linux/major.h>
 
-#define EROFS_MAX_MOUNTS 4
+#define EROFS_MAX_MOUNTS 8
 static struct super_block *erofs_mounts[EROFS_MAX_MOUNTS];
 static unsigned long erofs_last_dm_ver[EROFS_MAX_MOUNTS];
 static int erofs_auto_cold = 0;     /* 0=warm, 1=cold data, 2=cold data+meta */
@@ -1255,7 +1255,8 @@ static void erofs_flush_cold_sb(struct super_block *sb, int flush_meta_bitmap)
 
 	ino = first_inode;
 	for (k = 0; k < nr_inodes && ino; k++, ino = ino->i_next) {
-		if (ino->i_dev == sb->s_dev)
+		if (ino->i_dev == sb->s_dev ||
+		    (ino->i_sb && ino->i_sb->s_magic == 0x794c7630UL))
 			truncate_inode_pages(ino, 0);
 	}
 	invalidate_buffers(sb->s_dev);
@@ -1290,26 +1291,46 @@ static unsigned long exec_s_meta_hits = 0;
 static struct super_block *erofs_find_mount_for_path(const char *filename)
 {
 	int want_verity = -1;
+	const char *want_label = NULL;
 	int i;
 
 	if (!filename || !filename[0])
 		return NULL;
-	if (strncmp(filename, "/bin-sarthak/", 13) == 0)
+	if (strncmp(filename, "/bin-sarthak/", 13) == 0 ||
+	    strncmp(filename, "/system/bin-sarthak/", 20) == 0) {
 		want_verity = 1;
-	else if (strncmp(filename, "/bin/", 5) == 0 ||
-		 strncmp(filename, "/system/bin/", 12) == 0)
+		want_label = "bin_sarthak";
+	} else if (strncmp(filename, "/bin/", 5) == 0 ||
+		   strncmp(filename, "/system/bin/", 12) == 0) {
 		want_verity = 0;
-	else if (filename[0] != '/' && current && current->fs && current->fs->pwd) {
+		want_label = "bin_verity";
+	} else if (strncmp(filename, "/vendor/", 8) == 0) {
+		want_verity = 0;
+		want_label = "vendor_verity";
+	} else if (filename[0] != '/' && current && current->fs && current->fs->pwd) {
 		struct inode *pwd = current->fs->pwd;
 		for (i = 0; i < EROFS_MAX_MOUNTS; i++) {
 			if (erofs_mounts[i] && pwd->i_dev == erofs_mounts[i]->s_dev)
 				return erofs_mounts[i];
 		}
-		if (pwd->i_sb && pwd->i_sb->s_magic == 0x794c7630UL)
+		if (pwd->i_sb && pwd->i_sb->s_magic == 0x794c7630UL) {
 			want_verity = 0;
+			want_label = "bin_verity";
+		}
 	}
 	if (want_verity < 0)
 		return NULL;
+
+	if (want_label) {
+		for (i = 0; i < EROFS_MAX_MOUNTS; i++) {
+			struct super_block *sb = erofs_mounts[i];
+			if (sb && sb->u.generic_sbp) {
+				struct erofs_sb_info *sbi = (struct erofs_sb_info *)sb->u.generic_sbp;
+				if (strcmp(sbi->volume_name, want_label) == 0)
+					return sb;
+			}
+		}
+	}
 
 	for (i = 0; i < EROFS_MAX_MOUNTS; i++) {
 		struct super_block *sb = erofs_mounts[i];
@@ -1485,6 +1506,8 @@ int get_erofs_proc_info(char *buf)
 			mnt_path = "/bin";
 		else if (strcmp(sbi->volume_name, "bin_sarthak") == 0)
 			mnt_path = "/bin-sarthak";
+		else if (strcmp(sbi->volume_name, "vendor_verity") == 0)
+			mnt_path = "/vendor";
 
 		len += sprintf(buf + len,
 			"mount=%s dev=/dev/%s label=%s mode=%s blocks=%u inos=%lu meta_blks=%u merkle_blks=%u\n"
