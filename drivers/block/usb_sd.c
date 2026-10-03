@@ -35,10 +35,11 @@
 
 static int usb_sd_fd = -1;
 static int usb_sd_online = 0;
+static unsigned long usb_sd_base_offset = SIX_PART_USB_EXT2_OFFSET;
 static char usb_sd_label[32] = "SAN_DISK_USB";
 static char usb_sd_uuid[32] = "4A8F-9C21";
 static char usb_sd_fstype[16] = "ext2";
-static char usb_sd_img_path[64] = "./disk/x86/usb_ext2.img";
+static char usb_sd_img_path[128] = "./disk/x86/root [p7:usb_ext2]";
 
 /* SCSI Field Firmware Update (FFU via WRITE_BUFFER 0x3B) state for /dev/sda */
 static struct fwupd_stream_state usb_sd_fw_stream;
@@ -85,7 +86,7 @@ void usb_sd_set_online(int online, const char *label, const char *uuid,
 {
 	extern void force_umount_dev(kdev_t dev);
 	int was_online = usb_sd_online && (usb_sd_fd >= 0);
-	char prev_path[64];
+	char prev_path[128];
 
 	strncpy(prev_path, usb_sd_img_path, sizeof(prev_path) - 1);
 	prev_path[sizeof(prev_path) - 1] = '\0';
@@ -106,23 +107,30 @@ void usb_sd_set_online(int online, const char *label, const char *uuid,
 	}
 
 	if (online) {
-		const char *path = "./disk/x86/usb_ext2.img";
-		if (fstype && strcmp(fstype, "ntfs") == 0)
-			path = "./disk/x86/usb_ntfs.img";
-		else if (fstype && strcmp(fstype, "ext4") == 0)
-			path = "./disk/x86/usb_ext4.img";
-		else if (fstype && strcmp(fstype, "erofs") == 0)
-			path = "./disk/x86/usb_erofs.img";
-		else if ((fstype && strcmp(fstype, "crypt") == 0) ||
-			 (uuid && strcmp(uuid, "CRYPT-8A01") == 0))
-			path = "./disk/x86/usb_crypt.img";
+		const char *part_desc = "p7:usb_ext2";
+		unsigned long part_off = SIX_PART_USB_EXT2_OFFSET;
 
-		strncpy(usb_sd_img_path, path, sizeof(usb_sd_img_path) - 1);
-		usb_sd_img_path[sizeof(usb_sd_img_path) - 1] = '\0';
+		if (fstype && strcmp(fstype, "ntfs") == 0) {
+			part_desc = "p10:usb_ntfs";
+			part_off  = SIX_PART_USB_NTFS_OFFSET;
+		} else if (fstype && strcmp(fstype, "ext4") == 0) {
+			part_desc = "p8:usb_ext4";
+			part_off  = SIX_PART_USB_EXT4_OFFSET;
+		} else if (fstype && strcmp(fstype, "erofs") == 0) {
+			part_desc = "p9:usb_erofs";
+			part_off  = SIX_PART_USB_EROFS_OFFSET;
+		} else if ((fstype && strcmp(fstype, "crypt") == 0) ||
+			   (uuid && strcmp(uuid, "CRYPT-8A01") == 0)) {
+			part_desc = "p11:usb_crypt";
+			part_off  = SIX_PART_USB_CRYPT_OFFSET;
+		}
 
-		usb_sd_fd = open(usb_sd_img_path, 2 | 0100, 0644); /* O_RDWR | O_CREAT */
+		sprintf(usb_sd_img_path, "%s [%s]", six_root_disk_path, part_desc);
+		usb_sd_base_offset = part_off;
+
+		usb_sd_fd = open(six_root_disk_path, 2 | 0100, 0644); /* O_RDWR | O_CREAT */
 		if (usb_sd_fd < 0) {
-			printk("usb_sd: cannot open host image %s\n", usb_sd_img_path);
+			printk("usb_sd: cannot open host image %s\n", six_root_disk_path);
 			usb_sd_online = 0;
 			sd_sizes[0] = 0;
 			sd_sizes[1] = 0;
@@ -130,7 +138,10 @@ void usb_sd_set_online(int online, const char *label, const char *uuid,
 		}
 		{
 			extern int ftruncate(int fd, unsigned long length);
-			ftruncate(usb_sd_fd, USB_SD_SECTORS * 512UL);
+			long cur_sz = lseek(usb_sd_fd, 0L, 2);
+			if (cur_sz < (long)(usb_sd_base_offset + USB_SD_SECTORS * 512UL)) {
+				ftruncate(usb_sd_fd, usb_sd_base_offset + USB_SD_SECTORS * 512UL);
+			}
 		}
 
 		usb_sd_online = 1;
@@ -189,7 +200,7 @@ int usb_sd_rw_sector(int minor, unsigned long phys_sec,
 		}
 		if (bh)
 			brelse(bh);
-		lseek(usb_sd_fd, (long)phys_sec * 512L, 0);
+		lseek(usb_sd_fd, (long)usb_sd_base_offset + (long)phys_sec * 512L, 0);
 		if (read(usb_sd_fd, buf, 512) != 512)
 			return -EIO;
 		return 0;
@@ -199,7 +210,7 @@ int usb_sd_rw_sector(int minor, unsigned long phys_sec,
 				brelse(bh);
 			return -EROFS;
 		}
-		lseek(usb_sd_fd, (long)phys_sec * 512L, 0);
+		lseek(usb_sd_fd, (long)usb_sd_base_offset + (long)phys_sec * 512L, 0);
 		if (write(usb_sd_fd, buf, 512) != 512) {
 			if (bh)
 				brelse(bh);
@@ -267,7 +278,7 @@ void do_sd_request(void)
 		}
 
 		bytes = nsect << 9;
-		lseek(usb_sd_fd, (long)CURRENT->sector * 512L, 0);
+		lseek(usb_sd_fd, (long)usb_sd_base_offset + (long)CURRENT->sector * 512L, 0);
 		if (CURRENT->cmd == READ) {
 			if (read(usb_sd_fd, CURRENT->buffer, bytes) != (int)bytes) {
 				end_request(0);

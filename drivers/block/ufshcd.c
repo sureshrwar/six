@@ -85,6 +85,7 @@ struct ufs_utrl_ring {
 
 static int ufs_fd = -1;
 static int ufs_online = 0;
+static unsigned long ufs_base_offset = SIX_PART_UFS_OFFSET;
 static char ufs_img_path[128] = UFSDISKFILE;
 static struct ufs_persist_hdr ufs_hdr;
 static struct ufs_utrl_ring ufs_utrl;
@@ -224,7 +225,7 @@ static void ufs_save_persist_hdr(void)
 	if (ufs_fd < 0)
 		return;
 	ufs_hdr.magic = UFS_HDR_MAGIC;
-	lseek(ufs_fd, (long)UFS_IMG_HDR_OFFSET, 0);
+	lseek(ufs_fd, (long)(ufs_base_offset + UFS_IMG_HDR_OFFSET), 0);
 	write(ufs_fd, &ufs_hdr, sizeof(ufs_hdr));
 }
 
@@ -236,7 +237,7 @@ static void ufs_load_or_init_persist_hdr(void)
 		return;
 
 	memset(&ufs_hdr, 0, sizeof(ufs_hdr));
-	lseek(ufs_fd, (long)UFS_IMG_HDR_OFFSET, 0);
+	lseek(ufs_fd, (long)(ufs_base_offset + UFS_IMG_HDR_OFFSET), 0);
 	if (read(ufs_fd, &ufs_hdr, sizeof(ufs_hdr)) == (int)sizeof(ufs_hdr) &&
 	    ufs_hdr.magic == UFS_HDR_MAGIC) {
 		if (ufs_hdr.boot_lun_id != 1 && ufs_hdr.boot_lun_id != 2)
@@ -276,22 +277,22 @@ static void ufs_load_or_init_persist_hdr(void)
 
 	/* Ensure Boot LUN A (/dev/ufsb) and Boot LUN B (/dev/ufsc) have boot headers */
 	memset(boot_buf, 0, sizeof(boot_buf));
-	lseek(ufs_fd, (long)UFS_IMG_BOOTA_OFFSET, 0);
+	lseek(ufs_fd, (long)(ufs_base_offset + UFS_IMG_BOOTA_OFFSET), 0);
 	if (read(ufs_fd, boot_buf, sizeof(boot_buf)) != sizeof(boot_buf) ||
 	    strncmp(boot_buf, "ANDROID!", 8) != 0) {
 		memset(boot_buf, 0, sizeof(boot_buf));
 		strcpy(boot_buf, "ANDROID! slot=a boot_lun=1 (/dev/ufsb) version=UFS4.0-primary-bootloader");
-		lseek(ufs_fd, (long)UFS_IMG_BOOTA_OFFSET, 0);
+		lseek(ufs_fd, (long)(ufs_base_offset + UFS_IMG_BOOTA_OFFSET), 0);
 		write(ufs_fd, boot_buf, sizeof(boot_buf));
 	}
 
 	memset(boot_buf, 0, sizeof(boot_buf));
-	lseek(ufs_fd, (long)UFS_IMG_BOOTB_OFFSET, 0);
+	lseek(ufs_fd, (long)(ufs_base_offset + UFS_IMG_BOOTB_OFFSET), 0);
 	if (read(ufs_fd, boot_buf, sizeof(boot_buf)) != sizeof(boot_buf) ||
 	    strncmp(boot_buf, "ANDROID!", 8) != 0) {
 		memset(boot_buf, 0, sizeof(boot_buf));
 		strcpy(boot_buf, "ANDROID! slot=b boot_lun=2 (/dev/ufsc) version=UFS4.0-secondary-ota-slot");
-		lseek(ufs_fd, (long)UFS_IMG_BOOTB_OFFSET, 0);
+		lseek(ufs_fd, (long)(ufs_base_offset + UFS_IMG_BOOTB_OFFSET), 0);
 		write(ufs_fd, boot_buf, sizeof(boot_buf));
 	}
 }
@@ -686,7 +687,7 @@ static void ufs_exec_scsi_upiu(struct ufs_utrd_entry *e)
 			e->hdr.status = 0x02;
 			return;
 		}
-		lseek(ufs_fd, (long)(base_off + lba * 512UL), 0);
+		lseek(ufs_fd, (long)(ufs_base_offset + base_off + lba * 512UL), 0);
 		if (read(ufs_fd, buf, (int)byte_len) != (int)byte_len) {
 			e->hdr.status = 0x02;
 			return;
@@ -700,7 +701,7 @@ static void ufs_exec_scsi_upiu(struct ufs_utrd_entry *e)
 			e->hdr.status = 0x02;
 			return;
 		}
-		lseek(ufs_fd, (long)(base_off + lba * 512UL), 0);
+		lseek(ufs_fd, (long)(ufs_base_offset + base_off + lba * 512UL), 0);
 		if (write(ufs_fd, buf, (int)byte_len) != (int)byte_len) {
 			e->hdr.status = 0x02;
 			return;
@@ -716,7 +717,7 @@ static void ufs_exec_scsi_upiu(struct ufs_utrd_entry *e)
 			e->hdr.status = 0x02;
 			return;
 		}
-		lseek(ufs_fd, (long)(base_off + cur * 512UL), 0);
+		lseek(ufs_fd, (long)(ufs_base_offset + base_off + cur * 512UL), 0);
 		while (rem > 0) {
 			unsigned long chunk = (rem > 8) ? 8 : rem;
 			write(ufs_fd, ufs_zero_page, (int)(chunk * 512UL));
@@ -1093,7 +1094,7 @@ static int ufs_handle_rpmb_ioctl(unsigned long arg)
 			frame.result = RPMB_RES_COUNTER_FAILURE;
 			break;
 		}
-		lseek(ufs_fd, (long)(UFS_IMG_RPMB_OFFSET + (unsigned long)frame.addr * UFS_RPMB_BLOCK_SIZE), 0);
+		lseek(ufs_fd, (long)(ufs_base_offset + UFS_IMG_RPMB_OFFSET + (unsigned long)frame.addr * UFS_RPMB_BLOCK_SIZE), 0);
 		if (write(ufs_fd, frame.data, UFS_RPMB_BLOCK_SIZE) != UFS_RPMB_BLOCK_SIZE) {
 			frame.req_resp = RPMB_RESP_WRITE_DATA;
 			frame.result = RPMB_RES_WRITE_FAILURE;
@@ -1115,7 +1116,7 @@ static int ufs_handle_rpmb_ioctl(unsigned long arg)
 			frame.result = RPMB_RES_ADDR_FAILURE;
 			break;
 		}
-		lseek(ufs_fd, (long)(UFS_IMG_RPMB_OFFSET + (unsigned long)frame.addr * UFS_RPMB_BLOCK_SIZE), 0);
+		lseek(ufs_fd, (long)(ufs_base_offset + UFS_IMG_RPMB_OFFSET + (unsigned long)frame.addr * UFS_RPMB_BLOCK_SIZE), 0);
 		if (read(ufs_fd, frame.data, UFS_RPMB_BLOCK_SIZE) != UFS_RPMB_BLOCK_SIZE) {
 			frame.req_resp = RPMB_RESP_READ_DATA;
 			frame.result = RPMB_RES_READ_FAILURE;
@@ -1306,7 +1307,7 @@ static struct gendisk ufs_gendisk = {
 	ufs_sizes,		/* sizes */
 	UFS_MAX_LUNS,		/* nr_real */
 	NULL,			/* real_devices */
-	NULL			/* next */
+	NULL,			/* next */
 };
 
 int get_ufs_proc_info(char *buf)
@@ -1384,13 +1385,21 @@ int ufs_init(void)
 	if (env_path && env_path[0]) {
 		strncpy(ufs_img_path, env_path, sizeof(ufs_img_path) - 1);
 		ufs_img_path[sizeof(ufs_img_path) - 1] = '\0';
+	} else {
+		strncpy(ufs_img_path, six_root_disk_path, sizeof(ufs_img_path) - 1);
+		ufs_img_path[sizeof(ufs_img_path) - 1] = '\0';
 	}
 
 	ufs_fd = open(ufs_img_path, 2 | 0100, 0644); /* O_RDWR | O_CREAT */
 	if (ufs_fd >= 0) {
 		sz = lseek(ufs_fd, 0L, 2);
-		if (sz < (long)UFS_IMG_TOTAL_BYTES) {
-			ftruncate(ufs_fd, UFS_IMG_TOTAL_BYTES);
+		if (sz >= (long)SIX_SINGLE_DISK_MIN_BYTES) {
+			ufs_base_offset = SIX_PART_UFS_OFFSET;
+		} else {
+			ufs_base_offset = 0;
+			if (sz < (long)UFS_IMG_TOTAL_BYTES) {
+				ftruncate(ufs_fd, UFS_IMG_TOTAL_BYTES);
+			}
 		}
 		ufs_online = 1;
 		ufs_load_or_init_persist_hdr();

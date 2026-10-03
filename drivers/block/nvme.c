@@ -58,6 +58,7 @@ struct nvme_queue {
 static int nvme_fd = -1;
 static int nvme_online = 0;
 static unsigned long nvme_sectors = NVME_DEFAULT_SECTORS;
+static unsigned long nvme_base_offset = SIX_PART_NVME_OFFSET;
 static char nvme_img_path[128] = NVMEDISKFILE;
 
 static struct nvme_queue nvme_admin_q;
@@ -124,7 +125,7 @@ static void nvme_save_persist_hdr(void)
 	memcpy(nvme_hdr.fw_slot_sha256, nvme_fw_slot_sha256, sizeof(nvme_fw_slot_sha256));
 	nvme_hdr.fw_commit_count = nvme_fw_commit_count;
 	nvme_hdr.power_cycles = (unsigned int)smart_power_cycles;
-	lseek(nvme_fd, (long)NVME_PERSIST_HDR_OFFSET, 0);
+	lseek(nvme_fd, (long)(nvme_base_offset + NVME_PERSIST_HDR_OFFSET), 0);
 	write(nvme_fd, &nvme_hdr, sizeof(nvme_hdr));
 }
 
@@ -134,7 +135,7 @@ static void nvme_load_or_init_persist_hdr(void)
 		return;
 
 	memset(&nvme_hdr, 0, sizeof(nvme_hdr));
-	lseek(nvme_fd, (long)NVME_PERSIST_HDR_OFFSET, 0);
+	lseek(nvme_fd, (long)(nvme_base_offset + NVME_PERSIST_HDR_OFFSET), 0);
 	if (read(nvme_fd, &nvme_hdr, sizeof(nvme_hdr)) == (int)sizeof(nvme_hdr) &&
 	    nvme_hdr.magic == NVME_HDR_MAGIC) {
 		if (nvme_hdr.active_fw_slot < 1 || nvme_hdr.active_fw_slot > 2)
@@ -476,7 +477,7 @@ static void nvme_zero_sectors(unsigned long slba, unsigned long nlb)
 	if (slba + rem > nvme_sectors)
 		rem = nvme_sectors - slba;
 
-	lseek(nvme_fd, (long)(cur * 512UL), 0);
+	lseek(nvme_fd, (long)(nvme_base_offset + cur * 512UL), 0);
 	while (rem > 0) {
 		unsigned long chunk = (rem > 8) ? 8 : rem;
 		write(nvme_fd, nvme_zero_page, (int)(chunk * 512UL));
@@ -512,7 +513,7 @@ static void nvme_exec_io_sqe(const struct nvme_command *cmd,
 			*out_status = NVME_SC_LBA_RANGE;
 			return;
 		}
-		lseek(nvme_fd, (long)(slba * 512UL), 0);
+		lseek(nvme_fd, (long)(nvme_base_offset + slba * 512UL), 0);
 		if (read(nvme_fd, buf, (int)bytes) != (int)bytes) {
 			smart_media_errors++;
 			*out_status = NVME_SC_LBA_RANGE;
@@ -532,7 +533,7 @@ static void nvme_exec_io_sqe(const struct nvme_command *cmd,
 			*out_status = NVME_SC_LBA_RANGE;
 			return;
 		}
-		lseek(nvme_fd, (long)(slba * 512UL), 0);
+		lseek(nvme_fd, (long)(nvme_base_offset + slba * 512UL), 0);
 		if (write(nvme_fd, buf, (int)bytes) != (int)bytes) {
 			smart_media_errors++;
 			*out_status = NVME_SC_LBA_RANGE;
@@ -1163,16 +1164,25 @@ int nvme_init(void)
 	if (env_path && env_path[0]) {
 		strncpy(nvme_img_path, env_path, sizeof(nvme_img_path) - 1);
 		nvme_img_path[sizeof(nvme_img_path) - 1] = '\0';
+	} else {
+		strncpy(nvme_img_path, six_root_disk_path, sizeof(nvme_img_path) - 1);
+		nvme_img_path[sizeof(nvme_img_path) - 1] = '\0';
 	}
 
 	nvme_fd = open(nvme_img_path, 2 | 0100, 0644); /* O_RDWR | O_CREAT */
 	if (nvme_fd >= 0) {
 		sz = lseek(nvme_fd, 0L, 2);
-		if (sz < (long)(NVME_DEFAULT_SECTORS * 512UL)) {
-			ftruncate(nvme_fd, NVME_DEFAULT_SECTORS * 512UL);
-			sz = (long)(NVME_DEFAULT_SECTORS * 512UL);
+		if (sz >= (long)SIX_SINGLE_DISK_MIN_BYTES) {
+			nvme_base_offset = SIX_PART_NVME_OFFSET;
+			nvme_sectors = SIX_PART_NVME_SECTORS;
+		} else {
+			nvme_base_offset = 0;
+			if (sz < (long)(NVME_DEFAULT_SECTORS * 512UL)) {
+				ftruncate(nvme_fd, NVME_DEFAULT_SECTORS * 512UL);
+				sz = (long)(NVME_DEFAULT_SECTORS * 512UL);
+			}
+			nvme_sectors = (unsigned long)sz / 512UL;
 		}
-		nvme_sectors = (unsigned long)sz / 512UL;
 		nvme_online = 1;
 		nvme_load_or_init_persist_hdr();
 	} else {

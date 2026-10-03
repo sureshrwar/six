@@ -102,8 +102,11 @@ root|bin|full) ;;
 *) echo "mkimage: --mode must be root, bin, or full (got '$MODE')" >&2; exit 2 ;;
 esac
 
+UNIFIED_DISK="disk/x86/root"
+BUILD_OUT=$(mktemp)
+trap 'rm -f "$BUILD_OUT" "$BUILD_OUT.sarthak"' EXIT
+
 if [ "$MODE" = "bin" ]; then
-	[ "$OUT" = "disk/x86/root" ] && OUT="disk/x86/bin_storage"
 	STAGE="port/image/.stage_bin"
 	BLOCK_SIZE=1024
 	BLOCK_COUNT=${BLOCK_COUNT:-15360}
@@ -111,7 +114,7 @@ if [ "$MODE" = "bin" ]; then
 	SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1700000000}
 	export SOURCE_DATE_EPOCH
 else
-	# Geometry: 50 MB ext2 image (51200 x 1 KB blocks, 12800 inodes).
+	# Geometry: 50 MB ext2/ext4 image (51200 x 1 KB blocks, 12800 inodes).
 	# Can be overridden via environment variables BLOCK_COUNT and INODE_COUNT.
 	BLOCK_SIZE=1024
 	BLOCK_COUNT=${BLOCK_COUNT:-51200}
@@ -194,7 +197,7 @@ fi
 rm -rf "$STAGE"
 mkdir -p "$STAGE" "$(dirname "$OUT")"
 
-export SRCROOT STAGE MANIFEST OUT BLOCK_SIZE BLOCK_COUNT INODE_COUNT FSTYPE MODE
+export SRCROOT STAGE MANIFEST OUT BUILD_OUT BLOCK_SIZE BLOCK_COUNT INODE_COUNT FSTYPE MODE
 
 fakeroot -- bash -s <<'FAKEROOT_SCRIPT'
 set -u
@@ -418,7 +421,7 @@ fi
 
 [ "$rc" = 0 ] || { echo "mkimage: staging failed" >&2; exit 1; }
 
-rm -f "$OUT"
+rm -f "$BUILD_OUT"
 
 LABEL_OPT=""
 if [ "$MODE" = "bin" ]; then
@@ -427,17 +430,6 @@ else
 	LABEL_OPT="-L rootfs"
 fi
 
-# Common to both formats:
-# -q        quiet
-# -F        don't complain that the target is a plain file
-# -b 1024   block size, matching the 2005 image
-# -N 1280   inode count, matching the 2005 image
-# -m 5      5% reserved, matching the 256-of-5120 blocks the 2005 image had
-# -U        a fixed UUID, so two builds of the same tree are identical
-# -d        populate from the staging tree
-# Explicit ext4 feature allowlist starting with -O none so the build is
-# immune to host /etc/mke2fs.conf changes (e.g. metadata_csum_seed, orphan_file,
-# 64bit) across different e2fsprogs versions.
 EXT4_FEATURES="none,has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize,ext_attr,resize_inode,dir_index,filetype,sparse_super,large_file"
 
 if [ "$FSTYPE" = erofs ]; then
@@ -450,9 +442,9 @@ if [ "$FSTYPE" = erofs ]; then
 		--label "$LABEL_NAME" \
 		--uuid 13bcf00c-78b2-11d9-8fdf-f213c4292cfb \
 		--blocks "$BLOCK_COUNT" \
-		--out "$OUT" || exit 1
+		--out "$BUILD_OUT" || exit 1
 
-	[ -s "$OUT" ] || { echo "mkimage: mkerofs.py produced nothing" >&2; exit 1; }
+	[ -s "$BUILD_OUT" ] || { echo "mkimage: mkerofs.py produced nothing" >&2; exit 1; }
 elif [ "$FSTYPE" = ext4 ]; then
 	mke2fs -q -F \
 		-t ext4 \
@@ -463,9 +455,9 @@ elif [ "$FSTYPE" = ext4 ]; then
 		-O "$EXT4_FEATURES" -m 2 \
 		-U 13bcf00c-78b2-11d9-8fdf-f213c4292cfb \
 		-d "$STAGE" \
-		"$OUT" "$BLOCK_COUNT"
+		"$BUILD_OUT" "$BLOCK_COUNT"
 
-	[ -s "$OUT" ] || { echo "mkimage: mke2fs produced nothing" >&2; exit 1; }
+	[ -s "$BUILD_OUT" ] || { echo "mkimage: mke2fs produced nothing" >&2; exit 1; }
 else
 	mke2fs -q -F \
 		$LABEL_OPT \
@@ -475,11 +467,11 @@ else
 		-O none -m 5 \
 		-U 13bcf00c-78b2-11d9-8fdf-f213c4292cfb \
 		-d "$STAGE" \
-		"$OUT" "$BLOCK_COUNT" 2>&1 | grep -v '128-byte inodes cannot handle dates'
+		"$BUILD_OUT" "$BLOCK_COUNT" 2>&1 | grep -v '128-byte inodes cannot handle dates'
 
-	[ -s "$OUT" ] || { echo "mkimage: mke2fs produced nothing" >&2; exit 1; }
+	[ -s "$BUILD_OUT" ] || { echo "mkimage: mke2fs produced nothing" >&2; exit 1; }
 
-	debugfs -w -R "ssv rev_level 0" "$OUT" >/dev/null 2>&1 || {
+	debugfs -w -R "ssv rev_level 0" "$BUILD_OUT" >/dev/null 2>&1 || {
 		echo "mkimage: could not demote the filesystem to revision 0" >&2
 		exit 1
 	}
@@ -494,7 +486,7 @@ if [ "$MODE" = "bin" ]; then
 		--uuid 13bcf00c-78b2-11d9-8fdf-f213c4292cfd \
 		--blocks "$BLOCK_COUNT" \
 		--verity \
-		--out "$OUT.sarthak" || exit 1
+		--out "$BUILD_OUT.sarthak" || exit 1
 fi
 FAKEROOT_SCRIPT
 
@@ -502,75 +494,91 @@ rc=$?
 [ "$rc" = 0 ] || { echo "mkimage: failed" >&2; exit "$rc"; }
 
 if [ "$FSTYPE" != erofs ]; then
-	# The image is created "not clean" by mke2fs only if something went wrong;
-	# mark it cleanly checked so the kernel's mount does not print the
-	# "mounting unchecked fs" warning on every boot.
 	if command -v tune2fs >/dev/null 2>&1; then
-		tune2fs -c 0 -i 0 "$OUT" >/dev/null 2>&1
+		tune2fs -c 0 -i 0 "$BUILD_OUT" >/dev/null 2>&1
 	fi
 
-	# Reproducibility: mke2fs stamps the current time into the superblock.  If
-	# SOURCE_DATE_EPOCH is set, rewrite the timestamps so that identical inputs
-	# give a byte-identical image.
 	if [ -n "${SOURCE_DATE_EPOCH:-}" ] && command -v debugfs >/dev/null 2>&1; then
-		debugfs -w -R "ssv mtime @$SOURCE_DATE_EPOCH" "$OUT" >/dev/null 2>&1
-		debugfs -w -R "ssv wtime @$SOURCE_DATE_EPOCH" "$OUT" >/dev/null 2>&1
-		debugfs -w -R "ssv lastcheck @$SOURCE_DATE_EPOCH" "$OUT" >/dev/null 2>&1
+		debugfs -w -R "ssv mtime @$SOURCE_DATE_EPOCH" "$BUILD_OUT" >/dev/null 2>&1
+		debugfs -w -R "ssv wtime @$SOURCE_DATE_EPOCH" "$BUILD_OUT" >/dev/null 2>&1
+		debugfs -w -R "ssv lastcheck @$SOURCE_DATE_EPOCH" "$BUILD_OUT" >/dev/null 2>&1
 	fi
 fi
 
 if [ "$MODE" = "bin" ]; then
-	python3 port/image/mkverity.py "$OUT" include/linux/verity_roothash.h || exit 1
+	python3 port/image/mkverity.py "$BUILD_OUT" include/linux/verity_roothash.h || exit 1
+	mkdir -p port/image
+	cp -f "$BUILD_OUT" port/image/.bin_part.img
+	if [ -f "$UNIFIED_DISK" ]; then
+		python3 port/image/mksingledisk.py write-part "$UNIFIED_DISK" bin_storage "$BUILD_OUT" || exit 1
+	fi
+	if [ "$OUT" != "disk/x86/root" ] && [ "$OUT" != "disk/x86/bin_storage" ]; then
+		cp -f "$BUILD_OUT" "$OUT"
+	fi
+	rm -f disk/x86/bin_storage
+	touch -d "+1 second" port/image/.bin_stamp 2>/dev/null || touch port/image/.bin_stamp
+	echo "mkimage: staged $UNIFIED_DISK [p4:bin_storage] ($MODE) as $FSTYPE ($(stat -c %s port/image/.bin_part.img) bytes, $present file(s), $missing missing)"
+	exit 0
 fi
 
-USB_EXT2_IMG="disk/x86/usb_ext2.img"
-if [ "$MODE" = "root" ] || [ ! -s "$USB_EXT2_IMG" ] || ! file "$USB_EXT2_IMG" 2>/dev/null | grep -q "ext2 filesystem"; then
+# Mode is "root" or "full": write Partition 1 (root) and Partition 4 (bin_storage) into $OUT
+if [ "$MODE" = "full" ]; then
+	python3 port/image/mksingledisk.py zero-part "$OUT" bin_storage || exit 1
+elif [ -s port/image/.bin_part.img ]; then
+	python3 port/image/mksingledisk.py write-part "$OUT" bin_storage port/image/.bin_part.img || exit 1
+fi
+python3 port/image/mksingledisk.py write-part "$OUT" root "$BUILD_OUT" || exit 1
+
+if [ "$MODE" = "root" ] || ! python3 port/image/mksingledisk.py has-part "$OUT" usb_ext2; then
 	USB_STAGE=$(mktemp -d)
+	USB_TMP=$(mktemp)
 	mkdir -p "$USB_STAGE/Android/data" "$USB_STAGE/DCIM" "$USB_STAGE/Documents" \
 		"$USB_STAGE/Download" "$USB_STAGE/Movies" "$USB_STAGE/Music" "$USB_STAGE/Pictures"
 	cat > "$USB_STAGE/README_USB.txt" <<'EOF'
 === SanDisk Ultra USB 3.0 Flash Drive (ext2) ===
 Label:      SAN_DISK_USB
 UUID:       4A8F-9C21
-Device:     /dev/sda1 (8:1, 2048 KB ext2, host image disk/x86/usb_ext2.img)
+Device:     /dev/sda1 (8:1, 2048 KB ext2, host image disk/x86/root [p7:usb_ext2])
 Mounted by: Android vold -> kernel ext2 -> /mnt/media_rw/4A8F-9C21 -> /storage/4A8F-9C21
 EOF
 	echo "Camera DCIM sample photo metadata (SanDisk ext2 USB)" > "$USB_STAGE/DCIM/IMG_0001.TXT"
 	fakeroot -- mke2fs -q -F -b 1024 -N 256 -I 128 -O none -m 0 \
-		-L "SAN_DISK_USB" -d "$USB_STAGE" "$USB_EXT2_IMG" 2048 2>/dev/null || true
-	debugfs -w -R "ssv rev_level 0" "$USB_EXT2_IMG" >/dev/null 2>&1 || true
-	rm -rf "$USB_STAGE"
+		-L "SAN_DISK_USB" -d "$USB_STAGE" "$USB_TMP" 2048 2>/dev/null || true
+	debugfs -w -R "ssv rev_level 0" "$USB_TMP" >/dev/null 2>&1 || true
+	python3 port/image/mksingledisk.py write-part "$OUT" usb_ext2 "$USB_TMP" || exit 1
+	rm -rf "$USB_STAGE" "$USB_TMP"
 fi
 
-USB_EXT4_IMG="disk/x86/usb_ext4.img"
-if [ "$MODE" = "root" ] || [ ! -s "$USB_EXT4_IMG" ]; then
+if [ "$MODE" = "root" ] || ! python3 port/image/mksingledisk.py has-part "$OUT" usb_ext4; then
 	USB_STAGE=$(mktemp -d)
+	USB_TMP=$(mktemp)
 	mkdir -p "$USB_STAGE/Android/data" "$USB_STAGE/DCIM" "$USB_STAGE/Documents" \
 		"$USB_STAGE/Download" "$USB_STAGE/Movies" "$USB_STAGE/Music" "$USB_STAGE/Pictures"
 	cat > "$USB_STAGE/README_USB.txt" <<'EOF'
 === SanDisk Extreme PRO USB 3.1 Flash Drive (ext4) ===
 Label:      SANDISK_EXT4
 UUID:       5B9E-7D31
-Device:     /dev/sda1 (8:1, 2048 KB ext4 with extents, host image disk/x86/usb_ext4.img)
+Device:     /dev/sda1 (8:1, 2048 KB ext4 with extents, host image disk/x86/root [p8:usb_ext4])
 Mounted by: Android vold -> kernel ext4 -> /mnt/media_rw/7B9E-3D10 -> /storage/7B9E-3D10
 EOF
 	echo "Camera DCIM sample photo metadata (SanDisk ext4 USB)" > "$USB_STAGE/DCIM/IMG_0001.TXT"
 	fakeroot -- mke2fs -q -F -t ext4 -b 1024 -N 256 -I 256 \
 		-O "none,has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize,ext_attr,resize_inode,dir_index,filetype,sparse_super,large_file" -m 0 \
-		-L "SANDISK_EXT4" -U "7b9e3d10-0000-4000-8000-000000000001" -d "$USB_STAGE" "$USB_EXT4_IMG" 2048 2>/dev/null || true
-	rm -rf "$USB_STAGE"
+		-L "SANDISK_EXT4" -U "7b9e3d10-0000-4000-8000-000000000001" -d "$USB_STAGE" "$USB_TMP" 2048 2>/dev/null || true
+	python3 port/image/mksingledisk.py write-part "$OUT" usb_ext4 "$USB_TMP" || exit 1
+	rm -rf "$USB_STAGE" "$USB_TMP"
 fi
 
-USB_EROFS_IMG="disk/x86/usb_erofs.img"
-if [ "$MODE" = "root" ] || [ ! -s "$USB_EROFS_IMG" ]; then
+if [ "$MODE" = "root" ] || ! python3 port/image/mksingledisk.py has-part "$OUT" usb_erofs; then
 	USB_STAGE=$(mktemp -d)
+	USB_TMP=$(mktemp)
 	mkdir -p "$USB_STAGE/Android/data" "$USB_STAGE/DCIM" "$USB_STAGE/Documents" \
 		"$USB_STAGE/Download" "$USB_STAGE/Movies" "$USB_STAGE/Music" "$USB_STAGE/Pictures"
 	cat > "$USB_STAGE/README_USB.txt" <<'EOF'
 === SanDisk Extreme EROFS Read-Only Flash Drive ===
 Label:      SANDISK_EROFS
 UUID:       E0F5-2026
-Device:     /dev/sda1 (8:1, 2048 KB EROFS v1, host image disk/x86/usb_erofs.img)
+Device:     /dev/sda1 (8:1, 2048 KB EROFS v1, host image disk/x86/root [p9:usb_erofs])
 Mounted by: Android vold -> kernel erofs (ro) -> /mnt/media_rw/E0F5-2026 -> /storage/E0F5-2026
 EOF
 	echo "Camera DCIM sample photo metadata (SanDisk EROFS USB)" > "$USB_STAGE/DCIM/IMG_0001.TXT"
@@ -579,33 +587,35 @@ EOF
 		--label "SANDISK_EROFS" \
 		--uuid 7e0f5e1e-0000-4000-8000-000000000001 \
 		--blocks 2048 \
-		--out "$USB_EROFS_IMG" 2>/dev/null || true
-	rm -rf "$USB_STAGE"
+		--out "$USB_TMP" 2>/dev/null || true
+	python3 port/image/mksingledisk.py write-part "$OUT" usb_erofs "$USB_TMP" || exit 1
+	rm -rf "$USB_STAGE" "$USB_TMP"
 fi
 
-USB_NTFS_IMG="disk/x86/usb_ntfs.img"
-if [ "$MODE" = "root" ] || [ ! -s "$USB_NTFS_IMG" ]; then
+if [ "$MODE" = "root" ] || ! python3 port/image/mksingledisk.py has-part "$OUT" usb_ntfs; then
 	MKNTFS=$(command -v mkntfs || command -v /usr/sbin/mkntfs || command -v /sbin/mkntfs || true)
 	NTFSCP=$(command -v ntfscp || command -v /usr/sbin/ntfscp || command -v /sbin/ntfscp || true)
 	if [ -n "$MKNTFS" ] && [ -n "$NTFSCP" ]; then
 		TMP_README=$(mktemp)
+		USB_TMP=$(mktemp)
 		cat > "$TMP_README" <<'EOF'
 === SanDisk Extreme NTFS USB 3.2 Flash Drive ===
 Label:      SANDISK_NTFS
 UUID:       6A1B-8E42
-Device:     /dev/sda1 (8:1, 2048 KB NTFS, host image disk/x86/usb_ntfs.img)
+Device:     /dev/sda1 (8:1, 2048 KB NTFS, host image disk/x86/root [p10:usb_ntfs])
 Mounted by: Android vold -> /bin/ntfs-3g (FUSE /dev/fuse) -> /mnt/media_rw/6A1B-8E42 -> /storage/6A1B-8E42
 EOF
-		dd if=/dev/zero of="$USB_NTFS_IMG" bs=1024 count=2048 status=none
-		"$MKNTFS" -q -F -f -s 512 -c 4096 -p 0 -H 16 -S 63 -L "SANDISK_NTFS" "$USB_NTFS_IMG" >/dev/null 2>&1 || true
-		"$NTFSCP" -f "$USB_NTFS_IMG" "$TMP_README" README_USB.txt >/dev/null 2>&1 || true
-		rm -f "$TMP_README"
+		dd if=/dev/zero of="$USB_TMP" bs=1024 count=2048 status=none
+		"$MKNTFS" -q -F -f -s 512 -c 4096 -p 0 -H 16 -S 63 -L "SANDISK_NTFS" "$USB_TMP" >/dev/null 2>&1 || true
+		"$NTFSCP" -f "$USB_TMP" "$TMP_README" README_USB.txt >/dev/null 2>&1 || true
+		python3 port/image/mksingledisk.py write-part "$OUT" usb_ntfs "$USB_TMP" || exit 1
+		rm -f "$TMP_README" "$USB_TMP"
 	fi
 fi
 
-NVME_IMG="disk/x86/nvme0n1.img"
-if [ "$MODE" = "root" ] || [ ! -s "$NVME_IMG" ]; then
+if [ "$MODE" = "root" ] || ! python3 port/image/mksingledisk.py has-part "$OUT" nvme0n1; then
 	NVME_STAGE=$(mktemp -d)
+	NVME_TMP=$(mktemp)
 	mkdir -p "$NVME_STAGE/media/0/Android/data" \
 		"$NVME_STAGE/media/0/DCIM" \
 		"$NVME_STAGE/media/0/Documents" \
@@ -615,22 +625,23 @@ if [ "$MODE" = "root" ] || [ ! -s "$NVME_IMG" ]; then
 		"$NVME_STAGE/media/0/Pictures"
 	fakeroot -- mke2fs -q -F -t ext4 -b 1024 -N 2048 -I 256 \
 		-O "none,has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize,ext_attr,resize_inode,dir_index,filetype,sparse_super,large_file" -m 0 \
-		-L "userdata" -U "a1b2c3d4-2026-4000-8000-000000000001" -d "$NVME_STAGE" "$NVME_IMG" 16384 2>/dev/null || true
+		-L "userdata" -U "a1b2c3d4-2026-4000-8000-000000000001" -d "$NVME_STAGE" "$NVME_TMP" 16384 2>/dev/null || true
 	if command -v tune2fs >/dev/null 2>&1; then
-		tune2fs -c 0 -i 0 "$NVME_IMG" >/dev/null 2>&1 || true
+		tune2fs -c 0 -i 0 "$NVME_TMP" >/dev/null 2>&1 || true
 	fi
-	rm -rf "$NVME_STAGE"
+	python3 port/image/mksingledisk.py write-part "$OUT" nvme0n1 "$NVME_TMP" || exit 1
+	rm -rf "$NVME_STAGE" "$NVME_TMP"
 fi
 
-UFS_IMG="disk/x86/ufs0.img"
-if [ "$MODE" = "root" ] || [ ! -s "$UFS_IMG" ]; then
+if [ "$MODE" = "root" ] || ! python3 port/image/mksingledisk.py has-part "$OUT" ufs0; then
 	UFS_STAGE=$(mktemp -d)
 	UFS_LUN0_TMP=$(mktemp)
+	UFS_TMP=$(mktemp)
 	mkdir -p "$UFS_STAGE/ota"
 	cat > "$UFS_STAGE/UFS.TXT" <<'EOF'
 === SIX JEDEC UFS 4.0 Multi-LUN Storage (/dev/ufsa -> /ufs) ===
 Controller: /dev/ufs-bsg0 (UFSHCI 4.0, MIPI UniPro HS-Gear5 2-Lane)
-Host Image: ./disk/x86/ufs0.img (5 MB unified UFS flash package)
+Host Image: ./disk/x86/root [p6:ufs0] (5 MB unified UFS flash package)
   - LUN 0 (/dev/ufsa, 58:0): 4096 KB ext4 volume mounted at /ufs
   - LUN 1 (/dev/ufsb, 58:1):  384 KB Boot LUN A (slot_a primary bootloader)
   - LUN 2 (/dev/ufsc, 58:2):  384 KB Boot LUN B (slot_b secondary OTA slot)
@@ -643,11 +654,21 @@ EOF
 	if command -v tune2fs >/dev/null 2>&1; then
 		tune2fs -c 0 -i 0 "$UFS_LUN0_TMP" >/dev/null 2>&1 || true
 	fi
-	rm -f "$UFS_IMG"
-	truncate -s 5242880 "$UFS_IMG"
-	dd if="$UFS_LUN0_TMP" of="$UFS_IMG" bs=1024 seek=1024 conv=notrunc status=none 2>/dev/null || true
-	rm -rf "$UFS_STAGE" "$UFS_LUN0_TMP"
+	truncate -s 5242880 "$UFS_TMP"
+	dd if="$UFS_LUN0_TMP" of="$UFS_TMP" bs=1024 seek=1024 conv=notrunc status=none 2>/dev/null || true
+	python3 port/image/mksingledisk.py write-part "$OUT" ufs0 "$UFS_TMP" || exit 1
+	rm -rf "$UFS_STAGE" "$UFS_LUN0_TMP" "$UFS_TMP"
 fi
 
-echo "mkimage: wrote $OUT ($MODE) as $FSTYPE ($(stat -c %s "$OUT") bytes, $present file(s), $missing missing)"
+if ! python3 port/image/mksingledisk.py has-part "$OUT" aux_storage-1; then
+	bash port/image/mkaux.sh --force --out "$OUT" || exit 1
+fi
+
+# Clean up any legacy separate image files so disk/x86/ contains only root
+rm -f disk/x86/bin_storage disk/x86/aux_storage-1 disk/x86/aux_storage-2 \
+      disk/x86/nvme0n1.img disk/x86/ufs0.img \
+      disk/x86/usb_ext2.img disk/x86/usb_ext4.img disk/x86/usb_erofs.img \
+      disk/x86/usb_ntfs.img disk/x86/usb_crypt.img
+
+echo "mkimage: wrote $OUT [11 GPT partitions] ($MODE) as $FSTYPE ($(stat -c %s "$OUT") bytes, $present file(s), $missing missing)"
 exit 0

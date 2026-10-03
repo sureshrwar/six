@@ -47,7 +47,7 @@ sparc*)      ARCH_DIR=disk/sparc ;;
 *)           ARCH_DIR=disk/x86 ;;
 esac
 
-OUT="$ARCH_DIR/aux_storage-1"
+OUT="$ARCH_DIR/root"
 FSTYPE="${SIX_AUX_FSTYPE:-ntfs}"
 FORCE=0
 LABEL="six-aux-1"
@@ -62,7 +62,7 @@ invokes /bin/mount_all to auto-detect the filesystem and mount it on
 
 Options:
   --fstype ext2|ext4|ntfs  on-disk format (default: \$SIX_AUX_FSTYPE, else ntfs)
-  --out PATH               where to write it (default: $ARCH_DIR/aux_storage-1)
+  --out PATH               where to write it (default: $ARCH_DIR/root [p2:aux_storage-1])
   --force                  overwrite an existing image instead of refusing
 EOF
 }
@@ -83,9 +83,6 @@ ext2|ext4|ntfs) ;;
 *) echo "mkaux: --fstype must be ext2, ext4, or ntfs (got '$FSTYPE')" >&2; exit 2 ;;
 esac
 
-# Same geometry as the root disk: 50 MB in 1 KB blocks.  There is no reason
-# they have to match, but there is no reason for them to differ either, and
-# a shared number is one less thing to explain.
 BLOCK_SIZE=1024
 BLOCK_COUNT=${BLOCK_COUNT:-51200}
 INODE_COUNT=${INODE_COUNT:-$((BLOCK_COUNT / 4))}
@@ -106,11 +103,13 @@ else
 	done
 fi
 
-# Refuse by default.  Unlike the root disk, this one is expected to hold
-# things the user put there, and it is not reconstructible from the tree --
-# there is no manifest to rebuild it from.  Silently truncating it because
-# somebody typed "make aux-image" twice would be unkind.
-if [ -e "$OUT" ] && [ "$FORCE" -eq 0 ]; then
+USE_UNIFIED=0
+if [ "$OUT" = "$ARCH_DIR/root" ] || [ "$OUT" = "$ARCH_DIR/aux_storage-1" ]; then
+	USE_UNIFIED=1
+	OUT="$ARCH_DIR/root"
+fi
+
+if [ "$USE_UNIFIED" -eq 0 ] && [ -e "$OUT" ] && [ "$FORCE" -eq 0 ]; then
 	echo "mkaux: $OUT already exists; use --force to overwrite it" >&2
 	exit 1
 fi
@@ -118,15 +117,16 @@ fi
 mkdir -p "$(dirname "$OUT")"
 
 STAGE=$(mktemp -d)
-trap 'rm -rf "$STAGE"' EXIT
+BUILD_AUX=$(mktemp)
+trap 'rm -rf "$STAGE" "$BUILD_AUX"' EXIT
 
 cat > "$STAGE/README" <<EOF
 This is the SIX auxiliary disk, /dev/hdb.
 
-It is a $FSTYPE filesystem in a flat file, $ARCH_DIR/aux_storage-1 on the
-host, reached through the emulated IDE controller exactly as the root disk
-is.  At boot, /etc/rc runs /bin/mount_all, which detects the filesystem type
-on /dev/hdb (NTFS, ext4, or ext2) and mounts it on /aux/storage-1.
+It is a $FSTYPE filesystem in Partition 2 (aux_storage-1) of $ARCH_DIR/root
+on the host, reached through the emulated IDE controller exactly as the root
+disk is.  At boot, /etc/rc runs /bin/mount_all, which detects the filesystem
+type on /dev/hdb (NTFS, ext4, or ext2) and mounts it on /aux/storage-1.
 
 When shutting down with halt(8), /aux/storage-1 is cleanly unmounted and
 synced before reboot().
@@ -134,26 +134,15 @@ synced before reboot().
 If you are reading this file, the mount worked.
 EOF
 
-rm -f "$OUT"
+rm -f "$BUILD_AUX"
 
 if [ "$FSTYPE" = "ntfs" ]; then
-	# 50 MB flat image with BPB geometry matching SIX's emulated IDE
-	# drive (512-byte sectors, 16 heads, 63 sectors/track, start sector 0).
-	dd if=/dev/zero of="$OUT" bs="$BLOCK_SIZE" count="$BLOCK_COUNT" status=none
-	"$MKNTFS" -q -F -s 512 -p 0 -H 16 -S 63 -L "$LABEL" "$OUT" 2>&1 | \
+	dd if=/dev/zero of="$BUILD_AUX" bs="$BLOCK_SIZE" count="$BLOCK_COUNT" status=none
+	"$MKNTFS" -q -F -s 512 -p 0 -H 16 -S 63 -L "$LABEL" "$BUILD_AUX" 2>&1 | \
 		grep -v 'is not a block device\|mkntfs forced anyway' || true
-	[ -s "$OUT" ] || { echo "mkaux: mkntfs produced nothing" >&2; exit 1; }
-	"$NTFSCP" -f "$OUT" "$STAGE/README" README
+	[ -s "$BUILD_AUX" ] || { echo "mkaux: mkntfs produced nothing" >&2; exit 1; }
+	"$NTFSCP" -f "$BUILD_AUX" "$STAGE/README" README
 elif [ "$FSTYPE" = "ext4" ]; then
-	# Use an explicit feature allowlist starting with -O none so the build is
-	# immune to host /etc/mke2fs.conf defaults (e.g. metadata_csum,
-	# metadata_csum_seed, 64bit, orphan_file) across e2fsprogs versions:
-	#   metadata_csum(_seed)  SIX has no crc32c, so it can neither verify nor
-	#                         maintain the checksums it would be required to.
-	#   64bit                 64-byte group descriptors; SIX is strictly 32-bit
-	#                         and uses the 32-byte layout.
-	#   orphan_file           an unknown INCOMPAT bit makes ext4_read_super()
-	#                         refuse the mount.
 	fakeroot -- mke2fs -q -F \
 		-t ext4 \
 		-b "$BLOCK_SIZE" \
@@ -162,10 +151,8 @@ elif [ "$FSTYPE" = "ext4" ]; then
 		-O none,has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize,ext_attr,resize_inode,dir_index,filetype,sparse_super,large_file -m 0 \
 		-L "$LABEL" \
 		-d "$STAGE" \
-		"$OUT" "$BLOCK_COUNT"
+		"$BUILD_AUX" "$BLOCK_COUNT"
 else
-	# Revision-0, feature-free ext2, demoted after the fact: mke2fs 1.47
-	# has no way to ask for revision 0 directly.  Again, see mkimage.sh.
 	fakeroot -- mke2fs -q -F \
 		-b "$BLOCK_SIZE" \
 		-N "$INODE_COUNT" \
@@ -173,29 +160,34 @@ else
 		-O none -m 0 \
 		-L "$LABEL" \
 		-d "$STAGE" \
-		"$OUT" "$BLOCK_COUNT" 2>&1 | grep -v '128-byte inodes cannot handle dates' || true
+		"$BUILD_AUX" "$BLOCK_COUNT" 2>&1 | grep -v '128-byte inodes cannot handle dates' || true
 
-	[ -s "$OUT" ] || { echo "mkaux: mke2fs produced nothing" >&2; exit 1; }
+	[ -s "$BUILD_AUX" ] || { echo "mkaux: mke2fs produced nothing" >&2; exit 1; }
 
-	debugfs -w -R "ssv rev_level 0" "$OUT" >/dev/null 2>&1 || {
+	debugfs -w -R "ssv rev_level 0" "$BUILD_AUX" >/dev/null 2>&1 || {
 		echo "mkaux: could not demote the filesystem to revision 0" >&2
 		exit 1
 	}
 fi
 
-[ -s "$OUT" ] || { echo "mkaux: produced nothing" >&2; exit 1; }
+[ -s "$BUILD_AUX" ] || { echo "mkaux: produced nothing" >&2; exit 1; }
 
 if [ "$FSTYPE" != "ntfs" ]; then
-	# -m 0 above: no reserved blocks.  The 5% root reservation on the root disk
-	# exists so the system can still be repaired when userland fills the disk.
-	# Nothing is ever repaired from this one, so the space is better given back.
-	e2fsck -fn "$OUT" >/dev/null 2>&1 || {
+	e2fsck -fn "$BUILD_AUX" >/dev/null 2>&1 || {
 		echo "mkaux: e2fsck is unhappy with the image just created" >&2
-		e2fsck -fn "$OUT" >&2 || true
+		e2fsck -fn "$BUILD_AUX" >&2 || true
 		exit 1
 	}
 fi
 
-size_mb=$(( BLOCK_COUNT * BLOCK_SIZE / 1024 / 1024 ))
-echo "mkaux: wrote $OUT ($FSTYPE, ${size_mb} MB)"
+if [ "$USE_UNIFIED" -eq 1 ]; then
+	python3 port/image/mksingledisk.py write-part "$OUT" aux_storage-1 "$BUILD_AUX" || exit 1
+	rm -f "$ARCH_DIR/aux_storage-1"
+	size_mb=$(( BLOCK_COUNT * BLOCK_SIZE / 1024 / 1024 ))
+	echo "mkaux: wrote $OUT [p2:aux_storage-1] ($FSTYPE, ${size_mb} MB)"
+else
+	cp -f "$BUILD_AUX" "$OUT"
+	size_mb=$(( BLOCK_COUNT * BLOCK_SIZE / 1024 / 1024 ))
+	echo "mkaux: wrote $OUT ($FSTYPE, ${size_mb} MB)"
+fi
 echo "mkaux: /etc/rc will auto-detect $FSTYPE via /bin/mount_all and mount it on /aux/storage-1"

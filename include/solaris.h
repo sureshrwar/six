@@ -98,20 +98,22 @@ extern long six_disk_sectors[SIX_MAX_DISKS];	/* derived in check_root() */
  */
 #define DISKFD		(six_disk_fd[0])
 
+#include <linux/six_disk_layout.h>
+
 #if (__i386__)
 #define DISKFILE	"./disk/x86/root"
-#define AUXDISKFILE	"./disk/x86/aux_storage-1"
-#define AUXDISKFILE2	"./disk/x86/aux_storage-2"
-#define BINDISKFILE	"./disk/x86/bin_storage"
-#define NVMEDISKFILE	"./disk/x86/nvme0n1.img"
-#define UFSDISKFILE	"./disk/x86/ufs0.img"
+#define AUXDISKFILE	"./disk/x86/root"
+#define AUXDISKFILE2	"./disk/x86/root"
+#define BINDISKFILE	"./disk/x86/root"
+#define NVMEDISKFILE	"./disk/x86/root"
+#define UFSDISKFILE	"./disk/x86/root"
 #else
 #define DISKFILE	"./disk/sparc/root"
-#define AUXDISKFILE	"./disk/sparc/aux_storage-1"
-#define AUXDISKFILE2	"./disk/sparc/aux_storage-2"
-#define BINDISKFILE	"./disk/sparc/bin_storage"
-#define NVMEDISKFILE	"./disk/sparc/nvme0n1.img"
-#define UFSDISKFILE	"./disk/sparc/ufs0.img"
+#define AUXDISKFILE	"./disk/sparc/root"
+#define AUXDISKFILE2	"./disk/sparc/root"
+#define BINDISKFILE	"./disk/sparc/root"
+#define NVMEDISKFILE	"./disk/sparc/root"
+#define UFSDISKFILE	"./disk/sparc/root"
 #endif
 
 struct dummy_drive_struct {

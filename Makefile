@@ -105,10 +105,8 @@ else
 # a rule's prerequisites at the moment it reads the rule, so a variable used
 # on the right-hand side of "do-it-all:" must already have a value.
 SIX_IMAGE	= disk/x86/root
-SIX_BIN_IMAGE	= disk/x86/bin_storage
-SIX_AUX_IMAGE	= disk/x86/aux_storage-1
-SIX_AUX2_IMAGE	= disk/x86/aux_storage-2
-do-it-all:	include/asm Version six $(SIX_IMAGE) $(SIX_AUX_IMAGE) $(SIX_AUX2_IMAGE)
+SIX_BIN_IMAGE	= port/image/.bin_stamp
+do-it-all:	include/asm Version six $(SIX_IMAGE)
 	@echo ""
 	@echo "======================================================================"
 	@echo "  Build successful! Your early-2000s time machine is ready."
@@ -445,15 +443,16 @@ endif
 
 SIX_BIN_FSTYPE ?= erofs
 SIX_EROFS_TOOL	= port/image/mkerofs.py
+SIX_SINGLE_TOOL	= port/image/mksingledisk.py
 
-$(SIX_BIN_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_EROFS_TOOL) $(SIX_VERITY_TOOL) $(SIX_BIN_FILES) | linuxsubdirs
-	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict --mode bin --fstype $(SIX_BIN_FSTYPE) --out $(SIX_BIN_IMAGE)
+$(SIX_BIN_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_EROFS_TOOL) $(SIX_VERITY_TOOL) $(SIX_SINGLE_TOOL) $(SIX_BIN_FILES) | linuxsubdirs
+	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict --mode bin --fstype $(SIX_BIN_FSTYPE)
 
 # The order-only dependency on "six" keeps the image from being assembled in
 # parallel with the kernel link under make -j; the guest binaries are built
 # by linuxsubdirs, which is a prerequisite of six.
-$(SIX_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_IMAGE_FILES) $(SIX_IMAGE_STAMP) $(SIX_VERITY_STAMP) | six
-	@if [ "$(SIX_VERITY_BIN)" != "1" ]; then rm -f $(SIX_BIN_IMAGE); fi
+$(SIX_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_SINGLE_TOOL) $(SIX_IMAGE_FILES) $(SIX_IMAGE_STAMP) $(SIX_VERITY_STAMP) $(if $(filter 1,$(SIX_VERITY_BIN)),$(SIX_BIN_IMAGE)) | six
+	@if [ "$(SIX_VERITY_BIN)" != "1" ]; then rm -f $(SIX_BIN_IMAGE) port/image/.bin_part.img; fi
 	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict --mode $(SIX_ROOT_MODE) --fstype $(SIX_IMAGE_FSTYPE)
 
 $(SIX_IMAGE_STAMP): dummy
@@ -488,29 +487,12 @@ ext4-image:
 	@$(MAKE) --no-print-directory SIX_IMAGE_FSTYPE=ext4 image
 
 image-clean:
-	rm -f $(SIX_IMAGE) $(SIX_BIN_IMAGE) $(SIX_IMAGE_STAMP) $(SIX_VERITY_STAMP) include/linux/verity_roothash.h
+	rm -f $(SIX_IMAGE) $(SIX_BIN_IMAGE) port/image/.bin_part.img $(SIX_IMAGE_STAMP) $(SIX_VERITY_STAMP) include/linux/verity_roothash.h
 	rm -rf port/image/.stage port/image/.stage_bin
 
-# The auxiliary disk, which SIX exposes as /dev/hdb.
-#
-# Built by default as a 50 MB NTFS volume (disk/x86/aux_storage-1), and
-# removed by "make clean" (via aux-image-clean).
-#
-#     make aux-image                       # 50 MB NTFS (default)
-#     make ext2-aux-image                  # 50 MB ext2
-#     make ext4-aux-image                  # 50 MB ext4
-#     make ntfs-aux-image                  # 50 MB NTFS
-#
+# The auxiliary disk, which SIX exposes as /dev/hdb (Partition 2 of disk/x86/root).
 SIX_AUX_TOOL   = port/image/mkaux.sh
 SIX_AUX_FSTYPE ?= ntfs
-
-$(SIX_AUX_IMAGE):
-	$(CONFIG_SHELL) $(SIX_AUX_TOOL) --force --fstype $(SIX_AUX_FSTYPE)
-
-$(SIX_AUX2_IMAGE):
-	@mkdir -p $(dir $@)
-	truncate -s 50M $@
-	@echo "mkaux2: wrote $@ (52428800 bytes, 50 MB Device Mapper backing disk)"
 
 .PHONY: aux-image ext2-aux-image ext4-aux-image ntfs-aux-image aux-image-clean
 aux-image:

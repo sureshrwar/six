@@ -555,12 +555,11 @@ void setup_disk_info()
  * SIX can address anyway: the emulated task-file carries a 16-bit cylinder
  * number, so the ceiling is 65535 cylinders.
  */
-static void size_disk(int drive, const char *path)
+char six_root_disk_path[256] = DISKFILE;
+
+static void size_disk_bytes(int drive, long bytes, const char *path)
 {
 	long cyl_bytes = (long) HD_HEAD * HD_SECT * 512;
-	long bytes     = lseek(six_disk_fd[drive], 0L, 2);
-
-	lseek(six_disk_fd[drive], 0L, 0);
 
 	if (bytes <= 0) {
 		fprintf(stderr, "warning: cannot determine the size of %s; "
@@ -583,10 +582,37 @@ static void size_disk(int drive, const char *path)
 	}
 }
 
+static void size_disk(int drive, const char *path)
+{
+	long bytes = lseek(six_disk_fd[drive], 0L, 2);
+
+	lseek(six_disk_fd[drive], 0L, 0);
+	size_disk_bytes(drive, bytes, path);
+}
+
+static int slice_has_data(int fd, unsigned long base_offset, unsigned long probe_off, int probe_len)
+{
+	unsigned char buf[2048];
+	int n, i;
+
+	if (probe_len > (int)sizeof(buf))
+		probe_len = (int)sizeof(buf);
+	if (lseek(fd, (long)(base_offset + probe_off), 0) < 0)
+		return 0;
+	n = read(fd, buf, probe_len);
+	for (i = 0; i < n; i++) {
+		if (buf[i] != 0)
+			return 1;
+	}
+	return 0;
+}
+
 void check_root(const char *disk_arg)
 {
 	const char *root = disk_arg;
 	const char *aux;
+	long root_total_bytes;
+	int is_unified = 0;
 
 	/*
 	 * Precedence: -d/--disk CLI flag -> $DISKFILE environment variable ->
@@ -595,10 +621,12 @@ void check_root(const char *disk_arg)
 	if (!root && !(root = getenv("DISKFILE")))
 		root = DISKFILE;
 
-        six_disk_fd[0] = open(root, O_RDWR);
+	strncpy(six_root_disk_path, root, sizeof(six_root_disk_path) - 1);
+	six_root_disk_path[sizeof(six_root_disk_path) - 1] = '\0';
 
-        if(six_disk_fd[0] < 0)
-	{
+	six_disk_fd[0] = open(root, O_RDWR);
+
+	if (six_disk_fd[0] < 0) {
 		fprintf(stderr, "ERROR : can't locate root disk (%s)\n\n"
 				"The root disk file should be accessible either:\n\n"
 				"* via -d / --disk <path>\n"
@@ -609,55 +637,88 @@ void check_root(const char *disk_arg)
 		exit(1);
 	}
 
-	size_disk(0, root);
+	root_total_bytes = lseek(six_disk_fd[0], 0L, 2);
+	lseek(six_disk_fd[0], 0L, 0);
 
-	/*
-	 * The auxiliary disk, /dev/hdb, is entirely optional.  Unlike the
-	 * root disk there is nothing to complain about if it is missing:
-	 * that is the normal case, and it is what leaves six_disk_fd[1] at
-	 * -1 so that hd_geninit() keeps NR_HD at 1 and hd_open() answers
-	 * ENODEV.  Say nothing at all when it is absent, so that a plain
-	 * checkout boots exactly as it did before, and announce it only when
-	 * it is really there.
-	 *
-	 * SIX never mounts this disk itself.  All the kernel does is make the
-	 * device work; deciding where -- or whether -- to attach it is
-	 * userspace policy, expressed with mount(8) from /etc/rc or a shell.
-	 */
-	if (!(aux = getenv("AUXDISKFILE")))
-		aux = AUXDISKFILE;
-
-	six_disk_fd[1] = open(aux, O_RDWR);
-
-	if (six_disk_fd[1] >= 0) {
-		size_disk(1, aux);
-		fprintf(stderr, "auxiliary disk: %s (%ld MB) as /dev/hdb\n",
-				aux, (six_disk_sectors[1] * 512) / (1024 * 1024));
+	if (root_total_bytes >= (long)SIX_SINGLE_DISK_MIN_BYTES) {
+		is_unified = 1;
+		six_disk_offset[0] = SIX_PART_ROOT_OFFSET;
+		size_disk_bytes(0, (long)SIX_PART_ROOT_BYTES, root);
+	} else {
+		six_disk_offset[0] = 0;
+		size_disk_bytes(0, root_total_bytes, root);
 	}
 
-	{
-		const char *aux2 = getenv("AUXDISKFILE2");
-		if (!aux2)
-			aux2 = AUXDISKFILE2;
-
-		six_disk_fd[2] = open(aux2, O_RDWR);
-		if (six_disk_fd[2] >= 0) {
-			size_disk(2, aux2);
-			fprintf(stderr, "auxiliary disk 2: %s (%ld MB) as /dev/hdc\n",
-					aux2, (six_disk_sectors[2] * 512) / (1024 * 1024));
+	/*
+	 * Drive 1 (/dev/hdb): Partition 2 (aux_storage-1) in unified mode, or
+	 * standalone $AUXDISKFILE if overridden.
+	 */
+	aux = getenv("AUXDISKFILE");
+	if (aux && aux[0] && strcmp(aux, root) != 0) {
+		six_disk_fd[1] = open(aux, O_RDWR);
+		if (six_disk_fd[1] >= 0) {
+			six_disk_offset[1] = 0;
+			size_disk(1, aux);
+			fprintf(stderr, "auxiliary disk: %s (%ld MB) as /dev/hdb\n",
+				aux, (six_disk_sectors[1] * 512) / (1024 * 1024));
+		}
+	} else if (is_unified && slice_has_data(six_disk_fd[0], SIX_PART_AUX1_OFFSET, 0, 2048)) {
+		six_disk_fd[1] = open(root, O_RDWR);
+		if (six_disk_fd[1] >= 0) {
+			six_disk_offset[1] = SIX_PART_AUX1_OFFSET;
+			size_disk_bytes(1, (long)SIX_PART_AUX1_BYTES, root);
+			fprintf(stderr, "auxiliary disk: %s [p2:aux_storage-1] (%ld MB) as /dev/hdb\n",
+				root, (six_disk_sectors[1] * 512) / (1024 * 1024));
 		}
 	}
 
+	/*
+	 * Drive 2 (/dev/hdc): Partition 3 (aux_storage-2) in unified mode, or
+	 * standalone $AUXDISKFILE2 if overridden.
+	 */
+	{
+		const char *aux2 = getenv("AUXDISKFILE2");
+		if (aux2 && aux2[0] && strcmp(aux2, root) != 0) {
+			six_disk_fd[2] = open(aux2, O_RDWR);
+			if (six_disk_fd[2] >= 0) {
+				six_disk_offset[2] = 0;
+				size_disk(2, aux2);
+				fprintf(stderr, "auxiliary disk 2: %s (%ld MB) as /dev/hdc\n",
+					aux2, (six_disk_sectors[2] * 512) / (1024 * 1024));
+			}
+		} else if (is_unified) {
+			six_disk_fd[2] = open(root, O_RDWR);
+			if (six_disk_fd[2] >= 0) {
+				six_disk_offset[2] = SIX_PART_AUX2_OFFSET;
+				size_disk_bytes(2, (long)SIX_PART_AUX2_BYTES, root);
+				fprintf(stderr, "auxiliary disk 2: %s [p3:aux_storage-2] (%ld MB) as /dev/hdc\n",
+					root, (six_disk_sectors[2] * 512) / (1024 * 1024));
+			}
+		}
+	}
+
+	/*
+	 * Drive 3 (/dev/hdd): Partition 4 (bin_storage) in unified mode, or
+	 * standalone $BINDISKFILE if overridden.
+	 */
 	{
 		const char *bin_disk = getenv("BINDISKFILE");
-		if (!bin_disk)
-			bin_disk = BINDISKFILE;
-
-		six_disk_fd[3] = open(bin_disk, O_RDWR);
-		if (six_disk_fd[3] >= 0) {
-			size_disk(3, bin_disk);
-			fprintf(stderr, "verity bin disk: %s (%ld MB) as /dev/hdd\n",
+		if (bin_disk && bin_disk[0] && strcmp(bin_disk, root) != 0) {
+			six_disk_fd[3] = open(bin_disk, O_RDWR);
+			if (six_disk_fd[3] >= 0) {
+				six_disk_offset[3] = 0;
+				size_disk(3, bin_disk);
+				fprintf(stderr, "verity bin disk: %s (%ld MB) as /dev/hdd\n",
 					bin_disk, (six_disk_sectors[3] * 512) / (1024 * 1024));
+			}
+		} else if (is_unified && slice_has_data(six_disk_fd[0], SIX_PART_BIN_OFFSET, 1024, 128)) {
+			six_disk_fd[3] = open(root, O_RDWR);
+			if (six_disk_fd[3] >= 0) {
+				six_disk_offset[3] = SIX_PART_BIN_OFFSET;
+				size_disk_bytes(3, (long)SIX_PART_BIN_BYTES, root);
+				fprintf(stderr, "verity bin disk: %s [p4:bin_storage] (%ld MB) as /dev/hdd\n",
+					root, (six_disk_sectors[3] * 512) / (1024 * 1024));
+			}
 		}
 	}
 }

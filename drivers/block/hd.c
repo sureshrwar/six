@@ -96,6 +96,7 @@ static int hd_error = 0;
 int  six_disk_fd[SIX_MAX_DISKS]      = { -1, -1, -1, -1 };
 int  six_hd_cyl[SIX_MAX_DISKS]       = { HD_CYL_DEFAULT, 0, 0, 0 };
 long six_disk_sectors[SIX_MAX_DISKS] = { (long) HD_CYL_DEFAULT * HD_HEAD * HD_SECT, 0, 0, 0 };
+unsigned long six_disk_offset[SIX_MAX_DISKS] = { 0, 0, 0, 0 };
 
 int hd_sect[MAX_HD<<6], hd_head[MAX_HD<<6];
 
@@ -1274,7 +1275,7 @@ void do_hard_write(int drive, int from, int count)
 
 	if (drive < 0 || drive >= SIX_MAX_DISKS || six_disk_fd[drive] < 0)
 		return;
-	lseek(six_disk_fd[drive], from*512, 0);
+	lseek(six_disk_fd[drive], (long)six_disk_offset[drive] + (long)from * 512L, 0);
 	ret = write(six_disk_fd[drive], wdisk_buffer, 1024);
 	wbuf_offset = 0;
 	dm_notify_bdev_write(MKDEV(MAJOR_NR, drive << 6));
@@ -1284,7 +1285,7 @@ void do_hard_read(int drive, int from, int count)
 {
 	if (drive < 0 || drive >= SIX_MAX_DISKS || six_disk_fd[drive] < 0)
 		return;
-	lseek(six_disk_fd[drive], from*512, 0);
+	lseek(six_disk_fd[drive], (long)six_disk_offset[drive] + (long)from * 512L, 0);
 	read(six_disk_fd[drive], disk_buffer, 1024);
 	buf_offset = 0;
 }

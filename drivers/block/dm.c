@@ -306,12 +306,12 @@ static int dm_rw_phys_sector(kdev_t bdev, unsigned long phys_sec,
 			}
 			if (bh)
 				brelse(bh);
-			lseek(six_disk_fd[drive], (long)phys_sec * 512L, 0);
+			lseek(six_disk_fd[drive], (long)six_disk_offset[drive] + (long)phys_sec * 512L, 0);
 			if (read(six_disk_fd[drive], buf, 512) != 512)
 				return -EIO;
 			return 0;
 		} else {
-			lseek(six_disk_fd[drive], (long)phys_sec * 512L, 0);
+			lseek(six_disk_fd[drive], (long)six_disk_offset[drive] + (long)phys_sec * 512L, 0);
 			if (write(six_disk_fd[drive], buf, 512) != 512) {
 				if (bh)
 					brelse(bh);

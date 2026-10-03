@@ -705,7 +705,7 @@ TESTS = [
             "NVMe DSM (Deallocate/TRIM): success (slba=32000, blocks=16 on /dev/nvme0n1)",
             "dsm_trim_commands                   : 1 (16 sectors trimmed)",
             "NVMe Controller:   /dev/nvme0 (char 59:0, PCIe 0000:01:00.0)",
-            "Namespace 1:       /dev/nvme0n1 (block 63:0, host=./disk/x86/nvme0n1.img)",
+            "Namespace 1:       /dev/nvme0n1 (block 63:0, host=./disk/x86/root)",
         ],
     ),
     TestCase(
@@ -755,7 +755,7 @@ TESTS = [
             "RPMB Block 0 (write_counter=1): avb_rollback_index=42",
             "RPMB Status: Key PROGRAMMED, Write Counter = 1 (result=0x0000 OK)",
             "UFS Host Controller: /dev/ufs-bsg0 (char 57:0, UFSHCI v4.0, MIPI UniPro/M-PHY)",
-            "Host Flash Image:    ./disk/x86/ufs0.img (5120 KB / 5 MB unified chip image)",
+            "Host Flash Image:    ./disk/x86/root (5120 KB / 5 MB unified chip image)",
         ],
     ),
     TestCase(
