@@ -405,11 +405,58 @@ struct six_avb_vbmeta {
 	unsigned char		reserved[328];		/* Pad to 512 bytes */
 };
 
+/*
+ * Android / ChromeOS update_engine ("CrAU" v2) OTA payload header & block
+ * install operation descriptors carried inside ota.zip -> payload.bin.
+ */
+#define SIX_CRAU_MAGIC			"CrAU"
+#define SIX_CRAU_VERSION		2U
+#define SIX_CRAU_BLOCK_SIZE		4096U	/* 4 KB install operation blocks */
+
+#define SIX_CRAU_PART_SYSTEM		0U
+#define SIX_CRAU_PART_VENDOR		1U
+
+#define SIX_CRAU_OP_SOURCE_COPY		0U	/* Copy 4KB blocks from active slot */
+#define SIX_CRAU_OP_REPLACE		1U	/* Write 4KB blocks from payload blob */
+#define SIX_CRAU_OP_ZERO		2U	/* Zero-fill 4KB blocks in target slot */
+
+struct six_crau_op {
+	unsigned char		part_id;	/* 0 = system, 1 = vendor */
+	unsigned char		op_type;	/* SIX_CRAU_OP_* */
+	unsigned short		num_blocks;	/* Number of 4 KB blocks */
+	unsigned int		src_block;	/* 4 KB block index in source slice */
+	unsigned int		dst_block;	/* 4 KB block index in target slice */
+	unsigned int		blob_offset;	/* Byte offset from start of blob region */
+	unsigned int		blob_size;	/* Byte length in blob region (num_blocks * 4096) */
+	unsigned char		data_sha256[32];/* SHA-256 of REPLACE blob (or 0 for COPY/ZERO) */
+};
+
+struct six_crau_header {
+	char			magic[4];		/* "CrAU" */
+	unsigned int		version;		/* 2 */
+	unsigned int		header_size;		/* sizeof(struct six_crau_header) = 256 */
+	unsigned int		num_ops;		/* Number of struct six_crau_op entries */
+	unsigned int		ops_size;		/* num_ops * sizeof(struct six_crau_op) */
+	unsigned int		blob_offset;		/* header_size + ops_size */
+	unsigned int		blob_size;		/* Total bytes of REPLACE data blobs */
+	unsigned int		ota_type;		/* 0 = DELTA (SOURCE_COPY+REPLACE), 1 = FULL */
+	unsigned long long	rollback_index;		/* Target AVB rollback index */
+	unsigned char		system_root_hash[32];	/* Target system dm-verity SHA-256 root hash */
+	unsigned char		vendor_root_hash[32];	/* Target vendor dm-verity SHA-256 root hash */
+	unsigned char		manifest_sha256[32];	/* SHA-256 over ops array */
+	char			build_id[64];		/* Target build_id (e.g. "SIX.261004.002.B1") */
+	char			release_str[32];	/* Target release string */
+	char			security_patch[16];	/* e.g. "2026-10-05" */
+	unsigned char		reserved[8];		/* Pad header to 256 bytes */
+};
+
 #ifdef __KERNEL__
 int ufs_get_active_boot_lun(void);
 int ufs_set_active_boot_lun(int boot_lun_id);
 int ufs_read_boot_vbmeta(int boot_lun_id, struct six_avb_vbmeta *out);
 int ufs_write_boot_vbmeta(int boot_lun_id, const struct six_avb_vbmeta *in);
+void ufs_poll_external_ota(void);
 #endif
 
 #endif /* _LINUX_UFS_H */
+

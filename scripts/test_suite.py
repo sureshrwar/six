@@ -1140,7 +1140,7 @@ TESTS = [
     ),
     TestCase(
         name="ota.ab_seamless_update_and_rollback",
-        description="Android System-as-Root (/system & /vendor EROFS + dm-verity, /bin -> /system/bin), Live Seamless A/B OTA (/bin/ota & /bin/bootctl), UFS AVB0 vbmeta & RPMB anti-rollback, and automatic dm-verity corruption rollback",
+        description="Android System-as-Root (/system & /vendor EROFS + dm-verity, /bin -> /system/bin), Live Seamless A/B OTA (/bin/ota, /bin/bootctl, /bin/update_engine_client), ota.zip CrAU v2 payload.bin (guest & live host sideload), and automatic dm-verity rollback",
         cmd=(
             "readlink /bin && "
             "readlink /bin-sarthak && "
@@ -1148,6 +1148,15 @@ TESTS = [
             "bootctl get-current-slot && "
             "bootctl get-suffix && "
             "ota status && "
+            "ota inspect /ufs/ota/ota.zip && "
+            "update_engine_client --update --follow --payload=file:///ufs/ota/ota.zip && "
+            "grep 'ro.build.id=' /system/build.prop && "
+            "grep 'ro.vendor.build.id=' /vendor/build.prop && "
+            "ota switch a && "
+            "__HOST__:python3 port/image/mkotazip.py --build-id SIX.261004.777.HOST_LIVE -o /tmp/host_live_ota.zip; python3 scripts/host_ota.py sideload /tmp/host_live_ota.zip; rm -f /tmp/host_live_ota.zip && "
+            "grep 'ro.build.id=' /system/build.prop && "
+            "grep 'ro.vendor.build.id=' /vendor/build.prop && "
+            "ota switch a && "
             "ota apply SIX.261003.099.B2 && "
             "bootctl get-current-slot && "
             "bootctl get-suffix && "
@@ -1168,6 +1177,16 @@ TESTS = [
             "/system/etc/selinux/public/domain.te",
             "/vendor/etc/selinux/fwupd.te",
             "=== Android Seamless A/B OTA & AVB 2.0 Boot Control Status ===",
+            "=== Android Desktop A/B OTA Package Inspection (/ufs/ota/ota.zip) ===",
+            "FILE_HASH Match:  VERIFIED",
+            "Manifest Match:   VERIFIED (18 install ops, 24576 bytes blobs, type=DELTA)",
+            "[update_engine] Installing /ufs/ota/ota.zip (DELTA CrAU v2",
+            "ro.build.id=SIX.261004.002.B2",
+            "ro.vendor.build.id=SIX.261004.002.B2",
+            "[host_ota] Sideloaded /tmp/host_live_ota.zip -> slot_b (build=SIX.261004.777.HOST_LIVE",
+            "ufshcd0: external host OTA sideload detected",
+            "ro.build.id=SIX.261004.777.HOST_LIVE",
+            "ro.vendor.build.id=SIX.261004.777.HOST_LIVE",
             "[update_engine] Starting Seamless A/B OTA payload application -> slot_b (_b)",
             "[update_engine] Signed AVB0 vbmeta on /dev/ufsc",
             "OTA Slot Activated Live: slot_b (_b, UFS bBootLunID=0x02, build=SIX.261003.099.B2)",
@@ -1292,7 +1311,7 @@ def run_shard(
 
             tmp_dir = tempfile.mkdtemp(prefix=f"six_test_w{shard_id}_")
             work_dir = tmp_dir
-            for entry in ("six", "applications", "library", "include"):
+            for entry in ("six", "applications", "library", "include", "port", "scripts"):
                 os.symlink(os.path.join(repo_root, entry), os.path.join(work_dir, entry))
             os.makedirs(os.path.join(work_dir, "disk"), exist_ok=True)
             subprocess.run(

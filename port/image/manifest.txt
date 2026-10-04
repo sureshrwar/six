@@ -253,6 +253,7 @@ file  /bin/sarthak          0755  applications/sarthak/sarthak
 sym   /bin/erofs_compare    -     sarthak
 file  /bin/ota              0755  applications/ota/ota
 sym   /bin/bootctl          -     ota
+sym   /bin/update_engine_client - ota
 file  /bin/mount_all        0755  port/image/rootfs/bin/mount_all
 file  /bin/configure_dm     0755  port/image/rootfs/bin/configure_dm
 file  /bin/set_d            0755  port/image/rootfs/bin/set_d

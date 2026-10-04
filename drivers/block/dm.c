@@ -420,6 +420,9 @@ static int dm_verify_verity_block(struct dm_device *dev,
 	return 0;
 }
 
+static struct dm_device *last_verity_dev = NULL;
+static unsigned long last_verity_blk = ~0UL;
+
 static int dm_process_sector(struct dm_device *dev, unsigned long sec,
 			     unsigned char *buf, int cmd)
 {
@@ -460,8 +463,6 @@ static int dm_process_sector(struct dm_device *dev, unsigned long sec,
 		}
 
 	case DM_TARGET_VERITY: {
-		static struct dm_device *last_verity_dev = NULL;
-		static unsigned long last_verity_blk = ~0UL;
 		unsigned long blk_nr = rel_sec >> 1;
 		unsigned long phys_sec_even = t->offset_sector + (blk_nr << 1);
 		int sub_off = (rel_sec & 1) << 9;
@@ -915,6 +916,7 @@ int get_dm_status_proc(char *buf)
 {
 	int len = 0, i, j, active_cnt = 0;
 
+	ufs_poll_external_ota();
 	len += sprintf(buf + len,
 		"Device Mapper (dm) v1.0 (major %d)\n"
 		"Minor  Name             State      Sectors   Size(KB)  Reads   Writes  Target Table\n",
@@ -999,6 +1001,9 @@ void dm_notify_bdev_write(kdev_t bdev)
 	extern struct inode *first_inode;
 	extern int nr_inodes;
 	extern void erofs_notify_bdev_write(kdev_t dev);
+
+	last_verity_dev = NULL;
+	last_verity_blk = ~0UL;
 
 	for (i = 0; i < DM_MAX_DEVICES; i++) {
 		if (!dm_devs[i].active)
@@ -1169,6 +1174,7 @@ int dm_activate_ota_slot(int slot)
 		return -ENODEV;
 
 	fsync_dev(hdd_dev);
+	invalidate_buffers(hdd_dev);
 
 #ifdef VERITY_VENDOR_B_HASH_SECTOR
 	if ((unsigned long)six_disk_sectors[3] >= VERITY_VENDOR_B_HASH_SECTOR + 2048UL)

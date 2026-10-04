@@ -518,6 +518,12 @@ static int do_open(const char * filename,int flags,int mode, int fd)
                 flag++;
         if (flag & O_TRUNC)
                 flag |= 2;
+#if (SIX)
+        {
+                extern void ufs_poll_external_ota(void);
+                ufs_poll_external_ota();
+        }
+#endif
         error = open_namei(filename,flag,mode,&inode,NULL);
         if (error)
                 goto cleanup_file;

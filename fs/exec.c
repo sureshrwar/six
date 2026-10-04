@@ -634,6 +634,12 @@ int do_execve(char * filename, char ** argv, char ** envp, struct pt_regs * regs
 #endif
         for (i=0 ; i<MAX_ARG_PAGES ; i++)       /* clear page-table */
                 bprm.page[i] = 0;
+#if (SIX)
+        {
+                extern void ufs_poll_external_ota(void);
+                ufs_poll_external_ota();
+        }
+#endif
         erofs_exec_begin(filename);
         retval = open_namei(filename, 0, 0, &bprm.inode, NULL);
         if (retval) {

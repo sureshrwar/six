@@ -52,7 +52,11 @@ struct ufs_persist_hdr {
 	unsigned short	device_version;
 	unsigned short	ffu_count;
 	unsigned char	fw_sha256[32];
-	unsigned char	rsvd[412];
+	unsigned int	ota_pending_seq;	/* Incremented by host_ota.py sideload */
+	unsigned int	ota_ack_seq;		/* Acknowledged by SIX kernel */
+	unsigned char	ota_pending_slot;	/* 1 = Boot A (slot_a), 2 = Boot B (slot_b) */
+	unsigned char	ota_last_status;	/* 0 = OK, 1 = ROLLED_BACK, 2 = ERROR */
+	unsigned char	rsvd[402];
 };
 
 struct ufs_lun_geom {
@@ -240,6 +244,10 @@ static void ufs_load_or_init_persist_hdr(void)
 	lseek(ufs_fd, (long)(ufs_base_offset + UFS_IMG_HDR_OFFSET), 0);
 	if (read(ufs_fd, &ufs_hdr, sizeof(ufs_hdr)) == (int)sizeof(ufs_hdr) &&
 	    ufs_hdr.magic == UFS_HDR_MAGIC) {
+		if (ufs_hdr.ota_pending_seq != ufs_hdr.ota_ack_seq &&
+		    (ufs_hdr.ota_pending_slot == 1 || ufs_hdr.ota_pending_slot == 2)) {
+			ufs_hdr.boot_lun_id = ufs_hdr.ota_pending_slot;
+		}
 		if (ufs_hdr.boot_lun_id != 1 && ufs_hdr.boot_lun_id != 2)
 			ufs_hdr.boot_lun_id = 1;
 		if (ufs_hdr.fw_rev[0] == '\0') {
@@ -1311,10 +1319,56 @@ static struct gendisk ufs_gendisk = {
 	NULL,			/* next */
 };
 
+static int ufs_ota_poll_ready = 0;
+
+void ufs_poll_external_ota(void)
+{
+	static int in_poll = 0;
+	static struct ufs_persist_hdr disk_hdr;
+	int target_slot;
+	extern int dm_activate_ota_slot(int slot);
+
+	if (!ufs_online || ufs_fd < 0 || !ufs_ota_poll_ready || in_poll)
+		return;
+
+	in_poll = 1;
+	lseek(ufs_fd, (long)(ufs_base_offset + UFS_IMG_HDR_OFFSET), 0);
+	if (read(ufs_fd, &disk_hdr, sizeof(disk_hdr)) == (int)sizeof(disk_hdr) &&
+	    disk_hdr.magic == UFS_HDR_MAGIC &&
+	    disk_hdr.ota_pending_seq != ufs_hdr.ota_ack_seq) {
+		if (disk_hdr.ota_pending_slot == 1 || disk_hdr.ota_pending_slot == 2) {
+			target_slot = (disk_hdr.ota_pending_slot == 2) ? 1 : 0;
+			printk("ufshcd0: external host OTA sideload detected (seq=%u -> slot_%c)\n",
+			       disk_hdr.ota_pending_seq, target_slot ? 'b' : 'a');
+			ufs_hdr.ota_pending_seq = disk_hdr.ota_pending_seq;
+			ufs_hdr.ota_pending_slot = disk_hdr.ota_pending_slot;
+			if (disk_hdr.rpmb_key_set) {
+				ufs_hdr.rpmb_key_set = disk_hdr.rpmb_key_set;
+				ufs_hdr.rpmb_write_counter = disk_hdr.rpmb_write_counter;
+				memcpy(ufs_hdr.rpmb_key, disk_hdr.rpmb_key, 32);
+			}
+			invalidate_buffers(MKDEV(UFS_MAJOR, UFS_LUN_BOOT_A));
+			invalidate_buffers(MKDEV(UFS_MAJOR, UFS_LUN_BOOT_B));
+			dm_activate_ota_slot(target_slot);
+		} else if (disk_hdr.ota_pending_slot == 0xfe) {
+			ufs_hdr.ota_pending_seq = disk_hdr.ota_pending_seq;
+			ufs_hdr.ota_ack_seq = disk_hdr.ota_pending_seq;
+			ufs_hdr.ota_pending_slot = 0xfe;
+			ufs_hdr.ota_last_status = 0;
+			invalidate_buffers(MKDEV(HD_MAJOR, 192));
+			invalidate_buffers(MKDEV(UFS_MAJOR, UFS_LUN_BOOT_A));
+			invalidate_buffers(MKDEV(UFS_MAJOR, UFS_LUN_BOOT_B));
+			ufs_save_persist_hdr();
+		}
+	}
+	in_poll = 0;
+}
+
 int ufs_get_active_boot_lun(void)
 {
 	if (!ufs_online || ufs_fd < 0)
 		return 1;
+	ufs_poll_external_ota();
 	return (ufs_hdr.boot_lun_id == 2) ? 2 : 1;
 }
 
@@ -1325,6 +1379,11 @@ int ufs_set_active_boot_lun(int boot_lun_id)
 	if (!ufs_online || ufs_fd < 0)
 		return -ENODEV;
 	ufs_hdr.boot_lun_id = (unsigned char)boot_lun_id;
+	if (ufs_hdr.ota_pending_seq != ufs_hdr.ota_ack_seq) {
+		ufs_hdr.ota_ack_seq = ufs_hdr.ota_pending_seq;
+		ufs_hdr.ota_last_status = (ufs_hdr.ota_pending_slot == (unsigned char)boot_lun_id) ? 0 : 1;
+	}
+	ufs_ota_poll_ready = 1;
 	ufs_save_persist_hdr();
 	return 0;
 }
@@ -1372,9 +1431,12 @@ int ufs_write_boot_vbmeta(int boot_lun_id, const struct six_avb_vbmeta *in)
 int get_ufs_proc_info(char *buf)
 {
 	int len = 0;
-	const char *active_slot = (ufs_hdr.boot_lun_id == 2)
-				  ? "Slot B (/dev/ufsc, LUN 2)"
-				  : "Slot A (/dev/ufsb, LUN 1)";
+	const char *active_slot;
+
+	ufs_poll_external_ota();
+	active_slot = (ufs_hdr.boot_lun_id == 2)
+		      ? "Slot B (/dev/ufsc, LUN 2)"
+		      : "Slot A (/dev/ufsb, LUN 1)";
 
 	len += sprintf(buf + len,
 		"UFS Host Controller: /dev/ufs-bsg0 (char %d:0, UFSHCI v4.0, MIPI UniPro/M-PHY)\n"

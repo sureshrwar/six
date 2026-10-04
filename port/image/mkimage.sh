@@ -607,6 +607,13 @@ if [ "$MODE" = "bin" ]; then
 	python3 port/image/mkverity.py "$BUILD_OUT" include/linux/verity_roothash.h || exit 1
 	mkdir -p port/image
 	cp -f "$BUILD_OUT" port/image/.bin_part.img
+	python3 port/image/mkotazip.py \
+		--disk port/image/.bin_part.img \
+		--build-id SIX.261004.002.B2 \
+		--slot _b \
+		--ota-version 2 \
+		--rollback-index 2 \
+		-o port/image/ota.zip >/dev/null 2>&1 || true
 	if [ -f "$UNIFIED_DISK" ]; then
 		python3 port/image/mksingledisk.py write-part "$UNIFIED_DISK" bin_storage "$BUILD_OUT" || exit 1
 	fi
@@ -746,6 +753,16 @@ Host Image: ./disk/x86/root [p6:ufs0] (5 MB unified UFS flash package)
   - W-LUN (/dev/ufs-rpmb):    128 KB Replay Protected Memory Block (HMAC-SHA256)
 EOF
 	echo "active_slot=a" > "$UFS_STAGE/ota/slot_status.txt"
+	if [ -s port/image/.bin_part.img ]; then
+		python3 port/image/mkotazip.py \
+			--disk port/image/.bin_part.img \
+			--build-id SIX.261004.002.B2 \
+			--slot _b \
+			--ota-version 2 \
+			--rollback-index 2 \
+			-o "$UFS_STAGE/ota/ota.zip" >/dev/null 2>&1 || true
+		cp -f "$UFS_STAGE/ota/ota.zip" port/image/ota.zip 2>/dev/null || true
+	fi
 	fakeroot -- mke2fs -q -F -t ext4 -b 1024 -N 512 -I 256 \
 		-O "none,has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize,ext_attr,resize_inode,dir_index,filetype,sparse_super,large_file" -m 0 \
 		-L "ufs_data" -U "c0ffee40-2026-4000-8000-000000000001" -d "$UFS_STAGE" "$UFS_LUN0_TMP" 4096 2>/dev/null || true

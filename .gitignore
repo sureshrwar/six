@@ -42,6 +42,7 @@ port/image/.stage_system/
 port/image/.stage_vendor/
 port/image/.bin_part.img
 port/image/.bin_stamp
+port/image/ota.zip
 
 # The optional auxiliary disk (/dev/hdb), built by port/image/mkaux.sh.
 # Never checked in: it is not reconstructible from the tree, and having it

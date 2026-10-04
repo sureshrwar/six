@@ -23,6 +23,7 @@ import re
 import select
 import signal
 import struct
+import subprocess
 import sys
 import termios
 import time
@@ -82,7 +83,7 @@ def run_guest_commands(
                 continue
 
             if sent_login and cmd_queue:
-                if cmd_queue[0].startswith("__"):
+                if cmd_queue[0].startswith("__") and not cmd_queue[0].startswith("__HOST__:"):
                     next_cmd = cmd_queue.pop(0)
                     if on_command_sent:
                         on_command_sent(next_cmd)
@@ -103,12 +104,25 @@ def run_guest_commands(
                 elif re.search(r"root@[^\r\n]*# $", buf):
                     prompt_pos = buf.rfind("# ")
                     if prompt_pos > last_prompt_pos:
-                        last_prompt_pos = prompt_pos
                         next_cmd = cmd_queue.pop(0)
                         if on_command_sent:
                             on_command_sent(next_cmd)
-                        time.sleep(0.05)
-                        os.write(master, (next_cmd + "\r").encode("utf-8"))
+                        if next_cmd.startswith("__HOST__:"):
+                            host_cmd = next_cmd[len("__HOST__:"):]
+                            res = subprocess.run(
+                                host_cmd,
+                                shell=True,
+                                cwd=repo_root,
+                                capture_output=True,
+                                text=True,
+                            )
+                            buf += f"\n[HOST $ {host_cmd}]\n{res.stdout}{res.stderr}root@black:~# "
+                            if on_output:
+                                on_output(buf)
+                        else:
+                            last_prompt_pos = prompt_pos
+                            time.sleep(0.05)
+                            os.write(master, (next_cmd + "\r").encode("utf-8"))
                         start = time.time()
     finally:
         try:

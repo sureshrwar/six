@@ -165,6 +165,74 @@ static void bytes_to_hex(const unsigned char *in, int len, char *out)
 	out[len * 2] = '\0';
 }
 
+struct sha256_ctx {
+	unsigned int state[8];
+	unsigned long long total_bytes;
+	unsigned int buf_len;
+	unsigned char buf[64];
+};
+
+static void sha256_init(struct sha256_ctx *ctx)
+{
+	ctx->state[0] = 0x6a09e667U;
+	ctx->state[1] = 0xbb67ae85U;
+	ctx->state[2] = 0x3c6ef372U;
+	ctx->state[3] = 0xa54ff53aU;
+	ctx->state[4] = 0x510e527fU;
+	ctx->state[5] = 0x9b05688cU;
+	ctx->state[6] = 0x1f83d9abU;
+	ctx->state[7] = 0x5be0cd19U;
+	ctx->total_bytes = 0;
+	ctx->buf_len = 0;
+}
+
+static void sha256_update(struct sha256_ctx *ctx, const unsigned char *data, unsigned long len)
+{
+	unsigned long i = 0;
+
+	ctx->total_bytes += (unsigned long long)len;
+	if (ctx->buf_len > 0) {
+		while (i < len && ctx->buf_len < 64)
+			ctx->buf[ctx->buf_len++] = data[i++];
+		if (ctx->buf_len == 64) {
+			sha256_transform(ctx->state, ctx->buf);
+			ctx->buf_len = 0;
+		}
+	}
+	while (i + 64 <= len) {
+		sha256_transform(ctx->state, data + i);
+		i += 64;
+	}
+	while (i < len)
+		ctx->buf[ctx->buf_len++] = data[i++];
+}
+
+static void sha256_final(struct sha256_ctx *ctx, unsigned char out[32])
+{
+	unsigned long long bits = ctx->total_bytes * 8ULL;
+	int i;
+
+	ctx->buf[ctx->buf_len++] = 0x80;
+	if (ctx->buf_len > 56) {
+		while (ctx->buf_len < 64)
+			ctx->buf[ctx->buf_len++] = 0;
+		sha256_transform(ctx->state, ctx->buf);
+		ctx->buf_len = 0;
+	}
+	while (ctx->buf_len < 56)
+		ctx->buf[ctx->buf_len++] = 0;
+	for (i = 0; i < 8; i++)
+		ctx->buf[56 + i] = (unsigned char)((bits >> ((7 - i) * 8)) & 0xff);
+	sha256_transform(ctx->state, ctx->buf);
+
+	for (i = 0; i < 8; i++) {
+		out[i * 4 + 0] = (unsigned char)((ctx->state[i] >> 24) & 0xff);
+		out[i * 4 + 1] = (unsigned char)((ctx->state[i] >> 16) & 0xff);
+		out[i * 4 + 2] = (unsigned char)((ctx->state[i] >> 8) & 0xff);
+		out[i * 4 + 3] = (unsigned char)(ctx->state[i] & 0xff);
+	}
+}
+
 static void derive_rpmb_key(const char *key_str, unsigned char out_key[32])
 {
 	int len = key_str ? (int)strlen(key_str) : 0;
@@ -888,17 +956,454 @@ static int cmd_repair_b(void)
 	return 0;
 }
 
+static const char *strip_file_uri(const char *s)
+{
+	if (!s)
+		return "/ufs/ota/ota.zip";
+	if (strncmp(s, "file://", 7) == 0)
+		return s + 7;
+	return s;
+}
+
+static int zip_find_entry(int zfd, const char *target_name,
+			  unsigned long *out_off, unsigned long *out_size)
+{
+	unsigned long pos = 0;
+	unsigned char lfh[30];
+	char name_buf[128];
+
+	while (1) {
+		unsigned int sig, comp_sz, uncomp_sz;
+		unsigned short comp_method, name_len, extra_len;
+		unsigned long data_off;
+
+		if (lseek(zfd, (long)pos, 0) < 0)
+			return -1;
+		if (read(zfd, lfh, 30) != 30)
+			return -1;
+		sig = (unsigned int)lfh[0] | ((unsigned int)lfh[1] << 8) |
+		      ((unsigned int)lfh[2] << 16) | ((unsigned int)lfh[3] << 24);
+		if (sig != 0x04034b50U)
+			return -1;
+		comp_method = (unsigned short)lfh[8] | ((unsigned short)lfh[9] << 8);
+		comp_sz = (unsigned int)lfh[18] | ((unsigned int)lfh[19] << 8) |
+			  ((unsigned int)lfh[20] << 16) | ((unsigned int)lfh[21] << 24);
+		uncomp_sz = (unsigned int)lfh[22] | ((unsigned int)lfh[23] << 8) |
+			    ((unsigned int)lfh[24] << 16) | ((unsigned int)lfh[25] << 24);
+		name_len = (unsigned short)lfh[26] | ((unsigned short)lfh[27] << 8);
+		extra_len = (unsigned short)lfh[28] | ((unsigned short)lfh[29] << 8);
+		if (comp_method != 0)
+			return -1;
+		memset(name_buf, 0, sizeof(name_buf));
+		if (name_len > 0) {
+			unsigned short rlen = (name_len < sizeof(name_buf) - 1)
+					      ? name_len : (unsigned short)(sizeof(name_buf) - 1);
+			if (read(zfd, name_buf, rlen) != (int)rlen)
+				return -1;
+		}
+		data_off = pos + 30UL + (unsigned long)name_len + (unsigned long)extra_len;
+		if (strcmp(name_buf, target_name) == 0) {
+			if (out_off)
+				*out_off = data_off;
+			if (out_size)
+				*out_size = (unsigned long)uncomp_sz;
+			return 0;
+		}
+		pos = data_off + (unsigned long)comp_sz;
+	}
+}
+
+static void extract_kv_from_buf(const char *buf, const char *key, char *out, int out_sz)
+{
+	int klen = (int)strlen(key);
+	const char *p = buf;
+
+	out[0] = '\0';
+	while (*p) {
+		const char *eol = strchr(p, '\n');
+		int linelen = eol ? (int)(eol - p) : (int)strlen(p);
+		if (linelen > klen && strncmp(p, key, klen) == 0 && p[klen] == '=') {
+			int vlen = linelen - (klen + 1);
+			if (vlen > 0 && p[klen + 1 + vlen - 1] == '\r')
+				vlen--;
+			if (vlen >= out_sz)
+				vlen = out_sz - 1;
+			memcpy(out, p + klen + 1, vlen);
+			out[vlen] = '\0';
+			return;
+		}
+		if (!eol)
+			break;
+		p = eol + 1;
+	}
+}
+
+static int sha256_file_range(int fd, unsigned long offset, unsigned long size,
+			     unsigned char out_digest[32])
+{
+	struct sha256_ctx ctx;
+	static unsigned char chunk[4096];
+	unsigned long rem = size;
+
+	if (lseek(fd, (long)offset, 0) < 0)
+		return -1;
+	sha256_init(&ctx);
+	while (rem > 0) {
+		unsigned long step = (rem > sizeof(chunk)) ? sizeof(chunk) : rem;
+		if (read(fd, chunk, (int)step) != (int)step)
+			return -1;
+		sha256_update(&ctx, chunk, step);
+		rem -= step;
+	}
+	sha256_final(&ctx, out_digest);
+	return 0;
+}
+
+static int cmd_inspect_zip(const char *raw_path)
+{
+	const char *zip_path = strip_file_uri(raw_path);
+	int zfd;
+	unsigned long meta_off = 0, meta_sz = 0;
+	unsigned long props_off = 0, props_sz = 0;
+	unsigned long pay_off = 0, pay_sz = 0;
+	static char text_buf[1024];
+	char expected_hash[65], calc_hash_hex[65], sys_hex[65], vnd_hex[65];
+	unsigned char calc_hash[32], man_hash[32];
+	static struct six_crau_header hdr;
+	static struct six_crau_op op;
+	unsigned int i;
+
+	zfd = open(zip_path, O_RDONLY);
+	if (zfd < 0) {
+		fprintf(stderr, "ota inspect: cannot open %s\n", zip_path);
+		return 1;
+	}
+
+	if (zip_find_entry(zfd, "META-INF/com/android/metadata", &meta_off, &meta_sz) < 0 ||
+	    zip_find_entry(zfd, "payload_properties.txt", &props_off, &props_sz) < 0 ||
+	    zip_find_entry(zfd, "payload.bin", &pay_off, &pay_sz) < 0) {
+		fprintf(stderr, "ota inspect: %s is not a valid Android A/B ota.zip (ZIP_STORED)\n",
+			zip_path);
+		close(zfd);
+		return 1;
+	}
+
+	printf("=== Android Desktop A/B OTA Package Inspection (%s) ===\n", zip_path);
+	memset(text_buf, 0, sizeof(text_buf));
+	lseek(zfd, (long)meta_off, 0);
+	read(zfd, text_buf, (meta_sz < sizeof(text_buf) - 1) ? (int)meta_sz : (int)(sizeof(text_buf) - 1));
+	printf("[META-INF/com/android/metadata]\n%s\n", text_buf);
+
+	memset(text_buf, 0, sizeof(text_buf));
+	lseek(zfd, (long)props_off, 0);
+	read(zfd, text_buf, (props_sz < sizeof(text_buf) - 1) ? (int)props_sz : (int)(sizeof(text_buf) - 1));
+	printf("[payload_properties.txt]\n%s\n", text_buf);
+
+	extract_kv_from_buf(text_buf, "FILE_HASH", expected_hash, sizeof(expected_hash));
+	sha256_file_range(zfd, pay_off, pay_sz, calc_hash);
+	bytes_to_hex(calc_hash, 32, calc_hash_hex);
+
+	lseek(zfd, (long)pay_off, 0);
+	if (read(zfd, &hdr, sizeof(hdr)) != (int)sizeof(hdr) ||
+	    memcmp(hdr.magic, SIX_CRAU_MAGIC, 4) != 0 ||
+	    hdr.version != SIX_CRAU_VERSION) {
+		fprintf(stderr, "ota inspect: invalid CrAU v2 header in payload.bin\n");
+		close(zfd);
+		return 1;
+	}
+
+	sha256_file_range(zfd, pay_off + hdr.header_size, hdr.ops_size, man_hash);
+	bytes_to_hex(hdr.system_root_hash, 32, sys_hex);
+	bytes_to_hex(hdr.vendor_root_hash, 32, vnd_hex);
+
+	printf("[CrAU v%u payload.bin @ offset %lu (%lu bytes)]\n", hdr.version, pay_off, pay_sz);
+	printf("  FILE_HASH Match:  %s (%s)\n",
+	       (strcmp(expected_hash, calc_hash_hex) == 0) ? "VERIFIED" : "MISMATCH",
+	       calc_hash_hex);
+	printf("  Manifest Match:   %s (%u install ops, %u bytes blobs, type=%s)\n",
+	       (memcmp(man_hash, hdr.manifest_sha256, 32) == 0) ? "VERIFIED" : "MISMATCH",
+	       hdr.num_ops, hdr.blob_size, hdr.ota_type ? "FULL" : "DELTA");
+	printf("  Target Build ID:  %s (release %s, patch %s, rollback=%llu)\n",
+	       hdr.build_id, hdr.release_str, hdr.security_patch,
+	       (unsigned long long)hdr.rollback_index);
+	printf("  System Root Hash: %s\n", sys_hex);
+	printf("  Vendor Root Hash: %s\n", vnd_hex);
+
+	for (i = 0; i < hdr.num_ops; i++) {
+		const char *pname;
+		const char *oname;
+		lseek(zfd, (long)(pay_off + hdr.header_size + i * sizeof(op)), 0);
+		if (read(zfd, &op, sizeof(op)) != (int)sizeof(op))
+			break;
+		pname = (op.part_id == SIX_CRAU_PART_SYSTEM) ? "system" : "vendor";
+		oname = (op.op_type == SIX_CRAU_OP_SOURCE_COPY) ? "SOURCE_COPY" :
+			(op.op_type == SIX_CRAU_OP_REPLACE) ? "REPLACE" : "ZERO";
+		printf("    op[%02u] %-6s %-11s dst_4k=%-4u blocks=%-4u blob=+%u (%u B)\n",
+		       i, pname, oname, op.dst_block, op.num_blocks, op.blob_offset, op.blob_size);
+	}
+
+	close(zfd);
+	return 0;
+}
+
+static int cmd_install_zip(int argc, char **argv)
+{
+	const char *zip_path = "/ufs/ota/ota.zip";
+	int target_slot = -1;
+	int no_activate = 0;
+	int i, zfd, hdd_fd;
+	unsigned long props_off = 0, props_sz = 0;
+	unsigned long pay_off = 0, pay_sz = 0;
+	static char props_buf[1024];
+	char expected_hash[65], calc_hash_hex[65], target_slot_prop[16];
+	char sys_hex[65], vnd_hex[65];
+	unsigned char calc_hash[32], man_hash[32], blob_hash[32];
+	static struct six_crau_header hdr;
+	static struct six_crau_op op;
+	static unsigned char blk_4k[4096];
+	struct dm_ota_status st;
+	struct six_avb_vbmeta vbm_dst;
+	unsigned int op_idx, b;
+
+	for (i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "install") == 0 || strcmp(argv[i], "--update") == 0 ||
+		    strcmp(argv[i], "--follow") == 0)
+			continue;
+		if (strcmp(argv[i], "--no-activate") == 0)
+			no_activate = 1;
+		else if (strcmp(argv[i], "--slot") == 0 && i + 1 < argc)
+			target_slot = parse_slot_arg(argv[++i]);
+		else if (strncmp(argv[i], "--payload=", 10) == 0)
+			zip_path = strip_file_uri(argv[i] + 10);
+		else if (argv[i][0] != '-')
+			zip_path = strip_file_uri(argv[i]);
+	}
+
+	zfd = open(zip_path, O_RDONLY);
+	if (zfd < 0) {
+		fprintf(stderr, "ota install: cannot open OTA package %s\n", zip_path);
+		return 1;
+	}
+
+	if (zip_find_entry(zfd, "payload_properties.txt", &props_off, &props_sz) < 0 ||
+	    zip_find_entry(zfd, "payload.bin", &pay_off, &pay_sz) < 0) {
+		fprintf(stderr, "ota install: %s missing payload_properties.txt or payload.bin\n",
+			zip_path);
+		close(zfd);
+		return 1;
+	}
+
+	memset(props_buf, 0, sizeof(props_buf));
+	lseek(zfd, (long)props_off, 0);
+	read(zfd, props_buf, (props_sz < sizeof(props_buf) - 1) ? (int)props_sz : (int)(sizeof(props_buf) - 1));
+	extract_kv_from_buf(props_buf, "FILE_HASH", expected_hash, sizeof(expected_hash));
+	extract_kv_from_buf(props_buf, "TARGET_SLOT", target_slot_prop, sizeof(target_slot_prop));
+
+	if (sha256_file_range(zfd, pay_off, pay_sz, calc_hash) < 0) {
+		close(zfd);
+		return 1;
+	}
+	bytes_to_hex(calc_hash, 32, calc_hash_hex);
+	if (expected_hash[0] && strcmp(expected_hash, calc_hash_hex) != 0) {
+		fprintf(stderr, "ota install: payload.bin FILE_HASH mismatch! expected=%s got=%s\n",
+			expected_hash, calc_hash_hex);
+		close(zfd);
+		return 1;
+	}
+
+	lseek(zfd, (long)pay_off, 0);
+	if (read(zfd, &hdr, sizeof(hdr)) != (int)sizeof(hdr) ||
+	    memcmp(hdr.magic, SIX_CRAU_MAGIC, 4) != 0 ||
+	    hdr.version != SIX_CRAU_VERSION) {
+		fprintf(stderr, "ota install: invalid CrAU v2 header magic\n");
+		close(zfd);
+		return 1;
+	}
+
+	if (sha256_file_range(zfd, pay_off + hdr.header_size, hdr.ops_size, man_hash) < 0 ||
+	    memcmp(man_hash, hdr.manifest_sha256, 32) != 0) {
+		fprintf(stderr, "ota install: CrAU manifest SHA-256 verification failed!\n");
+		close(zfd);
+		return 1;
+	}
+
+	if (target_slot < 0) {
+		if (target_slot_prop[0])
+			target_slot = parse_slot_arg(target_slot_prop);
+		if (target_slot < 0) {
+			if (get_ota_status(&st) == 0)
+				target_slot = st.active_slot ? 0 : 1;
+			else
+				target_slot = 1;
+		}
+	}
+
+	printf("[update_engine] Installing %s (%s CrAU v%u, %u ops, %u B blobs) -> slot_%c (_%c)\n",
+	       zip_path, hdr.ota_type ? "FULL" : "DELTA", hdr.version,
+	       hdr.num_ops, hdr.blob_size,
+	       target_slot ? 'b' : 'a', target_slot ? 'b' : 'a');
+	printf("[update_engine] Verified payload.bin SHA-256: %.32s...\n", calc_hash_hex);
+
+	hdd_fd = open("/dev/hdd", O_RDWR);
+	if (hdd_fd < 0) {
+		fprintf(stderr, "ota install: cannot open /dev/hdd\n");
+		close(zfd);
+		return 1;
+	}
+
+	for (op_idx = 0; op_idx < hdr.num_ops; op_idx++) {
+		unsigned long src_base_sec, dst_base_sec, hash_4k;
+
+		lseek(zfd, (long)(pay_off + hdr.header_size + op_idx * sizeof(op)), 0);
+		if (read(zfd, &op, sizeof(op)) != (int)sizeof(op)) {
+			close(hdd_fd);
+			close(zfd);
+			return 1;
+		}
+
+		if (op.part_id == SIX_CRAU_PART_SYSTEM) {
+			src_base_sec = SYSTEM_A_START_SEC;
+			dst_base_sec = (target_slot == 1) ? SYSTEM_B_START_SEC : SYSTEM_A_START_SEC;
+			hash_4k = SYSTEM_A_DATA_SECS / 8UL; /* 3840 */
+		} else {
+			src_base_sec = VENDOR_A_START_SEC;
+			dst_base_sec = (target_slot == 1) ? VENDOR_B_START_SEC : VENDOR_A_START_SEC;
+			hash_4k = VENDOR_A_DATA_SECS / 8UL; /* 768 */
+		}
+
+		if (op.op_type == SIX_CRAU_OP_ZERO) {
+			/* Tail padding blocks are already zeroed in super partition */
+			continue;
+		} else if (op.op_type == SIX_CRAU_OP_SOURCE_COPY) {
+			unsigned long s_sec = src_base_sec + (unsigned long)op.src_block * 8UL;
+			unsigned long d_sec = dst_base_sec + (unsigned long)op.dst_block * 8UL;
+			if (s_sec != d_sec) {
+				/* Only copy header/prop blocks (< 16) or Merkle tree spine blocks that could differ */
+				for (b = 0; b < op.num_blocks; b++) {
+					unsigned int cur_4k = op.dst_block + b;
+					if (cur_4k < 16U || (cur_4k >= hash_4k && cur_4k < hash_4k + 8U)) {
+						static unsigned char dst_4k[4096];
+						unsigned long bs = s_sec + (unsigned long)b * 8UL;
+						unsigned long bd = d_sec + (unsigned long)b * 8UL;
+						lseek(hdd_fd, (long)(bs * 512UL), 0);
+						if (read(hdd_fd, blk_4k, 4096) != 4096) {
+							close(hdd_fd);
+							close(zfd);
+							return 1;
+						}
+						lseek(hdd_fd, (long)(bd * 512UL), 0);
+						if (read(hdd_fd, dst_4k, 4096) != 4096 ||
+						    memcmp(blk_4k, dst_4k, 4096) != 0) {
+							lseek(hdd_fd, (long)(bd * 512UL), 0);
+							if (write(hdd_fd, blk_4k, 4096) != 4096) {
+								close(hdd_fd);
+								close(zfd);
+								return 1;
+							}
+						}
+					}
+				}
+			}
+		} else if (op.op_type == SIX_CRAU_OP_REPLACE) {
+			unsigned long blob_file_off = pay_off + hdr.blob_offset + op.blob_offset;
+			if (sha256_file_range(zfd, blob_file_off, op.blob_size, blob_hash) < 0 ||
+			    memcmp(blob_hash, op.data_sha256, 32) != 0) {
+				fprintf(stderr, "ota install: REPLACE op %u SHA-256 mismatch!\n", op_idx);
+				close(hdd_fd);
+				close(zfd);
+				return 1;
+			}
+			lseek(zfd, (long)blob_file_off, 0);
+			lseek(hdd_fd, (long)((dst_base_sec + (unsigned long)op.dst_block * 8UL) * 512UL), 0);
+			for (b = 0; b < op.num_blocks; b++) {
+				if (read(zfd, blk_4k, 4096) != 4096 ||
+				    write(hdd_fd, blk_4k, 4096) != 4096) {
+					close(hdd_fd);
+					close(zfd);
+					return 1;
+				}
+			}
+		}
+	}
+
+	close(hdd_fd);
+	close(zfd);
+
+	bytes_to_hex(hdr.system_root_hash, 32, sys_hex);
+	bytes_to_hex(hdr.vendor_root_hash, 32, vnd_hex);
+	printf("[update_engine] Applied system_%c -> SHA-256 root_hash=%.32s...\n",
+	       target_slot ? 'b' : 'a', sys_hex);
+	printf("[update_engine] Applied vendor_%c -> SHA-256 root_hash=%.32s...\n",
+	       target_slot ? 'b' : 'a', vnd_hex);
+
+	memset(&vbm_dst, 0, sizeof(vbm_dst));
+	memcpy(vbm_dst.magic, SIX_AVB_VBMETA_MAGIC, 4);
+	vbm_dst.version = 1;
+	vbm_dst.slot = (unsigned char)target_slot;
+	vbm_dst.priority = 15;
+	vbm_dst.tries_remaining = 7;
+	vbm_dst.flags = SIX_SLOT_FLAG_BOOTABLE | SIX_SLOT_FLAG_SUCCESSFUL;
+	vbm_dst.rollback_index = hdr.rollback_index;
+	memcpy(vbm_dst.system_root_hash, hdr.system_root_hash, 32);
+	memcpy(vbm_dst.vendor_root_hash, hdr.vendor_root_hash, 32);
+	strncpy(vbm_dst.build_id, hdr.build_id, sizeof(vbm_dst.build_id) - 1);
+	strncpy(vbm_dst.release_str, hdr.release_str, sizeof(vbm_dst.release_str) - 1);
+	if (write_vbmeta(target_slot, &vbm_dst) < 0) {
+		fprintf(stderr, "ota install: failed to write AVB0 vbmeta\n");
+		return 1;
+	}
+	rpmb_record_rollback(hdr.rollback_index, hdr.build_id);
+
+	if (no_activate) {
+		printf("[update_engine] Package %s staged in slot_%c (build=%s)\n",
+		       zip_path, target_slot ? 'b' : 'a', hdr.build_id);
+		return 0;
+	}
+	return cmd_switch(target_slot ? "b" : "a");
+}
+
 int main(int argc, char **argv)
 {
 	const char *prog = argv[0] ? argv[0] : "ota";
 	const char *base = strrchr(prog, '/');
 	base = base ? (base + 1) : prog;
 
+	/* Support Android Desktop update_engine_client flags */
+	if (strcmp(base, "update_engine_client") == 0) {
+		int i, do_update = 0, do_verify = 0;
+		const char *payload = "/ufs/ota/ota.zip";
+		for (i = 1; i < argc; i++) {
+			if (strcmp(argv[i], "--status") == 0)
+				return cmd_status();
+			if (strcmp(argv[i], "--update") == 0)
+				do_update = 1;
+			if (strcmp(argv[i], "--verify") == 0)
+				do_verify = 1;
+			if (strncmp(argv[i], "--payload=", 10) == 0)
+				payload = argv[i] + 10;
+		}
+		if (do_verify)
+			return cmd_inspect_zip(payload);
+		if (do_update)
+			return cmd_install_zip(argc, argv);
+		return cmd_status();
+	}
+
 	if (argc < 2 || strcmp(argv[1], "status") == 0 ||
+	    strcmp(argv[1], "--status") == 0 ||
 	    strcmp(argv[1], "info") == 0 ||
 	    strcmp(argv[1], "hal-info") == 0 ||
 	    strcmp(argv[1], "dump-slots") == 0) {
 		return cmd_status();
+	}
+
+	if (strcmp(argv[1], "inspect") == 0) {
+		return cmd_inspect_zip((argc >= 3) ? argv[2] : "/ufs/ota/ota.zip");
+	}
+
+	if (strcmp(argv[1], "install") == 0 || strcmp(argv[1], "sideload") == 0 ||
+	    strcmp(argv[1], "--update") == 0) {
+		return cmd_install_zip(argc, argv);
 	}
 
 	if (strcmp(argv[1], "get-current-slot") == 0) {
@@ -941,6 +1446,8 @@ int main(int argc, char **argv)
 
 	printf("Usage: %s <command> [args]\n", base);
 	printf("  status | info                   Show A/B slots, dm-verity hashes & UFS vbmeta\n");
+	printf("  inspect [ota.zip]               Inspect Android A/B ota.zip & CrAU v2 payload\n");
+	printf("  install [ota.zip] [--slot a|b]  Verify & apply Android A/B ota.zip package live\n");
 	printf("  apply [BUILD_ID] [--slot a|b]   Stage & apply live Seamless A/B OTA update\n");
 	printf("  switch <a|b|0|1>                Verify & switch active slot live\n");
 	printf("  corrupt-b                       Tamper with slot_b to test dm-verity rollback\n");
@@ -950,3 +1457,4 @@ int main(int argc, char **argv)
 	printf("  set-active-boot-slot <0|1>      Switch active boot slot (Android bootctl CLI)\n");
 	return 0;
 }
+
