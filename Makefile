@@ -487,8 +487,45 @@ ext4-image:
 	@$(MAKE) --no-print-directory SIX_IMAGE_FSTYPE=ext4 image
 
 image-clean:
-	rm -f $(SIX_IMAGE) $(SIX_BIN_IMAGE) port/image/.bin_part.img $(SIX_IMAGE_STAMP) $(SIX_VERITY_STAMP) include/linux/verity_roothash.h
+	rm -f $(SIX_IMAGE) $(SIX_BIN_IMAGE) port/image/.bin_part.img port/image/ota.zip $(SIX_IMAGE_STAMP) $(SIX_VERITY_STAMP) include/linux/verity_roothash.h
 	rm -rf port/image/.stage port/image/.stage_bin port/image/.stage_system port/image/.stage_vendor
+
+# Android Desktop / AOSP A/B ota.zip package builder and live host sideloader:
+#
+#     make ota-zip                                    # delta ota.zip -> port/image/ota.zip
+#     make ota-zip SIX_OTA_TYPE=full                  # full ota.zip  -> port/image/ota.zip
+#     make ota-zip SIX_OTA_BUILD_ID=SIX.261004.003    # custom target ro.build.id
+#     make full-ota-zip                               # shorthand for SIX_OTA_TYPE=full
+#     make delta-ota-zip                              # shorthand for SIX_OTA_TYPE=delta
+#     make ota-sideload                               # build & live-sideload into running SIX
+#
+SIX_OTA_TOOL      = port/image/mkotazip.py
+SIX_HOST_OTA_TOOL = scripts/host_ota.py
+SIX_OTA_OUT      ?= port/image/ota.zip
+SIX_OTA_TYPE     ?= delta
+SIX_OTA_BUILD_ID ?= SIX.261004.002.B2
+SIX_OTA_SLOT     ?= _b
+SIX_OTA_VERSION  ?= 2
+
+.PHONY: ota-zip delta-ota-zip full-ota-zip ota-sideload
+ota-zip: $(SIX_IMAGE)
+	python3 $(SIX_OTA_TOOL) \
+		--disk $(SIX_IMAGE) \
+		--out $(SIX_OTA_OUT) \
+		--type $(SIX_OTA_TYPE) \
+		--build-id $(SIX_OTA_BUILD_ID) \
+		--slot $(SIX_OTA_SLOT) \
+		--ota-version $(SIX_OTA_VERSION) \
+		--rollback-index $(SIX_OTA_VERSION)
+
+delta-ota-zip:
+	@$(MAKE) --no-print-directory SIX_OTA_TYPE=delta ota-zip
+
+full-ota-zip:
+	@$(MAKE) --no-print-directory SIX_OTA_TYPE=full ota-zip
+
+ota-sideload: ota-zip
+	python3 $(SIX_HOST_OTA_TOOL) sideload --disk $(SIX_IMAGE) $(SIX_OTA_OUT)
 
 # The auxiliary disk, which SIX exposes as /dev/hdb (Partition 2 of disk/x86/root).
 SIX_AUX_TOOL   = port/image/mkaux.sh
