@@ -508,7 +508,8 @@ SIX_OTA_SLOT     ?= _b
 SIX_OTA_VERSION  ?= 2
 
 .PHONY: ota-zip delta-ota-zip full-ota-zip ota-sideload
-ota-zip: $(SIX_IMAGE)
+ota-zip:
+	@if [ ! -f $(SIX_IMAGE) ]; then $(MAKE) --no-print-directory image; fi
 	python3 $(SIX_OTA_TOOL) \
 		--disk $(SIX_IMAGE) \
 		--out $(SIX_OTA_OUT) \
