@@ -55,7 +55,8 @@ enum root_directory_inos {
 	PROC_NVME,
 	PROC_UFS,
 	PROC_SELINUX,
-	PROC_EROFS
+	PROC_EROFS,
+	PROC_PARTITIONS
 };
 
 enum pid_directory_inos {

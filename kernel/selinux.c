@@ -2254,7 +2254,7 @@ unsigned short selinux_inode_sid(struct inode *inode)
 		if (ino == 60) return (inode->i_sec_sid = sid_proc_sysrq);
 		if (ino == 9) return (inode->i_sec_sid = sid_kmsg_device);
 		if (ino >= 61 && ino <= 63) return (inode->i_sec_sid = sid_debugfs_tracing);
-		if (ino >= 66 && ino <= 68) return (inode->i_sec_sid = sid_proc_diskstats);
+		if (ino >= 66 && ino <= 69) return (inode->i_sec_sid = sid_proc_diskstats);
 		if (ino >= 128 && ino < 256) return (inode->i_sec_sid = sid_proc_net);
 		return (inode->i_sec_sid = sid_proc);
 	}

@@ -83,8 +83,10 @@ ext2|ext4|ntfs) ;;
 *) echo "mkaux: --fstype must be ext2, ext4, or ntfs (got '$FSTYPE')" >&2; exit 2 ;;
 esac
 
+eval "$(python3 port/image/mksingledisk.py shell-vars)"
+
 BLOCK_SIZE=1024
-BLOCK_COUNT=${BLOCK_COUNT:-51200}
+BLOCK_COUNT=${BLOCK_COUNT:-${SIX_PART_BLOCKS_1K_AUX1:-51200}}
 INODE_COUNT=${INODE_COUNT:-$((BLOCK_COUNT / 4))}
 
 if [ "$FSTYPE" = "ntfs" ]; then

@@ -23,9 +23,17 @@ SECTOR_SIZE = 512
 CRAU_BLOCK_SIZE = 4096
 MIB = 1024 * 1024
 
-# Partition offsets in unified disk/x86/root
-SUPER_PART_OFFSET = 151 * MIB
-UFS_PART_OFFSET = 223 * MIB
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "port", "image"
+    ),
+)
+from mksingledisk import get_partition_offset_bytes
+
+# Partition offsets in unified disk/x86/root (resolved from disk_layout.json / live GPT)
+SUPER_PART_OFFSET = get_partition_offset_bytes("bin_storage")
+UFS_PART_OFFSET = get_partition_offset_bytes("ufs0")
 
 # Slice offsets inside p4:bin_storage (56 MiB)
 SYSTEM_A_OFFSET = 0 * MIB
@@ -170,15 +178,15 @@ def cmd_inspect(zip_path: str) -> int:
     return 0 if (hash_ok and manifest_ok and magic == SIX_CRAU_MAGIC) else 1
 
 
-def read_ufs_and_vbmeta(fd: int):
-    os.lseek(fd, UFS_PART_OFFSET + UFS_HDR_OFFSET, os.SEEK_SET)
+def read_ufs_and_vbmeta(fd: int, ufs_part_offset: int = UFS_PART_OFFSET):
+    os.lseek(fd, ufs_part_offset + UFS_HDR_OFFSET, os.SEEK_SET)
     hdr_raw = os.read(fd, UFS_HDR_STRUCT.size)
     ufs_hdr = list(UFS_HDR_STRUCT.unpack(hdr_raw))
 
-    os.lseek(fd, UFS_PART_OFFSET + UFS_BOOTA_VBMETA_OFFSET, os.SEEK_SET)
+    os.lseek(fd, ufs_part_offset + UFS_BOOTA_VBMETA_OFFSET, os.SEEK_SET)
     vbm_a = list(VBMETA_STRUCT.unpack(os.read(fd, VBMETA_STRUCT.size)))
 
-    os.lseek(fd, UFS_PART_OFFSET + UFS_BOOTB_VBMETA_OFFSET, os.SEEK_SET)
+    os.lseek(fd, ufs_part_offset + UFS_BOOTB_VBMETA_OFFSET, os.SEEK_SET)
     vbm_b = list(VBMETA_STRUCT.unpack(os.read(fd, VBMETA_STRUCT.size)))
 
     return ufs_hdr, vbm_a, vbm_b
@@ -188,9 +196,10 @@ def cmd_status(disk_path: str) -> int:
     if not os.path.exists(disk_path):
         print(f"host_ota: disk not found: {disk_path}", file=sys.stderr)
         return 1
+    ufs_part_offset = get_partition_offset_bytes("ufs0", disk_path)
     fd = os.open(disk_path, os.O_RDONLY)
     try:
-        ufs_hdr, vbm_a, vbm_b = read_ufs_and_vbmeta(fd)
+        ufs_hdr, vbm_a, vbm_b = read_ufs_and_vbmeta(fd, ufs_part_offset)
     finally:
         os.close(fd)
 
@@ -282,9 +291,12 @@ def cmd_sideload(
     build_id = cstr(build_id_b)
     release_str = cstr(release_b)
 
+    super_part_offset = get_partition_offset_bytes("bin_storage", disk_path)
+    ufs_part_offset = get_partition_offset_bytes("ufs0", disk_path)
+
     fd = os.open(disk_path, os.O_RDWR)
     try:
-        ufs_hdr, vbm_a, vbm_b = read_ufs_and_vbmeta(fd)
+        ufs_hdr, vbm_a, vbm_b = read_ufs_and_vbmeta(fd, ufs_part_offset)
         active_lun = ufs_hdr[1] if ufs_hdr[1] in (1, 2) else 1
 
         if slot_arg in ("a", "_a", "0", "slot_a"):
@@ -301,9 +313,9 @@ def cmd_sideload(
                 target_slot = 1 if active_lun == 1 else 0
 
         # Read baseline source slices (system_a and vendor_a) for SOURCE_COPY ops
-        os.lseek(fd, SUPER_PART_OFFSET + SYSTEM_A_OFFSET, os.SEEK_SET)
+        os.lseek(fd, super_part_offset + SYSTEM_A_OFFSET, os.SEEK_SET)
         src_sys = os.read(fd, SYSTEM_SLICE_BYTES)
-        os.lseek(fd, SUPER_PART_OFFSET + VENDOR_A_OFFSET, os.SEEK_SET)
+        os.lseek(fd, super_part_offset + VENDOR_A_OFFSET, os.SEEK_SET)
         src_vnd = os.read(fd, VENDOR_SLICE_BYTES)
 
         dst_sys = bytearray(SYSTEM_SLICE_BYTES)
@@ -335,8 +347,8 @@ def cmd_sideload(
                 return 1
 
         # Write reconstructed target system & vendor slices into p4:bin_storage (super)
-        dst_sys_off = SUPER_PART_OFFSET + (SYSTEM_B_OFFSET if target_slot == 1 else SYSTEM_A_OFFSET)
-        dst_vnd_off = SUPER_PART_OFFSET + (VENDOR_B_OFFSET if target_slot == 1 else VENDOR_A_OFFSET)
+        dst_sys_off = super_part_offset + (SYSTEM_B_OFFSET if target_slot == 1 else SYSTEM_A_OFFSET)
+        dst_vnd_off = super_part_offset + (VENDOR_B_OFFSET if target_slot == 1 else VENDOR_A_OFFSET)
 
         os.lseek(fd, dst_sys_off, os.SEEK_SET)
         os.write(fd, dst_sys)
@@ -363,7 +375,7 @@ def cmd_sideload(
             release_str.encode("ascii")[:31].ljust(32, b"\x00"),
             b"\x00" * 328,
         )
-        vbm_off = UFS_PART_OFFSET + (
+        vbm_off = ufs_part_offset + (
             UFS_BOOTB_VBMETA_OFFSET if target_slot == 1 else UFS_BOOTA_VBMETA_OFFSET
         )
         os.lseek(fd, vbm_off, os.SEEK_SET)
@@ -379,7 +391,7 @@ def cmd_sideload(
         else:
             ufs_hdr[13] = (ufs_hdr[13] + 1) & 0xFFFFFFFF  # ota_pending_seq++
             ufs_hdr[15] = 0xFE                            # refresh buffers without switching slot
-        os.lseek(fd, UFS_PART_OFFSET + UFS_HDR_OFFSET, os.SEEK_SET)
+        os.lseek(fd, ufs_part_offset + UFS_HDR_OFFSET, os.SEEK_SET)
         os.write(fd, UFS_HDR_STRUCT.pack(*ufs_hdr))
 
         os.fsync(fd)

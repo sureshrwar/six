@@ -107,25 +107,36 @@ void usb_sd_set_online(int online, const char *label, const char *uuid,
 	}
 
 	if (online) {
-		const char *part_desc = "p7:usb_ext2";
+		const char *part_label = "usb_ext2";
+		int part_num = SIX_PART_USB_EXT2_NUM;
 		unsigned long part_off = SIX_PART_USB_EXT2_OFFSET;
+		unsigned long part_bytes = SIX_PART_USB_EXT2_BYTES;
 
 		if (fstype && strcmp(fstype, "ntfs") == 0) {
-			part_desc = "p10:usb_ntfs";
-			part_off  = SIX_PART_USB_NTFS_OFFSET;
+			part_label = "usb_ntfs";
+			part_num   = SIX_PART_USB_NTFS_NUM;
+			part_off   = SIX_PART_USB_NTFS_OFFSET;
+			part_bytes = SIX_PART_USB_NTFS_BYTES;
 		} else if (fstype && strcmp(fstype, "ext4") == 0) {
-			part_desc = "p8:usb_ext4";
-			part_off  = SIX_PART_USB_EXT4_OFFSET;
+			part_label = "usb_ext4";
+			part_num   = SIX_PART_USB_EXT4_NUM;
+			part_off   = SIX_PART_USB_EXT4_OFFSET;
+			part_bytes = SIX_PART_USB_EXT4_BYTES;
 		} else if (fstype && strcmp(fstype, "erofs") == 0) {
-			part_desc = "p9:usb_erofs";
-			part_off  = SIX_PART_USB_EROFS_OFFSET;
+			part_label = "usb_erofs";
+			part_num   = SIX_PART_USB_EROFS_NUM;
+			part_off   = SIX_PART_USB_EROFS_OFFSET;
+			part_bytes = SIX_PART_USB_EROFS_BYTES;
 		} else if ((fstype && strcmp(fstype, "crypt") == 0) ||
 			   (uuid && strcmp(uuid, "CRYPT-8A01") == 0)) {
-			part_desc = "p11:usb_crypt";
-			part_off  = SIX_PART_USB_CRYPT_OFFSET;
+			part_label = "usb_crypt";
+			part_num   = SIX_PART_USB_CRYPT_NUM;
+			part_off   = SIX_PART_USB_CRYPT_OFFSET;
+			part_bytes = SIX_PART_USB_CRYPT_BYTES;
 		}
 
-		sprintf(usb_sd_img_path, "%s [%s]", six_root_disk_path, part_desc);
+		six_gpt_lookup_part(part_label, &part_off, &part_bytes, &part_num);
+		sprintf(usb_sd_img_path, "%s [p%d:%s]", six_root_disk_path, part_num, part_label);
 		usb_sd_base_offset = part_off;
 
 		usb_sd_fd = open(six_root_disk_path, 2 | 0100, 0644); /* O_RDWR | O_CREAT */

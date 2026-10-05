@@ -35,11 +35,12 @@ class TestCase:
 TESTS = [
     TestCase(
         name="vfs.mounts_and_proc",
-        description="Root ext4, secondary NTFS (/bin/mount_all), overlay, tmpfs, /proc",
+        description="Root ext4, secondary NTFS (/bin/mount_all), overlay, tmpfs, /proc, /proc/partitions GPT",
         cmd=(
             "df && "
             "ls -la /aux/storage-1/README && "
             "cat /proc/filesystems && "
+            "cat /proc/partitions && "
             "cat /proc/binder && "
             "readlink /proc/1/exe"
         ),
@@ -52,6 +53,10 @@ TESTS = [
             "fuse",
             "fuse.ntfs-3g",
             "overlay",
+            "gpt_label",
+            "bin_storage",
+            "ufs0",
+            "usb_ext4",
             "/etc/init",
         ],
     ),

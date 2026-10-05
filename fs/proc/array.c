@@ -1120,6 +1120,10 @@ static int get_root_array(char * page, int type, char **start, off_t offset, int
 			extern int get_erofs_proc_info(char *buf);
 			return get_erofs_proc_info(page);
 		}
+		case PROC_PARTITIONS: {
+			extern int get_partitions_proc_info(char *buf);
+			return get_partitions_proc_info(page);
+		}
 	}
 	return -EBADF;
 }

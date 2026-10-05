@@ -1513,9 +1513,12 @@ int ufs_init(void)
 
 	ufs_fd = open(ufs_img_path, 2 | 0100, 0644); /* O_RDWR | O_CREAT */
 	if (ufs_fd >= 0) {
+		unsigned long gpt_off = SIX_PART_UFS_OFFSET;
+		unsigned long gpt_bytes = SIX_PART_UFS_BYTES;
 		sz = lseek(ufs_fd, 0L, 2);
-		if (sz >= (long)SIX_SINGLE_DISK_MIN_BYTES) {
-			ufs_base_offset = SIX_PART_UFS_OFFSET;
+		if (six_gpt_lookup_part("ufs0", &gpt_off, &gpt_bytes, 0) == 0 ||
+		    sz >= (long)SIX_SINGLE_DISK_MIN_BYTES) {
+			ufs_base_offset = gpt_off;
 		} else {
 			ufs_base_offset = 0;
 			if (sz < (long)UFS_IMG_TOTAL_BYTES) {

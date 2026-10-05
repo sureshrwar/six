@@ -109,18 +109,20 @@ trap 'rm -f "$BUILD_OUT" "$BUILD_OUT.sarthak" "$BUILD_OUT.vendor"' EXIT
 STAGE_SYS="port/image/.stage_system"
 STAGE_VENDOR="port/image/.stage_vendor"
 
+eval "$(python3 port/image/mksingledisk.py shell-vars)"
+
 if [ "$MODE" = "bin" ]; then
 	STAGE="port/image/.stage_bin"
 	BLOCK_SIZE=1024
-	BLOCK_COUNT=${BLOCK_COUNT:-15360}
+	BLOCK_COUNT=${BLOCK_COUNT:-${SIX_SUBPART_DATA_BLOCKS_1K_SYSTEM_A:-15360}}
 	INODE_COUNT=${INODE_COUNT:-512}
 	SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1700000000}
 	export SOURCE_DATE_EPOCH
 else
-	# Geometry: 50 MB ext2/ext4 image (51200 x 1 KB blocks, 12800 inodes).
+	# Geometry derived from port/image/disk_layout.json (root partition).
 	# Can be overridden via environment variables BLOCK_COUNT and INODE_COUNT.
 	BLOCK_SIZE=1024
-	BLOCK_COUNT=${BLOCK_COUNT:-51200}
+	BLOCK_COUNT=${BLOCK_COUNT:-${SIX_PART_BLOCKS_1K_ROOT:-51200}}
 	INODE_COUNT=${INODE_COUNT:-$((BLOCK_COUNT / 4))}
 fi
 
@@ -648,7 +650,7 @@ Mounted by: Android vold -> kernel ext2 -> /mnt/media_rw/4A8F-9C21 -> /storage/4
 EOF
 	echo "Camera DCIM sample photo metadata (SanDisk ext2 USB)" > "$USB_STAGE/DCIM/IMG_0001.TXT"
 	fakeroot -- mke2fs -q -F -b 1024 -N 256 -I 128 -O none -m 0 \
-		-L "SAN_DISK_USB" -d "$USB_STAGE" "$USB_TMP" 2048 2>/dev/null || true
+		-L "SAN_DISK_USB" -d "$USB_STAGE" "$USB_TMP" "${SIX_PART_BLOCKS_1K_USB_EXT2:-2048}" 2>/dev/null || true
 	debugfs -w -R "ssv rev_level 0" "$USB_TMP" >/dev/null 2>&1 || true
 	python3 port/image/mksingledisk.py write-part "$OUT" usb_ext2 "$USB_TMP" || exit 1
 	rm -rf "$USB_STAGE" "$USB_TMP"
@@ -669,7 +671,7 @@ EOF
 	echo "Camera DCIM sample photo metadata (SanDisk ext4 USB)" > "$USB_STAGE/DCIM/IMG_0001.TXT"
 	fakeroot -- mke2fs -q -F -t ext4 -b 1024 -N 256 -I 256 \
 		-O "none,has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize,ext_attr,resize_inode,dir_index,filetype,sparse_super,large_file" -m 0 \
-		-L "SANDISK_EXT4" -U "7b9e3d10-0000-4000-8000-000000000001" -d "$USB_STAGE" "$USB_TMP" 2048 2>/dev/null || true
+		-L "SANDISK_EXT4" -U "7b9e3d10-0000-4000-8000-000000000001" -d "$USB_STAGE" "$USB_TMP" "${SIX_PART_BLOCKS_1K_USB_EXT4:-2048}" 2>/dev/null || true
 	python3 port/image/mksingledisk.py write-part "$OUT" usb_ext4 "$USB_TMP" || exit 1
 	rm -rf "$USB_STAGE" "$USB_TMP"
 fi
@@ -691,7 +693,7 @@ EOF
 		--stage "$USB_STAGE" \
 		--label "SANDISK_EROFS" \
 		--uuid 7e0f5e1e-0000-4000-8000-000000000001 \
-		--blocks 2048 \
+		--blocks "${SIX_PART_BLOCKS_1K_USB_EROFS:-2048}" \
 		--out "$USB_TMP" 2>/dev/null || true
 	python3 port/image/mksingledisk.py write-part "$OUT" usb_erofs "$USB_TMP" || exit 1
 	rm -rf "$USB_STAGE" "$USB_TMP"
@@ -710,7 +712,7 @@ UUID:       6A1B-8E42
 Device:     /dev/sda1 (8:1, 2048 KB NTFS, host image disk/x86/root [p10:usb_ntfs])
 Mounted by: Android vold -> /bin/ntfs-3g (FUSE /dev/fuse) -> /mnt/media_rw/6A1B-8E42 -> /storage/6A1B-8E42
 EOF
-		dd if=/dev/zero of="$USB_TMP" bs=1024 count=2048 status=none
+		dd if=/dev/zero of="$USB_TMP" bs=1024 count="${SIX_PART_BLOCKS_1K_USB_NTFS:-2048}" status=none
 		"$MKNTFS" -q -F -f -s 512 -c 4096 -p 0 -H 16 -S 63 -L "SANDISK_NTFS" "$USB_TMP" >/dev/null 2>&1 || true
 		"$NTFSCP" -f "$USB_TMP" "$TMP_README" README_USB.txt >/dev/null 2>&1 || true
 		python3 port/image/mksingledisk.py write-part "$OUT" usb_ntfs "$USB_TMP" || exit 1
@@ -730,7 +732,7 @@ if [ "$MODE" = "root" ] || ! python3 port/image/mksingledisk.py has-part "$OUT" 
 		"$NVME_STAGE/media/0/Pictures"
 	fakeroot -- mke2fs -q -F -t ext4 -b 1024 -N 2048 -I 256 \
 		-O "none,has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize,ext_attr,resize_inode,dir_index,filetype,sparse_super,large_file" -m 0 \
-		-L "userdata" -U "a1b2c3d4-2026-4000-8000-000000000001" -d "$NVME_STAGE" "$NVME_TMP" 16384 2>/dev/null || true
+		-L "userdata" -U "a1b2c3d4-2026-4000-8000-000000000001" -d "$NVME_STAGE" "$NVME_TMP" "${SIX_PART_BLOCKS_1K_NVME:-16384}" 2>/dev/null || true
 	if command -v tune2fs >/dev/null 2>&1; then
 		tune2fs -c 0 -i 0 "$NVME_TMP" >/dev/null 2>&1 || true
 	fi
@@ -765,11 +767,11 @@ EOF
 	fi
 	fakeroot -- mke2fs -q -F -t ext4 -b 1024 -N 512 -I 256 \
 		-O "none,has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize,ext_attr,resize_inode,dir_index,filetype,sparse_super,large_file" -m 0 \
-		-L "ufs_data" -U "c0ffee40-2026-4000-8000-000000000001" -d "$UFS_STAGE" "$UFS_LUN0_TMP" 4096 2>/dev/null || true
+		-L "ufs_data" -U "c0ffee40-2026-4000-8000-000000000001" -d "$UFS_STAGE" "$UFS_LUN0_TMP" $(( (${SIX_PART_BLOCKS_1K_UFS:-5120}) - 1024 )) 2>/dev/null || true
 	if command -v tune2fs >/dev/null 2>&1; then
 		tune2fs -c 0 -i 0 "$UFS_LUN0_TMP" >/dev/null 2>&1 || true
 	fi
-	truncate -s 5242880 "$UFS_TMP"
+	truncate -s "${SIX_PART_SIZE_BYTES_UFS:-5242880}" "$UFS_TMP"
 	dd if="$UFS_LUN0_TMP" of="$UFS_TMP" bs=1024 seek=1024 conv=notrunc status=none 2>/dev/null || true
 	python3 port/image/mksingledisk.py write-part "$OUT" ufs0 "$UFS_TMP" || exit 1
 	rm -rf "$UFS_STAGE" "$UFS_LUN0_TMP" "$UFS_TMP"
@@ -785,5 +787,5 @@ rm -f disk/x86/bin_storage disk/x86/aux_storage-1 disk/x86/aux_storage-2 \
       disk/x86/usb_ext2.img disk/x86/usb_ext4.img disk/x86/usb_erofs.img \
       disk/x86/usb_ntfs.img disk/x86/usb_crypt.img
 
-echo "mkimage: wrote $OUT [11 GPT partitions] ($MODE) as $FSTYPE ($(stat -c %s "$OUT") bytes, $present file(s), $missing missing)"
+echo "mkimage: wrote $OUT [${SIX_DISK_NUM_PARTITIONS:-11} GPT partitions from disk_layout.json] ($MODE) as $FSTYPE ($(stat -c %s "$OUT") bytes, $present file(s), $missing missing)"
 exit 0

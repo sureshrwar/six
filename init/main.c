@@ -607,12 +607,162 @@ static int slice_has_data(int fd, unsigned long base_offset, unsigned long probe
 	return 0;
 }
 
+static struct six_gpt_part_info six_gpt_parts[SIX_GPT_MAX_PARTITIONS];
+static int six_gpt_part_count = 0;
+
+static int six_gpt_parse_disk(int fd, const char *path)
+{
+	unsigned char hdr[512];
+	unsigned char ent[128];
+	unsigned long entries_lba;
+	unsigned int num_entries, entry_size, i;
+
+	six_gpt_part_count = 0;
+	if (lseek(fd, 512L, 0) < 0)
+		return 0;
+	if (read(fd, hdr, 92) != 92)
+		return 0;
+	if (memcmp(hdr, "EFI PART", 8) != 0)
+		return 0;
+
+	entries_lba = (unsigned long)(*(unsigned int *)(hdr + 72));
+	num_entries = *(unsigned int *)(hdr + 80);
+	entry_size  = *(unsigned int *)(hdr + 84);
+	if (entries_lba < 2 || entry_size < 128 || num_entries == 0)
+		return 0;
+	if (num_entries > 128)
+		num_entries = 128;
+
+	for (i = 0; i < num_entries && six_gpt_part_count < SIX_GPT_MAX_PARTITIONS; i++) {
+		unsigned long start_lba, end_lba, sectors;
+		int j, k, all_zero = 1;
+		char label[36];
+
+		if (lseek(fd, (long)(entries_lba * 512UL + (unsigned long)i * entry_size), 0) < 0)
+			break;
+		if (read(fd, ent, 128) != 128)
+			break;
+		for (j = 0; j < 16; j++) {
+			if (ent[j] != 0) {
+				all_zero = 0;
+				break;
+			}
+		}
+		if (all_zero)
+			continue;
+
+		start_lba = (unsigned long)(*(unsigned int *)(ent + 32));
+		end_lba   = (unsigned long)(*(unsigned int *)(ent + 40));
+		if (start_lba == 0 || end_lba < start_lba)
+			continue;
+
+		k = 0;
+		for (j = 0; j < 35; j++) {
+			unsigned char lo = ent[56 + j * 2];
+			unsigned char hi = ent[56 + j * 2 + 1];
+			if (lo == 0 && hi == 0)
+				break;
+			label[k++] = (hi == 0 && lo >= 0x20 && lo <= 0x7e) ? (char)lo : '?';
+		}
+		label[k] = '\0';
+		if (k == 0)
+			continue;
+
+		sectors = end_lba - start_lba + 1UL;
+		six_gpt_parts[six_gpt_part_count].part_num     = (int)(i + 1);
+		strncpy(six_gpt_parts[six_gpt_part_count].label, label, 35);
+		six_gpt_parts[six_gpt_part_count].label[35]    = '\0';
+		six_gpt_parts[six_gpt_part_count].start_lba    = start_lba;
+		six_gpt_parts[six_gpt_part_count].end_lba      = end_lba;
+		six_gpt_parts[six_gpt_part_count].sectors      = sectors;
+		six_gpt_parts[six_gpt_part_count].offset_bytes = start_lba * 512UL;
+		six_gpt_parts[six_gpt_part_count].size_bytes   = sectors * 512UL;
+		six_gpt_part_count++;
+	}
+
+	lseek(fd, 0L, 0);
+	if (six_gpt_part_count > 0) {
+		fprintf(stderr, "gpt: %s: %d GPT partitions loaded from LBA %lu\n",
+			path, six_gpt_part_count, entries_lba);
+	}
+	return six_gpt_part_count;
+}
+
+int six_gpt_lookup_part(const char *label, unsigned long *offset_out,
+			unsigned long *bytes_out, int *part_num_out)
+{
+	int i;
+
+	if (!label || !label[0])
+		return -1;
+	for (i = 0; i < six_gpt_part_count; i++) {
+		if (strcmp(six_gpt_parts[i].label, label) == 0) {
+			if (offset_out)
+				*offset_out = six_gpt_parts[i].offset_bytes;
+			if (bytes_out)
+				*bytes_out = six_gpt_parts[i].size_bytes;
+			if (part_num_out)
+				*part_num_out = six_gpt_parts[i].part_num;
+			return 0;
+		}
+	}
+	return -1;
+}
+
+int six_gpt_get_part_count(void)
+{
+	return six_gpt_part_count;
+}
+
+const struct six_gpt_part_info *six_gpt_get_part_by_index(int idx)
+{
+	if (idx < 0 || idx >= six_gpt_part_count)
+		return 0;
+	return &six_gpt_parts[idx];
+}
+
+int get_partitions_proc_info(char *buf)
+{
+	int len = 0, i;
+
+	len += sprintf(buf + len, "major minor  #blocks  name       start_lba    end_lba      gpt_label\n\n");
+	for (i = 0; i < six_gpt_part_count; i++) {
+		const struct six_gpt_part_info *p = &six_gpt_parts[i];
+		int maj = 259, min = p->part_num;
+		char devname[16];
+
+		sprintf(devname, "gpt%d", p->part_num);
+		if (strcmp(p->label, "root") == 0) {
+			maj = 3; min = 0; strcpy(devname, "hda");
+		} else if (strcmp(p->label, "aux_storage-1") == 0) {
+			maj = 3; min = 64; strcpy(devname, "hdb");
+		} else if (strcmp(p->label, "aux_storage-2") == 0) {
+			maj = 3; min = 128; strcpy(devname, "hdc");
+		} else if (strcmp(p->label, "bin_storage") == 0) {
+			maj = 3; min = 192; strcpy(devname, "hdd");
+		} else if (strcmp(p->label, "nvme0n1") == 0) {
+			maj = 63; min = 0; strcpy(devname, "nvme0n1");
+		} else if (strcmp(p->label, "ufs0") == 0) {
+			maj = 58; min = 0; strcpy(devname, "ufsa");
+		} else if (strncmp(p->label, "usb_", 4) == 0) {
+			maj = 8; min = p->part_num;
+		}
+
+		len += sprintf(buf + len, "%4d  %4d %9lu  %-10s %-12lu %-12lu %s\n",
+			       maj, min, p->sectors >> 1, devname,
+			       p->start_lba, p->end_lba, p->label);
+	}
+	return len;
+}
+
 void check_root(const char *disk_arg)
 {
 	const char *root = disk_arg;
 	const char *aux;
 	long root_total_bytes;
 	int is_unified = 0;
+	unsigned long p_off, p_bytes;
+	int p_num;
 
 	/*
 	 * Precedence: -d/--disk CLI flag -> $DISKFILE environment variable ->
@@ -640,10 +790,14 @@ void check_root(const char *disk_arg)
 	root_total_bytes = lseek(six_disk_fd[0], 0L, 2);
 	lseek(six_disk_fd[0], 0L, 0);
 
-	if (root_total_bytes >= (long)SIX_SINGLE_DISK_MIN_BYTES) {
+	if (six_gpt_parse_disk(six_disk_fd[0], root) > 0 ||
+	    root_total_bytes >= (long)SIX_SINGLE_DISK_MIN_BYTES) {
 		is_unified = 1;
-		six_disk_offset[0] = SIX_PART_ROOT_OFFSET;
-		size_disk_bytes(0, (long)SIX_PART_ROOT_BYTES, root);
+		p_off = SIX_PART_ROOT_OFFSET;
+		p_bytes = SIX_PART_ROOT_BYTES;
+		six_gpt_lookup_part("root", &p_off, &p_bytes, &p_num);
+		six_disk_offset[0] = p_off;
+		size_disk_bytes(0, (long)p_bytes, root);
 	} else {
 		six_disk_offset[0] = 0;
 		size_disk_bytes(0, root_total_bytes, root);
@@ -654,6 +808,10 @@ void check_root(const char *disk_arg)
 	 * standalone $AUXDISKFILE if overridden.
 	 */
 	aux = getenv("AUXDISKFILE");
+	p_off = SIX_PART_AUX1_OFFSET;
+	p_bytes = SIX_PART_AUX1_BYTES;
+	p_num = SIX_PART_AUX1_NUM;
+	six_gpt_lookup_part("aux_storage-1", &p_off, &p_bytes, &p_num);
 	if (aux && aux[0] && strcmp(aux, root) != 0) {
 		six_disk_fd[1] = open(aux, O_RDWR);
 		if (six_disk_fd[1] >= 0) {
@@ -662,13 +820,13 @@ void check_root(const char *disk_arg)
 			fprintf(stderr, "auxiliary disk: %s (%ld MB) as /dev/hdb\n",
 				aux, (six_disk_sectors[1] * 512) / (1024 * 1024));
 		}
-	} else if (is_unified && slice_has_data(six_disk_fd[0], SIX_PART_AUX1_OFFSET, 0, 2048)) {
+	} else if (is_unified && slice_has_data(six_disk_fd[0], p_off, 0, 2048)) {
 		six_disk_fd[1] = open(root, O_RDWR);
 		if (six_disk_fd[1] >= 0) {
-			six_disk_offset[1] = SIX_PART_AUX1_OFFSET;
-			size_disk_bytes(1, (long)SIX_PART_AUX1_BYTES, root);
-			fprintf(stderr, "auxiliary disk: %s [p2:aux_storage-1] (%ld MB) as /dev/hdb\n",
-				root, (six_disk_sectors[1] * 512) / (1024 * 1024));
+			six_disk_offset[1] = p_off;
+			size_disk_bytes(1, (long)p_bytes, root);
+			fprintf(stderr, "auxiliary disk: %s [p%d:aux_storage-1] (%ld MB) as /dev/hdb\n",
+				root, p_num, (six_disk_sectors[1] * 512) / (1024 * 1024));
 		}
 	}
 
@@ -678,6 +836,10 @@ void check_root(const char *disk_arg)
 	 */
 	{
 		const char *aux2 = getenv("AUXDISKFILE2");
+		p_off = SIX_PART_AUX2_OFFSET;
+		p_bytes = SIX_PART_AUX2_BYTES;
+		p_num = SIX_PART_AUX2_NUM;
+		six_gpt_lookup_part("aux_storage-2", &p_off, &p_bytes, &p_num);
 		if (aux2 && aux2[0] && strcmp(aux2, root) != 0) {
 			six_disk_fd[2] = open(aux2, O_RDWR);
 			if (six_disk_fd[2] >= 0) {
@@ -689,10 +851,10 @@ void check_root(const char *disk_arg)
 		} else if (is_unified) {
 			six_disk_fd[2] = open(root, O_RDWR);
 			if (six_disk_fd[2] >= 0) {
-				six_disk_offset[2] = SIX_PART_AUX2_OFFSET;
-				size_disk_bytes(2, (long)SIX_PART_AUX2_BYTES, root);
-				fprintf(stderr, "auxiliary disk 2: %s [p3:aux_storage-2] (%ld MB) as /dev/hdc\n",
-					root, (six_disk_sectors[2] * 512) / (1024 * 1024));
+				six_disk_offset[2] = p_off;
+				size_disk_bytes(2, (long)p_bytes, root);
+				fprintf(stderr, "auxiliary disk 2: %s [p%d:aux_storage-2] (%ld MB) as /dev/hdc\n",
+					root, p_num, (six_disk_sectors[2] * 512) / (1024 * 1024));
 			}
 		}
 	}
@@ -703,6 +865,10 @@ void check_root(const char *disk_arg)
 	 */
 	{
 		const char *bin_disk = getenv("BINDISKFILE");
+		p_off = SIX_PART_BIN_OFFSET;
+		p_bytes = SIX_PART_BIN_BYTES;
+		p_num = SIX_PART_BIN_NUM;
+		six_gpt_lookup_part("bin_storage", &p_off, &p_bytes, &p_num);
 		if (bin_disk && bin_disk[0] && strcmp(bin_disk, root) != 0) {
 			six_disk_fd[3] = open(bin_disk, O_RDWR);
 			if (six_disk_fd[3] >= 0) {
@@ -711,13 +877,13 @@ void check_root(const char *disk_arg)
 				fprintf(stderr, "verity bin disk: %s (%ld MB) as /dev/hdd\n",
 					bin_disk, (six_disk_sectors[3] * 512) / (1024 * 1024));
 			}
-		} else if (is_unified && slice_has_data(six_disk_fd[0], SIX_PART_BIN_OFFSET, 1024, 128)) {
+		} else if (is_unified && slice_has_data(six_disk_fd[0], p_off, 1024, 128)) {
 			six_disk_fd[3] = open(root, O_RDWR);
 			if (six_disk_fd[3] >= 0) {
-				six_disk_offset[3] = SIX_PART_BIN_OFFSET;
-				size_disk_bytes(3, (long)SIX_PART_BIN_BYTES, root);
-				fprintf(stderr, "verity bin disk: %s [p4:bin_storage] (%ld MB) as /dev/hdd\n",
-					root, (six_disk_sectors[3] * 512) / (1024 * 1024));
+				six_disk_offset[3] = p_off;
+				size_disk_bytes(3, (long)p_bytes, root);
+				fprintf(stderr, "verity bin disk: %s [p%d:bin_storage] (%ld MB) as /dev/hdd\n",
+					root, p_num, (six_disk_sectors[3] * 512) / (1024 * 1024));
 			}
 		}
 	}

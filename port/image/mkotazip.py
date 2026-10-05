@@ -24,8 +24,11 @@ VERITY_BLOCK_SIZE = 1024
 CRAU_BLOCK_SIZE = 4096
 MIB = 1024 * 1024
 
-# p4:bin_storage (super) offset in unified disk/x86/root
-SUPER_PART_OFFSET_BYTES = 151 * MIB
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from mksingledisk import DEFAULT_LAYOUT, get_partition_offset_bytes
+
+# p4:bin_storage (super) offset in unified disk/x86/root (resolved from disk_layout.json)
+SUPER_PART_OFFSET_BYTES = get_partition_offset_bytes("bin_storage")
 
 # Sub-partition offsets inside p4:bin_storage (56 MiB)
 SYSTEM_A_OFFSET = 0 * MIB
@@ -261,7 +264,11 @@ def load_base_slices(disk_path: str) -> tuple[bytes, bytes]:
     if not os.path.exists(disk_path):
         raise FileNotFoundError(f"Base disk image not found: {disk_path}")
     sz = os.path.getsize(disk_path)
-    base_off = SUPER_PART_OFFSET_BYTES if sz >= 200 * MIB else 0
+    base_off = (
+        get_partition_offset_bytes("bin_storage", disk_path)
+        if sz >= DEFAULT_LAYOUT.min_unified_bytes
+        else 0
+    )
     with open(disk_path, "rb") as f:
         f.seek(base_off + SYSTEM_A_OFFSET)
         sys_a = f.read(SYSTEM_SLICE_BYTES)

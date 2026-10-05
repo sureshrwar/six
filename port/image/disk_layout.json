@@ -1,0 +1,200 @@
+{
+  # Android Desktop (Aluminium) style declarative GPT disk layout for SIX.
+  #
+  # Modeled after vendor/google/desktop/layout/disk_layout.json:
+  # - Partitions in "layouts.common" are listed in physical on-disk order.
+  # - Start LBAs, byte offsets, sector counts, and total disk image size are
+  #   computed automatically from "size" and "metadata.fs_align" (never hardcoded).
+  # - Consumed by port/image/mksingledisk.py to:
+  #     1. Build and manage the GPT partition table in ./disk/x86/root
+  #     2. Auto-generate include/linux/six_disk_layout.h (gen-header)
+  #     3. Export shell geometry variables to mkimage.sh / mkaux.sh (shell-vars)
+  "metadata": {
+    "block_size": 512,
+    "fs_block_size": 1024,
+    "fs_align": "1 MiB",
+    "min_unified_size": "180 MiB",
+    "disk_guid": "53495830-2026-4000-8000-000000000000",
+    "part_guid_prefix": "53495830-2026-4000-8000",
+    "rootdev_base": "/dev/hda /dev/hdb /dev/hdc /dev/hdd /dev/nvme0n1 /dev/ufsa /dev/sda"
+  },
+  "layouts": {
+    # common is the standard layout template.
+    "common": [
+      {
+        # Primary guest root filesystem (/dev/hda).
+        "num": 1,
+        "label": "root",
+        "c_macro": "ROOT",
+        "type": "data",
+        "fs_format": "ext4",
+        "size": "50 MiB",
+        "device": "/dev/hda",
+        "uuid": "13bcf00c-78b2-11d9-8fdf-f213c4292cfb"
+      },
+      {
+        # Primary auxiliary storage (/dev/hdb, mounted at /aux/storage-1).
+        "num": 2,
+        "label": "aux_storage-1",
+        "c_macro": "AUX1",
+        "type": "ms_basic_data",
+        "fs_format": "ntfs",
+        "size": "50 MiB",
+        "device": "/dev/hdb"
+      },
+      {
+        # Secondary auxiliary storage (/dev/hdc, backing Device Mapper targets).
+        "num": 3,
+        "label": "aux_storage-2",
+        "c_macro": "AUX2",
+        "type": "data",
+        "fs_format": "ext4",
+        "size": "50 MiB",
+        "device": "/dev/hdc"
+      },
+      {
+        # Android Desktop 'super' dynamic partition container (/dev/hdd).
+        # Houses A/B system and vendor dm-verity EROFS slots plus sarthak_bin.
+        "num": 4,
+        "label": "bin_storage",
+        "c_macro": "BIN",
+        "role": "super",
+        "type": "data",
+        "fs_format": "erofs",
+        "size": "56 MiB",
+        "device": "/dev/hdd",
+        "subpartitions": [
+          {
+            "label": "system_a",
+            "size": "16 MiB",
+            "data_size": "15 MiB",
+            "fs_format": "erofs",
+            "verity": true
+          },
+          {
+            "label": "sarthak_bin",
+            "size": "16 MiB",
+            "data_size": "15 MiB",
+            "fs_format": "erofs",
+            "verity": true
+          },
+          {
+            "label": "vendor_a",
+            "size": "4 MiB",
+            "data_size": "3 MiB",
+            "fs_format": "erofs",
+            "verity": true
+          },
+          {
+            "label": "system_b",
+            "size": "16 MiB",
+            "data_size": "15 MiB",
+            "fs_format": "erofs",
+            "verity": true
+          },
+          {
+            "label": "vendor_b",
+            "size": "4 MiB",
+            "data_size": "3 MiB",
+            "fs_format": "erofs",
+            "verity": true
+          }
+        ]
+      },
+      {
+        # NVMe 1.4 Namespace 1 userdata volume (/dev/nvme0n1 -> /data).
+        "num": 5,
+        "label": "nvme0n1",
+        "c_macro": "NVME",
+        "type": "data",
+        "fs_format": "ext4",
+        "size": "16 MiB",
+        "device": "/dev/nvme0n1",
+        "uuid": "a1b2c3d4-2026-4000-8000-000000000001"
+      },
+      {
+        # JEDEC UFS 4.0 Multi-LUN flash package (/dev/ufsa..c + /dev/ufs-rpmb).
+        "num": 6,
+        "label": "ufs0",
+        "c_macro": "UFS",
+        "type": "data",
+        "fs_format": "ext4",
+        "size": "5 MiB",
+        "device": "/dev/ufsa",
+        "uuid": "c0ffee40-2026-4000-8000-000000000001"
+      },
+      {
+        # Hotpluggable USB SCSI Mass Storage slot: ext2 (usbctl plug ext2).
+        "num": 7,
+        "label": "usb_ext2",
+        "c_macro": "USB_EXT2",
+        "type": "data",
+        "fs_format": "ext2",
+        "size": "2 MiB",
+        "device": "/dev/sda"
+      },
+      {
+        # Hotpluggable USB SCSI Mass Storage slot: ext4 (usbctl plug ext4).
+        "num": 8,
+        "label": "usb_ext4",
+        "c_macro": "USB_EXT4",
+        "type": "data",
+        "fs_format": "ext4",
+        "size": "2 MiB",
+        "device": "/dev/sda"
+      },
+      {
+        # Hotpluggable USB SCSI Mass Storage slot: EROFS (usbctl plug erofs).
+        "num": 9,
+        "label": "usb_erofs",
+        "c_macro": "USB_EROFS",
+        "type": "data",
+        "fs_format": "erofs",
+        "size": "2 MiB",
+        "device": "/dev/sda"
+      },
+      {
+        # Hotpluggable USB SCSI Mass Storage slot: NTFS (usbctl plug ntfs).
+        "num": 10,
+        "label": "usb_ntfs",
+        "c_macro": "USB_NTFS",
+        "type": "ms_basic_data",
+        "fs_format": "ntfs",
+        "size": "2 MiB",
+        "device": "/dev/sda"
+      },
+      {
+        # Hotpluggable USB SCSI Mass Storage slot: dm-crypt (usbctl plug crypt).
+        "num": 11,
+        "label": "usb_crypt",
+        "c_macro": "USB_CRYPT",
+        "type": "data",
+        "fs_format": "crypt",
+        "size": "2 MiB",
+        "device": "/dev/sda",
+        "features": ["last_partition"]
+      }
+    ],
+    # Used for standard SIX builds. Inherits 'common'.
+    "base": [
+    ],
+    # Compact provisioning layout override (mirrors Android Desktop's 'provision' profile).
+    "provision": [
+      {
+        "num": 2,
+        "label": "aux_storage-1",
+        "size": "10 MiB"
+      },
+      {
+        "num": 3,
+        "label": "aux_storage-2",
+        "size": "10 MiB"
+      },
+      {
+        "num": 5,
+        "label": "nvme0n1",
+        "size": "8 MiB"
+      }
+    ]
+  }
+}

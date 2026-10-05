@@ -1171,10 +1171,13 @@ int nvme_init(void)
 
 	nvme_fd = open(nvme_img_path, 2 | 0100, 0644); /* O_RDWR | O_CREAT */
 	if (nvme_fd >= 0) {
+		unsigned long gpt_off = SIX_PART_NVME_OFFSET;
+		unsigned long gpt_bytes = SIX_PART_NVME_BYTES;
 		sz = lseek(nvme_fd, 0L, 2);
-		if (sz >= (long)SIX_SINGLE_DISK_MIN_BYTES) {
-			nvme_base_offset = SIX_PART_NVME_OFFSET;
-			nvme_sectors = SIX_PART_NVME_SECTORS;
+		if (six_gpt_lookup_part("nvme0n1", &gpt_off, &gpt_bytes, 0) == 0 ||
+		    sz >= (long)SIX_SINGLE_DISK_MIN_BYTES) {
+			nvme_base_offset = gpt_off;
+			nvme_sectors = gpt_bytes / 512UL;
 		} else {
 			nvme_base_offset = 0;
 			if (sz < (long)(NVME_DEFAULT_SECTORS * 512UL)) {

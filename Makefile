@@ -444,14 +444,19 @@ endif
 SIX_BIN_FSTYPE ?= erofs
 SIX_EROFS_TOOL	= port/image/mkerofs.py
 SIX_SINGLE_TOOL	= port/image/mksingledisk.py
+SIX_DISK_LAYOUT	= port/image/disk_layout.json
+SIX_LAYOUT_HDR	= include/linux/six_disk_layout.h
 
-$(SIX_BIN_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_EROFS_TOOL) $(SIX_VERITY_TOOL) $(SIX_SINGLE_TOOL) $(SIX_BIN_FILES) | linuxsubdirs
+$(SIX_LAYOUT_HDR): $(SIX_DISK_LAYOUT) $(SIX_SINGLE_TOOL)
+	python3 $(SIX_SINGLE_TOOL) --layout $(SIX_DISK_LAYOUT) gen-header $(SIX_LAYOUT_HDR)
+
+$(SIX_BIN_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_EROFS_TOOL) $(SIX_VERITY_TOOL) $(SIX_SINGLE_TOOL) $(SIX_DISK_LAYOUT) $(SIX_BIN_FILES) | linuxsubdirs
 	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict --mode bin --fstype $(SIX_BIN_FSTYPE)
 
 # The order-only dependency on "six" keeps the image from being assembled in
 # parallel with the kernel link under make -j; the guest binaries are built
 # by linuxsubdirs, which is a prerequisite of six.
-$(SIX_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_SINGLE_TOOL) $(SIX_IMAGE_FILES) $(SIX_IMAGE_STAMP) $(SIX_VERITY_STAMP) | six
+$(SIX_IMAGE): $(SIX_IMAGE_MANIFEST) $(SIX_IMAGE_TOOL) $(SIX_SINGLE_TOOL) $(SIX_DISK_LAYOUT) $(SIX_IMAGE_FILES) $(SIX_IMAGE_STAMP) $(SIX_VERITY_STAMP) | six
 	@if [ "$(SIX_VERITY_BIN)" != "1" ]; then rm -f $(SIX_BIN_IMAGE) port/image/.bin_part.img; fi
 	$(CONFIG_SHELL) $(SIX_IMAGE_TOOL) --strict --mode $(SIX_ROOT_MODE) --fstype $(SIX_IMAGE_FSTYPE)
 
@@ -554,7 +559,7 @@ aux-image-clean:
 	      disk/x86/ufs0.img disk/sparc/ufs0.img
 
 
-linuxsubdirs: dummy
+linuxsubdirs: $(SIX_LAYOUT_HDR) dummy
 	set -e; for i in $(SUBDIRS); do $(MAKE) -C $$i; done
 
 $(TOPDIR)/include/linux/version.h: include/linux/version.h
@@ -594,7 +599,7 @@ include/linux/version.h: ./Makefile
 init/version.o: init/version.c include/linux/compile.h
 	$(CC) $(CFLAGS) -DUTS_MACHINE='"$(ARCH)"' -c -o init/version.o init/version.c
 
-init/main.o: init/main.c
+init/main.o: init/main.c $(SIX_LAYOUT_HDR)
 	$(CC) $(CFLAGS) $(PROFILING) -c -o $*.o $<
 
 fs: dummy
